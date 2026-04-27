@@ -3,11 +3,11 @@
  * Tests all Phase 2 functionality before moving to Phase 3
  */
 
-import { ExchangeRateService } from './adapters/pricing/exchange-rate.service';
-import { ProductPriceService } from './adapters/pricing/product-price.service';
-import { PricingCalculatorService } from './adapters/pricing/pricing-calculator.service';
-import { KnowledgeRepository } from './adapters/repositories/knowledge.repository';
-import { ClaudeService } from './adapters/ai/claude.service';
+import { ExchangeRateService } from '../adapters/pricing/exchange-rate.service';
+import { ProductPriceService } from '../adapters/pricing/product-price.service';
+import { PricingCalculatorService } from '../adapters/pricing/pricing-calculator.service';
+import { KnowledgeRepository } from '../adapters/repositories/knowledge.repository';
+import { ClaudeService } from '../adapters/ai/claude.service';
 
 async function testPhase2E2E() {
   console.log('🧪 PHASE 2 - END-TO-END TEST');

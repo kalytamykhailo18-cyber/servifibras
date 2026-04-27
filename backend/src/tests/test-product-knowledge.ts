@@ -3,8 +3,8 @@
  * Tests that AI knows about Servifibras products
  */
 
-import { KnowledgeRepository } from './adapters/repositories/knowledge.repository';
-import { ClaudeService } from './adapters/ai/claude.service';
+import { KnowledgeRepository } from '../adapters/repositories/knowledge.repository';
+import { ClaudeService } from '../adapters/ai/claude.service';
 
 async function testProductKnowledge() {
   console.log('🧪 Testing Product Knowledge (Step 2.2)');

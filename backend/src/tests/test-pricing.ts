@@ -3,10 +3,10 @@
  * Tests exchange rate, product lookup, and price calculation
  */
 
-import { ExchangeRateService } from './adapters/pricing/exchange-rate.service';
-import { ProductPriceService } from './adapters/pricing/product-price.service';
-import { PricingCalculatorService } from './adapters/pricing/pricing-calculator.service';
-import { PriceCalculationInput, CustomerType, SalesChannel } from './domain/entities/pricing.entity';
+import { ExchangeRateService } from '../adapters/pricing/exchange-rate.service';
+import { ProductPriceService } from '../adapters/pricing/product-price.service';
+import { PricingCalculatorService } from '../adapters/pricing/pricing-calculator.service';
+import { PriceCalculationInput, CustomerType, SalesChannel } from '../domain/entities/pricing.entity';
 
 async function testPricingCalculator() {
   console.log('🧪 Testing Pricing Calculator (Step 2.3)');

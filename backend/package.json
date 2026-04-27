@@ -8,7 +8,12 @@
     "start": "node dist/src/main.js",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "test": "jest",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "test:db": "ts-node src/tests/test-database.ts",
+    "test:ai": "ts-node src/tests/test-ai.ts",
+    "test:pricing": "ts-node src/tests/test-pricing.ts",
+    "test:whatsapp": "ts-node src/tests/test-whatsapp.ts",
+    "test:phase2": "ts-node src/tests/test-phase2-e2e.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

@@ -3,9 +3,9 @@
  * Tests Step 2.1: Connect to Claude AI
  */
 
-import { ClaudeService } from './adapters/ai/claude.service';
-import { KnowledgeRepository } from './adapters/repositories/knowledge.repository';
-import { AIConversation } from './domain/entities/ai-message.entity';
+import { ClaudeService } from '../adapters/ai/claude.service';
+import { KnowledgeRepository } from '../adapters/repositories/knowledge.repository';
+import { AIConversation } from '../domain/entities/ai-message.entity';
 
 async function testClaudeIntegration() {
   console.log('🧪 Testing Claude AI Integration (Step 2.1)');

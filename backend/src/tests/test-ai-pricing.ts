@@ -3,11 +3,11 @@
  * Tests that AI can use the pricing calculator to answer price questions
  */
 
-import { ExchangeRateService } from './adapters/pricing/exchange-rate.service';
-import { ProductPriceService } from './adapters/pricing/product-price.service';
-import { PricingCalculatorService } from './adapters/pricing/pricing-calculator.service';
-import { KnowledgeRepository } from './adapters/repositories/knowledge.repository';
-import { ClaudeService } from './adapters/ai/claude.service';
+import { ExchangeRateService } from '../adapters/pricing/exchange-rate.service';
+import { ProductPriceService } from '../adapters/pricing/product-price.service';
+import { PricingCalculatorService } from '../adapters/pricing/pricing-calculator.service';
+import { KnowledgeRepository } from '../adapters/repositories/knowledge.repository';
+import { ClaudeService } from '../adapters/ai/claude.service';
 
 async function testAIPricingIntegration() {
   console.log('🧪 Testing AI + Pricing Integration (Step 2.4)');
