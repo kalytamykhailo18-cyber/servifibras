@@ -1,0 +1,225 @@
+// Servifibras AI Platform - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Team Members (Brenda, Franco, Aldo, Admin)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  password  String   // Will be hashed with bcrypt
+  name      String
+  role      UserRole
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  assignedConversations Conversation[]
+  assignedLeads         Lead[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN       // Marcos + Socia - full access
+  ATENCION    // Brenda - customer service
+  VENTAS      // Franco - sales
+  LOGISTICA   // Aldo - logistics
+}
+
+// Customer Information
+model Contact {
+  id        String       @id @default(uuid())
+  name      String?
+  phone     String?      @unique
+  email     String?
+  type      ContactType  @default(MINORISTA)
+  channel   Channel?     // Where they first contacted
+  metadata  Json?        // Extra info (location, preferences, etc)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // Relations
+  conversations Conversation[]
+  leads         Lead[]
+  orders        Order[]
+
+  @@map("contacts")
+}
+
+enum ContactType {
+  MINORISTA     // Retail
+  MAYORISTA     // Wholesale
+  EMPRENDEDOR   // Entrepreneur
+  INDUSTRIAL    // Industrial
+}
+
+// Chat Sessions
+model Conversation {
+  id          String             @id @default(uuid())
+  contactId   String
+  channel     Channel
+  status      ConversationStatus @default(ACTIVE)
+  assignedTo  String?            // User ID if assigned to human
+  lastMessage String?
+  lastMessageAt DateTime?
+  isUnread    Boolean            @default(true)
+  metadata    Json?              // Channel-specific data
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  // Relations
+  contact   Contact   @relation(fields: [contactId], references: [id])
+  assigned  User?     @relation(fields: [assignedTo], references: [id])
+  messages  Message[]
+
+  @@index([contactId])
+  @@index([assignedTo])
+  @@index([channel])
+  @@index([status])
+  @@map("conversations")
+}
+
+enum Channel {
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  MERCADOLIBRE
+  TIENDANUBE_WEBCHAT
+}
+
+enum ConversationStatus {
+  ACTIVE      // Ongoing conversation
+  CLOSED      // Resolved
+  WAITING     // Waiting for customer response
+}
+
+// Individual Messages
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  sender         MessageSender
+  content        String      @db.Text
+  contentType    ContentType @default(TEXT)
+  isFromAI       Boolean     @default(false)
+  metadata       Json?       // Attachments, location, etc
+  timestamp      DateTime    @default(now())
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
+  @@map("messages")
+}
+
+enum MessageSender {
+  CUSTOMER
+  AI
+  BRENDA
+  FRANCO
+  ALDO
+  ADMIN
+}
+
+enum ContentType {
+  TEXT
+  IMAGE
+  VOICE
+  VIDEO
+  DOCUMENT
+  LOCATION
+}
+
+// Wholesale Opportunities
+model Lead {
+  id            String     @id @default(uuid())
+  contactId     String
+  assignedTo    String?    // Usually Franco
+  status        LeadStatus @default(NEW)
+  source        Channel
+  productInterest String?
+  estimatedValue  Float?   // In USD
+  notes         String?    @db.Text
+  wonAmount     Float?     // If won, final amount
+  lostReason    String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  contact  Contact @relation(fields: [contactId], references: [id])
+  assigned User?   @relation(fields: [assignedTo], references: [id])
+
+  @@index([contactId])
+  @@index([assignedTo])
+  @@index([status])
+  @@map("leads")
+}
+
+enum LeadStatus {
+  NEW           // Just detected
+  CONTACTED     // Franco reached out
+  QUOTE_SENT    // Quotation sent
+  NEGOTIATING   // Back and forth
+  WON           // Deal closed
+  LOST          // Customer declined
+}
+
+// Confirmed Sales
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String      @unique  // ORD-2024-156
+  contactId   String
+  amount      Float       // In USD
+  currency    String      @default("USD")
+  products    Json        // Array of products
+  status      OrderStatus @default(CONFIRMED)
+  trackingNumber String?
+  carrier     String?     // Andreani, etc
+  dispatchedAt DateTime?
+  deliveredAt  DateTime?
+  notes       String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  contact Contact @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+  @@index([orderNumber])
+  @@index([status])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  CONFIRMED
+  PROCESSING
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+// Product Knowledge Base
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  category    String   // "Resinas", "Fibra de Vidrio", "Cauchos"
+  subcategory String?  // "Poliéster", "Epoxi", etc
+  title       String
+  content     String   @db.Text
+  active      Boolean  @default(true)
+  metadata    Json?    // Tags, related products, etc
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([active])
+  @@map("knowledge_base")
+}
