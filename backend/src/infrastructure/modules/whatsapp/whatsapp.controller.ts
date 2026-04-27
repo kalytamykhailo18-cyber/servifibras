@@ -18,13 +18,17 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { WhatsAppService } from '../../../adapters/whatsapp/whatsapp.service';
+import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
 import { WhatsAppOutgoingMessage } from '../../../domain/entities/whatsapp-message.entity';
 
 @Controller('whatsapp')
 export class WhatsAppController {
   private readonly logger = new Logger(WhatsAppController.name);
 
-  constructor(private readonly whatsappService: WhatsAppService) {}
+  constructor(
+    private readonly whatsappService: WhatsAppService,
+    private readonly conversationHandler: ConversationHandlerService,
+  ) {}
 
   /**
    * Webhook verification endpoint (GET)
@@ -82,21 +86,71 @@ export class WhatsAppController {
         return res.status(200).json({ status: 'ok' });
       }
 
-      // TODO: Step 3.2 - Send message to AI and respond
-      // For now, just log and acknowledge
       this.logger.log(
         `Message received from ${incomingMessage.from}: "${incomingMessage.text}"`,
       );
 
-      // Mark as read
+      // Mark as read immediately (blue checkmarks)
       await this.whatsappService.markAsRead(incomingMessage.messageId);
 
-      // Acknowledge receipt to Meta (must respond within 20 seconds)
-      return res.status(200).json({ status: 'ok' });
+      // Acknowledge to Meta immediately (must respond within 20 seconds)
+      // Process AI response asynchronously to avoid timeout
+      res.status(200).json({ status: 'ok' });
+
+      // Process with AI and send response (async, don't await)
+      this.processMessageWithAI(incomingMessage).catch((error) => {
+        this.logger.error(`Error processing message with AI: ${error.message}`);
+      });
     } catch (error: any) {
       this.logger.error(`Error processing webhook: ${error.message}`);
       // Still return 200 to prevent Meta from retrying
       return res.status(200).json({ status: 'error' });
+    }
+  }
+
+  /**
+   * Process message with AI and send response
+   * Called asynchronously after webhook acknowledgment
+   */
+  private async processMessageWithAI(incomingMessage: any) {
+    try {
+      // Only process text messages
+      if (!incomingMessage.isTextMessage()) {
+        this.logger.debug('Non-text message, skipping AI processing');
+        return;
+      }
+
+      this.logger.log(`Processing with AI: "${incomingMessage.text.substring(0, 50)}..."`);
+
+      // Handle message with AI
+      const result = await this.conversationHandler.handleWhatsAppMessage(
+        incomingMessage,
+      );
+
+      if (!result.success || !result.response) {
+        this.logger.error(`AI processing failed: ${result.error}`);
+        // Send error message to customer
+        await this.whatsappService.sendTextMessage(
+          incomingMessage.from,
+          'Disculpá, tuve un problema procesando tu mensaje. Por favor intentá de nuevo.',
+        );
+        return;
+      }
+
+      // Send AI response via WhatsApp
+      this.logger.log(`Sending AI response to ${incomingMessage.from}`);
+      const sendResult = await this.whatsappService.sendTextMessage(
+        incomingMessage.from,
+        result.response,
+      );
+
+      if (sendResult.success) {
+        this.logger.log(`✅ Response sent successfully: ${sendResult.messageId}`);
+      } else {
+        this.logger.error(`❌ Failed to send response: ${sendResult.error}`);
+      }
+    } catch (error: any) {
+      this.logger.error(`Error in AI processing: ${error.message}`);
     }
   }
 
