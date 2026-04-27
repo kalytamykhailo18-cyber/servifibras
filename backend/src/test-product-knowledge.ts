@@ -72,7 +72,17 @@ async function testProductKnowledge() {
   console.log('─'.repeat(70));
   console.log('');
 
-  const claude = new ClaudeService(knowledgeRepo);
+  const { ExchangeRateService } = await import('./adapters/pricing/exchange-rate.service');
+  const { ProductPriceService } = await import('./adapters/pricing/product-price.service');
+  const { PricingCalculatorService } = await import('./adapters/pricing/pricing-calculator.service');
+
+  const exchangeRateService = new ExchangeRateService();
+  const productPriceService = new ProductPriceService();
+  const pricingCalculator = new PricingCalculatorService(
+    exchangeRateService,
+    productPriceService,
+  );
+  const claude = new ClaudeService(knowledgeRepo, pricingCalculator);
 
   // Wait for knowledge base to load
   await new Promise(resolve => setTimeout(resolve, 1000));

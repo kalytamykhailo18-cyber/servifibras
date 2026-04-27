@@ -38,7 +38,13 @@ async function testClaudeIntegration() {
 
   try {
     const knowledgeRepo = new KnowledgeRepository();
-    const claude = new ClaudeService(knowledgeRepo);
+    const exchangeRateService = new (await import('./adapters/pricing/exchange-rate.service')).ExchangeRateService();
+    const productPriceService = new (await import('./adapters/pricing/product-price.service')).ProductPriceService();
+    const pricingCalculator = new (await import('./adapters/pricing/pricing-calculator.service')).PricingCalculatorService(
+      exchangeRateService,
+      productPriceService,
+    );
+    const claude = new ClaudeService(knowledgeRepo, pricingCalculator);
 
     // TEST 1: Health Check
     console.log('TEST 1: Health Check');
