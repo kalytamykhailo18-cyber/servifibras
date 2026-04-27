@@ -345,4 +345,205 @@ To test with real Claude API:
 
 ---
 
-**Next:** Step 2.2 - Teach AI About Servifibras Products
+### Step 2.2: Teach AI About Servifibras Products ✅ PASSED
+
+**Date:** 2026-04-27
+**Status:** COMPLETE
+
+#### Test Results:
+
+1. **Knowledge Base Created in Database**
+   - ✅ 9 knowledge items seeded
+   - ✅ Categories: Resinas, Fibra de Vidrio, Cauchos de Silicona, Información General
+   - ✅ All items marked as active
+   - ✅ Structured by category/subcategory
+
+2. **Product Knowledge Included**
+
+   **Resinas (3 items):**
+   - ✅ Resina Poliéster: características, aplicaciones, presentaciones
+   - ✅ Resina Epoxi: propiedades superiores, uso en surf/tablas
+   - ✅ Resina Vinilester: resistencia química, aplicaciones industriales
+
+   **Fibra de Vidrio (2 items):**
+   - ✅ Mat 300g/450g: características, aplicaciones
+   - ✅ Tela Roving 500g: resistencia, acabado liso
+
+   **Cauchos de Silicona (1 item):**
+   - ✅ Silicona RTV: tipos por dureza (Shore A20-A40), moldes
+
+   **Información General (3 items):**
+   - ✅ Compatibilidad: ⚠️ NUNCA mezclar epoxi con poliéster
+   - ✅ Seguridad y Manipulación: EPP, ventilación, precauciones
+   - ✅ Tiempos de Entrega y Stock: envíos, disponibilidad
+
+3. **Apple Layer Architecture (Knowledge Module)**
+
+   - ✅ **Domain Layer**: `IKnowledgeRepository` interface
+     - Pure interface, no implementation details
+     - Defines: getAllActive(), getByCategory(), search(), getFormattedForAI()
+
+   - ✅ **Adapters Layer**: `KnowledgeRepository` (Prisma implementation)
+     - Implements IKnowledgeRepository
+     - Database access via Prisma
+     - Formats knowledge for AI consumption
+
+   - ✅ **Integration**: ClaudeService uses KnowledgeRepository
+     - Injects repository via constructor (DI)
+     - Loads knowledge on startup
+     - Passes as system context to Claude API
+
+4. **Knowledge Formatting for AI**
+   - ✅ 6,411 characters of structured product information
+   - ✅ Markdown format with categories and subcategories
+   - ✅ Instructions for AI behavior:
+     - Respond in Spanish (customer language)
+     - Be technical but clear
+     - Recommend specific products
+     - Mention safety when relevant
+     - Admit when uncertain
+
+5. **Repository Operations Tested**
+
+   ```typescript
+   // Get all active knowledge
+   const all = await repo.getAllActive();
+   // Result: 9 items
+
+   // Search by keyword
+   const results = await repo.search('epoxi');
+   // Result: 7 items (matches in various fields)
+
+   // Get formatted for AI
+   const formatted = await repo.getFormattedForAI();
+   // Result: Complete markdown knowledge base
+   ```
+
+6. **Database Seed Script**
+   - ✅ `prisma/seed.ts` created
+   - ✅ `npm run seed` command works
+   - ✅ Clears old data before seeding
+   - ✅ Populates with Servifibras products
+   - ✅ Can be re-run anytime to reset knowledge
+
+#### Architecture Verification:
+
+```
+Domain Layer (Interface)
+  └── IKnowledgeRepository
+        ↓ (implements)
+Adapter Layer (Prisma)
+  └── KnowledgeRepository
+        ↓ (injected into)
+Adapter Layer (AI)
+  └── ClaudeService
+        ↓ (uses knowledge as system context)
+Claude API
+```
+
+#### Files Created:
+
+```
+backend/
+├── src/
+│   ├── domain/repositories/
+│   │   └── knowledge.repository.interface.ts  (Repository contract)
+│   ├── adapters/repositories/
+│   │   └── knowledge.repository.ts            (Prisma implementation)
+│   └── test-product-knowledge.ts              (Test script)
+├── prisma/
+│   └── seed.ts                                 (Database seed)
+└── package.json
+    └── "seed" script added
+```
+
+#### Test Output:
+
+```bash
+$ npm run seed
+✅ Knowledge base seeded successfully!
+   Total items: 9
+
+$ npx ts-node src/test-product-knowledge.ts
+✅ Loaded 9 knowledge items from database
+✅ Categories: Cauchos de Silicona, Fibra de Vidrio, Información General, Resinas
+✅ Formatted knowledge: 6411 characters
+✅ Search "epoxi": 7 results
+✅ ARCHITECTURE TEST PASSED
+```
+
+#### Knowledge Base Sample (Formatted for AI):
+
+```markdown
+# Servifibras - Product Knowledge Base
+
+You are a technical expert helping customers of Servifibras...
+
+## Resinas
+
+### Poliéster: Resina Poliéster - Características
+La resina poliéster es la más utilizada en la industria de composites...
+- Buena resistencia mecánica
+- Resistencia a UV (apta para exteriores)
+- Presentaciones: 1kg, 5kg, 20L, 200L (mayorista)
+
+### Epoxi: Resina Epoxi - Características
+La resina epoxi ofrece las mejores propiedades mecánicas...
+- Máxima resistencia mecánica
+- Ideal para tablas de surf
+- Sin encogimiento en el curado
+
+## Información General
+
+### Compatibilidad de Productos
+⚠️ NUNCA mezclar:
+- Resina epoxi con resina poliéster: NO son compatibles
+...
+```
+
+#### Integration Test (Without API Key):
+
+Even without Claude API key configured, the system:
+- ✅ Loads knowledge from database successfully
+- ✅ Formats it for AI consumption
+- ✅ Provides search functionality
+- ✅ Ready to inject into AI requests
+
+#### Expected AI Behavior (When API Key Added):
+
+**Question:** "What resin should I use for a surfboard?"
+**Expected:** AI recommends epoxy, explains superior properties
+
+**Question:** "Do you sell fiberglass cloth?"
+**Expected:** AI lists mat and roving types with applications
+
+**Question:** "Can I use polyester outdoors?"
+**Expected:** AI says yes, mentions UV resistance, recommends gelcoat
+
+**Question:** "Can I mix epoxy with polyester to save money?"
+**Expected:** AI says NO, warns about incompatibility
+
+#### Conclusion:
+
+**Step 2.2 is COMPLETE**:
+- ✅ Knowledge base seeded with 9 comprehensive product items
+- ✅ Repository layer following apple design (interface → implementation)
+- ✅ ClaudeService integrated with knowledge repository
+- ✅ Knowledge loaded as system context on startup
+- ✅ Search and filtering working
+- ✅ Spanish language instructions included
+- ✅ Safety information included (no mixing resins)
+- ✅ All product data in database, not hardcoded (Rule #1)
+- ✅ Ready for real AI testing when API key added
+
+**Knowledge Coverage:**
+- ✅ Resinas: Poliéster, Epoxi, Vinilester
+- ✅ Fibra de Vidrio: Mat, Tela
+- ✅ Silicona: Moldes
+- ✅ Safety warnings
+- ✅ Compatibility rules
+- ✅ Stock and delivery info
+
+---
+
+**Next:** Step 2.3 - Build the Pricing Calculator

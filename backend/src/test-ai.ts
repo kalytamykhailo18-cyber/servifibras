@@ -4,6 +4,7 @@
  */
 
 import { ClaudeService } from './adapters/ai/claude.service';
+import { KnowledgeRepository } from './adapters/repositories/knowledge.repository';
 import { AIConversation } from './domain/entities/ai-message.entity';
 
 async function testClaudeIntegration() {
@@ -36,7 +37,8 @@ async function testClaudeIntegration() {
   }
 
   try {
-    const claude = new ClaudeService();
+    const knowledgeRepo = new KnowledgeRepository();
+    const claude = new ClaudeService(knowledgeRepo);
 
     // TEST 1: Health Check
     console.log('TEST 1: Health Check');

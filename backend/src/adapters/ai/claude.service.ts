@@ -8,6 +8,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { IAIService } from '../../use-cases/ai/ai.interface';
 import { AIConversation } from '../../domain/entities/ai-message.entity';
+import { KnowledgeRepository } from '../repositories/knowledge.repository';
 
 @Injectable()
 export class ClaudeService implements IAIService {
@@ -15,8 +16,9 @@ export class ClaudeService implements IAIService {
   private readonly client: Anthropic | null;
   private readonly model: string;
   private readonly isConfigured: boolean;
+  private knowledgeBaseContext: string | null = null;
 
-  constructor() {
+  constructor(private readonly knowledgeRepo: KnowledgeRepository) {
     // ✅ RULE 1: All config from .env, never hardcoded
     const apiKey = process.env.CLAUDE_API_KEY;
     this.model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
@@ -32,6 +34,19 @@ export class ClaudeService implements IAIService {
       this.client = new Anthropic({ apiKey });
       this.isConfigured = true;
       this.logger.log(`✅ Claude Service initialized with model: ${this.model}`);
+    }
+
+    // Load knowledge base asynchronously
+    this.loadKnowledgeBase();
+  }
+
+  private async loadKnowledgeBase(): Promise<void> {
+    try {
+      this.knowledgeBaseContext = await this.knowledgeRepo.getFormattedForAI();
+      this.logger.log('✅ Knowledge base loaded for AI context');
+    } catch (error) {
+      this.logger.error('Failed to load knowledge base', error);
+      this.knowledgeBaseContext = null;
     }
   }
 
@@ -49,7 +64,8 @@ export class ClaudeService implements IAIService {
     try {
       this.logger.debug(`Sending question to Claude: ${question.substring(0, 50)}...`);
 
-      const response = await this.client!.messages.create({
+      // Build request with optional system context
+      const requestConfig: any = {
         model: this.model,
         max_tokens: 1024,
         messages: [
@@ -58,7 +74,14 @@ export class ClaudeService implements IAIService {
             content: question,
           },
         ],
-      });
+      };
+
+      // Add knowledge base as system context if available
+      if (this.knowledgeBaseContext) {
+        requestConfig.system = this.knowledgeBaseContext;
+      }
+
+      const response = await this.client!.messages.create(requestConfig);
 
       const answer = this.extractTextFromResponse(response);
       this.logger.debug(`Received answer: ${answer.substring(0, 50)}...`);
@@ -93,11 +116,19 @@ export class ClaudeService implements IAIService {
         `Continuing conversation with ${messages.length} messages`,
       );
 
-      const response = await this.client!.messages.create({
+      // Build request with optional system context
+      const requestConfig: any = {
         model: this.model,
         max_tokens: 1024,
         messages,
-      });
+      };
+
+      // Add knowledge base as system context if available
+      if (this.knowledgeBaseContext) {
+        requestConfig.system = this.knowledgeBaseContext;
+      }
+
+      const response = await this.client!.messages.create(requestConfig);
 
       return this.extractTextFromResponse(response);
     } catch (error) {
