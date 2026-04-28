@@ -55,8 +55,8 @@ export default function LoginPage() {
 
     try {
       await login(data);
-      // On success, redirect to dashboard home
-      router.push("/");
+      // On success, redirect to conversations page
+      router.push("/conversations");
     } catch (error) {
       // Error is handled by auth store
       console.error("Login failed:", error);

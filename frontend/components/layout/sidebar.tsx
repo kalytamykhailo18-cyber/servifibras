@@ -18,43 +18,38 @@ import SettingsIcon from '@mui/icons-material/Settings';
 
 const navigationItems = [
   {
-    name: "Dashboard",
-    href: "/dashboard",
-    icon: DashboardIcon,
-  },
-  {
     name: "Conversaciones",
-    href: "/dashboard/conversations",
+    href: "/conversations",
     icon: ChatBubbleOutlineIcon,
   },
   {
     name: "Contactos",
-    href: "/dashboard/contacts",
+    href: "/contacts",
     icon: PeopleIcon,
   },
   {
     name: "Base de Conocimiento",
-    href: "/dashboard/knowledge",
+    href: "/knowledge",
     icon: MenuBookIcon,
   },
   {
     name: "Analíticas",
-    href: "/dashboard/analytics",
+    href: "/analytics",
     icon: BarChartIcon,
   },
   {
     name: "Oportunidades",
-    href: "/dashboard/leads",
+    href: "/leads",
     icon: TrendingUpIcon,
   },
   {
     name: "Pedidos",
-    href: "/dashboard/orders",
+    href: "/orders",
     icon: InventoryIcon,
   },
   {
     name: "Configuración",
-    href: "/dashboard/settings",
+    href: "/settings",
     icon: SettingsIcon,
   },
 ];
@@ -70,7 +65,7 @@ export function Sidebar() {
     <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:border-r lg:border-border lg:bg-card">
       {/* LOGO */}
       <div className="flex h-16 items-center px-6 border-b border-border">
-        <Link href="/dashboard" className="flex items-center space-x-2">
+        <Link href="/conversations" className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <span className="text-primary-foreground font-bold text-lg">S</span>
           </div>
