@@ -6,7 +6,10 @@ import { AISettingsForm } from "@/components/settings/ai-settings-form";
 import { ChannelConfigForm } from "@/components/settings/channel-config-form";
 import { PricingForm } from "@/components/settings/pricing-form";
 import { SystemSettingsForm } from "@/components/settings/system-settings-form";
-import { Bot, Wifi, DollarSign, Settings as SettingsIcon } from "lucide-react";
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import SettingsIcon from '@mui/icons-material/Settings';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import WifiIcon from '@mui/icons-material/Wifi';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("ai");
@@ -25,15 +28,15 @@ export default function SettingsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="ai" className="flex items-center gap-2">
-            <Bot className="h-4 w-4" />
+            <SmartToyIcon className="h-4 w-4" />
             <span className="hidden sm:inline">IA</span>
           </TabsTrigger>
           <TabsTrigger value="channels" className="flex items-center gap-2">
-            <Wifi className="h-4 w-4" />
+            <WifiIcon className="h-4 w-4" />
             <span className="hidden sm:inline">Canales</span>
           </TabsTrigger>
           <TabsTrigger value="pricing" className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
+            <AttachMoneyIcon className="h-4 w-4" />
             <span className="hidden sm:inline">Precios</span>
           </TabsTrigger>
           <TabsTrigger value="system" className="flex items-center gap-2">

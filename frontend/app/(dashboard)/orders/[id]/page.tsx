@@ -19,7 +19,9 @@ import { OrderTimeline } from "@/components/orders/order-timeline";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
 import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
-import { ArrowLeft, Package, Truck } from "lucide-react";
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -118,7 +120,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       {/* HEADER */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/orders")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver a Pedidos
         </Button>
       </div>
@@ -188,7 +190,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                       className="flex items-center justify-between p-3 border rounded-lg"
                     >
                       <div className="flex items-center gap-3">
-                        <Package className="h-5 w-5 text-muted-foreground" />
+                        <InventoryIcon className="h-5 w-5 text-muted-foreground" />
                         <div>
                           <p className="font-medium">{product.name || product.product}</p>
                           {product.qty && (
@@ -290,7 +292,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
-                <Truck className="h-4 w-4" />
+                <LocalShippingIcon className="h-4 w-4" />
                 Información de Envío
               </CardTitle>
             </CardHeader>

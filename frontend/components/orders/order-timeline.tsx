@@ -1,5 +1,7 @@
 import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
-import { CheckCircle, Circle, XCircle } from "lucide-react";
+import CancelIcon from '@mui/icons-material/Cancel';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CircleOutlinedIcon from '@mui/icons-material/CircleOutlined';
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -65,11 +67,11 @@ export function OrderTimeline({
             <div className="flex flex-col items-center">
               <div className="flex-shrink-0">
                 {isCompleted ? (
-                  <CheckCircle className="h-6 w-6 text-green-600" />
+                  <CheckCircleIcon className="h-6 w-6 text-green-600" />
                 ) : isCurrent ? (
-                  <Circle className="h-6 w-6 text-blue-600 fill-blue-100" />
+                  <CircleOutlinedIcon className="h-6 w-6 text-blue-600 fill-blue-100" />
                 ) : (
-                  <Circle className="h-6 w-6 text-gray-300" />
+                  <CircleOutlinedIcon className="h-6 w-6 text-gray-300" />
                 )}
               </div>
               {index < timeline.length - 1 && (
@@ -104,7 +106,7 @@ export function OrderTimeline({
       {isCancelled && (
         <div className="flex gap-4">
           <div className="flex-shrink-0">
-            <XCircle className="h-6 w-6 text-red-600" />
+            <CancelIcon className="h-6 w-6 text-red-600" />
           </div>
           <div>
             <p className="font-medium text-red-600">Cancelado</p>

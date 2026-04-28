@@ -12,7 +12,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CHANNEL_LABELS, type Lead } from "@/types";
-import { DollarSign, MoreVertical, User, Package, Calendar } from "lucide-react";
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PersonIcon from '@mui/icons-material/Person';
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -82,7 +86,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
                 className="h-8 w-8 p-0"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreVertical className="h-4 w-4" />
+                <MoreVertIcon className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -106,7 +110,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
         {/* Product Interest */}
         {lead.productInterest && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Package className="h-3 w-3" />
+            <InventoryIcon className="h-3 w-3" />
             <span className="line-clamp-1">{lead.productInterest}</span>
           </div>
         )}
@@ -114,7 +118,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
         {/* Estimated Value */}
         {lead.estimatedValue !== null && lead.estimatedValue > 0 && (
           <div className="flex items-center gap-2 text-xs font-medium text-green-600">
-            <DollarSign className="h-3 w-3" />
+            <AttachMoneyIcon className="h-3 w-3" />
             <span>${lead.estimatedValue.toLocaleString("es-AR")}</span>
           </div>
         )}
@@ -122,14 +126,14 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
         {/* Assigned User */}
         {lead.assignedTo && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <User className="h-3 w-3" />
+            <PersonIcon className="h-3 w-3" />
             <span>{lead.assigned?.name || "Asignado"}</span>
           </div>
         )}
 
         {/* Created Date */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Calendar className="h-3 w-3" />
+          <CalendarTodayIcon className="h-3 w-3" />
           <span>
             {formatDistanceToNow(new Date(lead.createdAt), {
               addSuffix: true,

@@ -7,7 +7,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricsCard } from "@/components/analytics/metrics-card";
 import { api } from "@/lib/api/endpoints";
-import { ArrowLeft, DollarSign, Package, TrendingUp, Clock } from "lucide-react";
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import { ORDER_STATUS_LABELS, type OrderFulfillmentStats } from "@/types";
@@ -65,7 +69,7 @@ export default function OrdersStatsPage() {
       {/* HEADER */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/orders")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver a Pedidos
         </Button>
       </div>
@@ -83,28 +87,28 @@ export default function OrdersStatsPage() {
           title="Total Pedidos"
           value={stats.totalOrders}
           description="Todos los estados"
-          icon={Package}
+          icon={InventoryIcon}
         />
 
         <MetricsCard
           title="Ingresos Totales"
           value={`$${stats.totalRevenue.toLocaleString("es-AR")}`}
           description="USD facturados"
-          icon={DollarSign}
+          icon={AttachMoneyIcon}
         />
 
         <MetricsCard
           title="Valor Promedio"
           value={`$${(stats.averageOrderValue || stats.avgOrderValue).toLocaleString("es-AR")}`}
           description="USD por pedido"
-          icon={TrendingUp}
+          icon={TrendingUpIcon}
         />
 
         <MetricsCard
           title="Tasa de Cumplimiento"
           value={`${(stats.fulfillmentRate || 0).toFixed(1)}%`}
           description="Pedidos entregados"
-          icon={Clock}
+          icon={AccessTimeIcon}
         />
       </div>
 

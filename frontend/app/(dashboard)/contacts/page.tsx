@@ -21,7 +21,11 @@ import { ContactTable } from "@/components/contacts/contact-table";
 import { api } from "@/lib/api/endpoints";
 import type { Contact, ContactFormData, ContactFilters, GetContactsParams } from "@/types";
 import { ContactType, Channel, CONTACT_TYPE_LABELS, CHANNEL_LABELS } from "@/types";
-import { RefreshCw, Plus, Search, AlertCircle, Users } from "lucide-react";
+import AddIcon from '@mui/icons-material/Add';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import PeopleIcon from '@mui/icons-material/People';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import { toast } from "sonner";
 
 export default function ContactsPage() {
@@ -212,11 +216,11 @@ export default function ContactsPage() {
 
         <div className="flex gap-2">
           <Button onClick={handleRefresh} variant="outline" size="sm">
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshIcon className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Actualizar
           </Button>
           <Button onClick={handleCreateClick}>
-            <Plus className="h-4 w-4 mr-2" />
+            <AddIcon className="h-4 w-4 mr-2" />
             Nuevo Contacto
           </Button>
         </div>
@@ -226,7 +230,7 @@ export default function ContactsPage() {
       <div className="flex flex-wrap gap-3 items-center">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por nombre, teléfono o email..."
             value={filters.search || ""}
@@ -267,7 +271,7 @@ export default function ContactsPage() {
 
         {/* Results Count */}
         <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          <Users className="h-4 w-4" />
+          <PeopleIcon className="h-4 w-4" />
           <span>{totalCount} contactos</span>
         </div>
       </div>
@@ -275,7 +279,7 @@ export default function ContactsPage() {
       {/* ERROR STATE */}
       {error && (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
+          <ErrorOutlineIcon className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

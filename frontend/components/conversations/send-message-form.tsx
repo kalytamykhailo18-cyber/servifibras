@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send } from "lucide-react";
+import SendIcon from '@mui/icons-material/Send';
 import type { SendMessageFormData } from "@/types";
 import { ContentType } from "@/types";
 
@@ -78,7 +78,7 @@ export function SendMessageForm({
       </div>
 
       <Button type="submit" disabled={isSending} size="icon" className="self-end">
-        <Send className="h-4 w-4" />
+        <SendIcon className="h-4 w-4" />
       </Button>
     </form>
   );

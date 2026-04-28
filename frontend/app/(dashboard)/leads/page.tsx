@@ -9,7 +9,10 @@ import { PipelineBoard } from "@/components/leads/pipeline-board";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
 import { api } from "@/lib/api/endpoints";
 import type { Lead } from "@/types";
-import { Plus, RefreshCw, AlertCircle, BarChart3 } from "lucide-react";
+import AddIcon from '@mui/icons-material/Add';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -126,13 +129,13 @@ export default function LeadsPage() {
             </p>
           </div>
           <Button onClick={fetchLeads} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshIcon className="h-4 w-4 mr-2" />
             Reintentar
           </Button>
         </div>
 
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
+          <ErrorOutlineIcon className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       </div>
@@ -160,19 +163,19 @@ export default function LeadsPage() {
             variant="outline"
             size="sm"
           >
-            <BarChart3 className="h-4 w-4 mr-2" />
+            <BarChartIcon className="h-4 w-4 mr-2" />
             Estadísticas
           </Button>
 
           <Button onClick={fetchLeads} variant="outline" size="sm">
-            <RefreshCw
+            <RefreshIcon
               className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
             />
             Actualizar
           </Button>
 
           <Button onClick={() => setIsFormOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-2" />
+            <AddIcon className="h-4 w-4 mr-2" />
             Nueva Oportunidad
           </Button>
         </div>

@@ -6,14 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/endpoints";
 import type { DashboardSummary } from "@/types";
-import {
-  MessageSquare,
-  Users,
-  TrendingUp,
-  Package,
-  DollarSign,
-  Activity,
-} from "lucide-react";
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import PeopleIcon from '@mui/icons-material/People';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 
 // ============================================================================
 // DASHBOARD HOME PAGE
@@ -109,7 +107,7 @@ export default function DashboardPage() {
       title: "Conversaciones",
       value: summary?.totalConversations || 0,
       description: `${summary?.activeConversations || 0} activas`,
-      icon: MessageSquare,
+      icon: ChatBubbleOutlineIcon,
       color: "text-blue-600",
       bgColor: "bg-blue-50 dark:bg-blue-950",
     },
@@ -117,7 +115,7 @@ export default function DashboardPage() {
       title: "Contactos",
       value: summary?.totalContacts || 0,
       description: "Total en base de datos",
-      icon: Users,
+      icon: PeopleIcon,
       color: "text-green-600",
       bgColor: "bg-green-50 dark:bg-green-950",
     },
@@ -125,7 +123,7 @@ export default function DashboardPage() {
       title: "Oportunidades",
       value: summary?.totalLeads || 0,
       description: "Pipeline de ventas",
-      icon: TrendingUp,
+      icon: TrendingUpIcon,
       color: "text-purple-600",
       bgColor: "bg-purple-50 dark:bg-purple-950",
     },
@@ -133,7 +131,7 @@ export default function DashboardPage() {
       title: "Pedidos",
       value: summary?.totalOrders || 0,
       description: "Total procesados",
-      icon: Package,
+      icon: InventoryIcon,
       color: "text-orange-600",
       bgColor: "bg-orange-50 dark:bg-orange-950",
     },
@@ -141,7 +139,7 @@ export default function DashboardPage() {
       title: "Ingresos del Mes",
       value: `$${summary?.revenueThisMonth?.toLocaleString("es-AR") || 0}`,
       description: "USD facturados",
-      icon: DollarSign,
+      icon: AttachMoneyIcon,
       color: "text-emerald-600",
       bgColor: "bg-emerald-50 dark:bg-emerald-950",
     },
@@ -149,7 +147,7 @@ export default function DashboardPage() {
       title: "Estado del Sistema",
       value: "Operativo",
       description: "Todos los servicios activos",
-      icon: Activity,
+      icon: ShowChartIcon,
       color: "text-teal-600",
       bgColor: "bg-teal-50 dark:bg-teal-950",
     },

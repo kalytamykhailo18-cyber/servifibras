@@ -18,16 +18,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api/endpoints";
 import type { Lead, User } from "@/types";
-import {
-  ArrowLeft,
-  User as UserIcon,
-  Package,
-  DollarSign,
-  Calendar,
-  MessageSquare,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import CancelIcon from '@mui/icons-material/Cancel';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import PersonIcon from '@mui/icons-material/Person';
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -148,7 +146,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
       {/* HEADER */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/leads")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver al Pipeline
         </Button>
       </div>
@@ -242,7 +240,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             <Card className="border-green-200 bg-green-50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-green-700">
-                  <CheckCircle className="h-5 w-5" />
+                  <CheckCircleIcon className="h-5 w-5" />
                   Oportunidad Ganada
                 </CardTitle>
               </CardHeader>
@@ -261,7 +259,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             <Card className="border-red-200 bg-red-50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-red-700">
-                  <XCircle className="h-5 w-5" />
+                  <CancelIcon className="h-5 w-5" />
                   Oportunidad Perdida
                 </CardTitle>
               </CardHeader>

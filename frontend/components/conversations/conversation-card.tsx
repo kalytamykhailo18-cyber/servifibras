@@ -6,12 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
-import {
-  MessageSquare,
-  Phone,
-  User,
-  Clock,
-} from "lucide-react";
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import PersonIcon from '@mui/icons-material/Person';
+import PhoneIcon from '@mui/icons-material/Phone';
 import type { ConversationWithRelations } from "@/types";
 import { CHANNEL_LABELS, CONVERSATION_STATUS_LABELS } from "@/types";
 
@@ -101,13 +99,13 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
               <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">
                 {conversation.contact.phone && (
                   <div className="flex items-center gap-1">
-                    <Phone className="h-3 w-3" />
+                    <PhoneIcon className="h-3 w-3" />
                     <span>{conversation.contact.phone}</span>
                   </div>
                 )}
                 {conversation.assigned && (
                   <div className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
+                    <PersonIcon className="h-3 w-3" />
                     <span>{conversation.assigned.name}</span>
                   </div>
                 )}

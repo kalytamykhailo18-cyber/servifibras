@@ -1,9 +1,9 @@
-import { LucideIcon } from "lucide-react";
+import { SvgIconComponent } from "@mui/icons-material";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface EmptyStateProps {
-  icon: LucideIcon;
+  icon: SvgIconComponent;
   title: string;
   description: string;
   action?: {

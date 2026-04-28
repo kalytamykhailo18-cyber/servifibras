@@ -10,16 +10,14 @@ import { ContactChart } from "@/components/analytics/contact-chart";
 import { AIPerformanceChart } from "@/components/analytics/ai-performance-chart";
 import { api } from "@/lib/api/endpoints";
 import type { DashboardSummary } from "@/types";
-import {
-  RefreshCw,
-  MessageSquare,
-  Users,
-  TrendingUp,
-  Package,
-  DollarSign,
-  Bot,
-  AlertCircle,
-} from "lucide-react";
+import RefreshIcon from '@mui/icons-material/Refresh';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import PeopleIcon from '@mui/icons-material/People';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import { toast } from "sonner";
 
 export default function AnalyticsPage() {
@@ -91,13 +89,13 @@ export default function AnalyticsPage() {
             </p>
           </div>
           <Button onClick={fetchAnalytics} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshIcon className="h-4 w-4 mr-2" />
             Reintentar
           </Button>
         </div>
 
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
+          <ErrorOutlineIcon className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       </div>
@@ -126,7 +124,7 @@ export default function AnalyticsPage() {
         </div>
 
         <Button onClick={fetchAnalytics} variant="outline" size="sm">
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshIcon className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
       </div>
@@ -137,42 +135,42 @@ export default function AnalyticsPage() {
           title="Total Conversaciones"
           value={conversationMetrics.total}
           description={`${conversationMetrics.active} activas`}
-          icon={MessageSquare}
+          icon={ChatBubbleOutlineIcon}
         />
 
         <MetricsCard
           title="Total Contactos"
           value={contactMetrics.total}
           description={`${contactMetrics.newThisMonth} nuevos este mes`}
-          icon={Users}
+          icon={PeopleIcon}
         />
 
         <MetricsCard
           title="Conversaciones con IA"
           value={aiPerformanceMetrics.conversationsWithAI}
           description={`${aiPerformanceMetrics.conversationsFullyAutomated} totalmente automatizadas`}
-          icon={Bot}
+          icon={SmartToyIcon}
         />
 
         <MetricsCard
           title="Mensajes Totales"
           value={conversationMetrics.totalMessages}
           description={`${aiPerformanceMetrics.totalAIMessages} de IA`}
-          icon={MessageSquare}
+          icon={ChatBubbleOutlineIcon}
         />
 
         <MetricsCard
           title="Performance IA"
           value={`${aiPerformanceMetrics.aiResponseRate}%`}
           description="Tasa de respuesta automática"
-          icon={DollarSign}
+          icon={AttachMoneyIcon}
         />
 
         <MetricsCard
           title="Actividad 24h"
           value={recentActivity.conversationsLast24h}
           description={`${recentActivity.messagesLast24h} mensajes`}
-          icon={TrendingUp}
+          icon={TrendingUpIcon}
         />
       </div>
 
@@ -183,19 +181,19 @@ export default function AnalyticsPage() {
           <MetricsCard
             title="Conversaciones Activas"
             value={conversationMetrics.active}
-            icon={MessageSquare}
+            icon={ChatBubbleOutlineIcon}
           />
 
           <MetricsCard
             title="Mensajes por Conversación"
             value={conversationMetrics.avgMessagesPerConversation.toFixed(1)}
-            icon={MessageSquare}
+            icon={ChatBubbleOutlineIcon}
           />
 
           <MetricsCard
             title="Conversaciones Cerradas"
             value={conversationMetrics.closed}
-            icon={Users}
+            icon={PeopleIcon}
           />
         </div>
 

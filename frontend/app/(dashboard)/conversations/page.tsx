@@ -8,7 +8,8 @@ import { ConversationFiltersComponent } from "@/components/conversations/convers
 import { ConversationCard } from "@/components/conversations/conversation-card";
 import { api } from "@/lib/api/endpoints";
 import type { ConversationWithRelations, ConversationFilters, GetConversationsParams } from "@/types";
-import { RefreshCw, AlertCircle } from "lucide-react";
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 export default function ConversationsPage() {
   const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
@@ -132,7 +133,7 @@ export default function ConversationsPage() {
         </div>
 
         <Button onClick={handleRefresh} variant="outline" size="sm">
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshIcon className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
       </div>
@@ -147,7 +148,7 @@ export default function ConversationsPage() {
       {/* ERROR STATE */}
       {error && (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
+          <ErrorOutlineIcon className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

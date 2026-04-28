@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/endpoints";
 import { toast } from "sonner";
-import { Save, RefreshCw } from "lucide-react";
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SaveIcon from '@mui/icons-material/Save';
 
 interface PricingConfig {
   currency: string;
@@ -198,7 +199,7 @@ export function PricingForm() {
 
             <div className="flex gap-2">
               <Button type="submit" disabled={isSaving}>
-                <Save className="h-4 w-4 mr-2" />
+                <SaveIcon className="h-4 w-4 mr-2" />
                 {isSaving ? "Guardando..." : "Guardar Cambios"}
               </Button>
               <Button
@@ -207,7 +208,7 @@ export function PricingForm() {
                 onClick={fetchPricingConfig}
                 disabled={isLoading}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
+                <RefreshIcon className="h-4 w-4 mr-2" />
                 Recargar
               </Button>
             </div>

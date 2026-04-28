@@ -4,7 +4,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { Bot, User } from "lucide-react";
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import PersonIcon from '@mui/icons-material/Person';
 import type { Message, MessageSender } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -51,9 +52,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <Avatar className="h-8 w-8 mt-1">
         <AvatarFallback className={getSenderColor(message.sender)}>
           {isCustomer ? (
-            <User className="h-4 w-4" />
+            <PersonIcon className="h-4 w-4" />
           ) : isAI ? (
-            <Bot className="h-4 w-4" />
+            <SmartToyIcon className="h-4 w-4" />
           ) : (
             message.sender.charAt(0)
           )}

@@ -21,7 +21,11 @@ import { KnowledgeTable } from "@/components/knowledge/knowledge-table";
 import { api } from "@/lib/api/endpoints";
 import type { KnowledgeBase, KnowledgeFormData, KnowledgeFilters, GetKnowledgeParams } from "@/types";
 import { PRODUCT_CATEGORIES } from "@/types";
-import { RefreshCw, Plus, Search, AlertCircle, BookOpen } from "lucide-react";
+import AddIcon from '@mui/icons-material/Add';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import { toast } from "sonner";
 
 export default function KnowledgePage() {
@@ -219,11 +223,11 @@ export default function KnowledgePage() {
 
         <div className="flex gap-2">
           <Button onClick={handleRefresh} variant="outline" size="sm">
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshIcon className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Actualizar
           </Button>
           <Button onClick={handleCreateClick}>
-            <Plus className="h-4 w-4 mr-2" />
+            <AddIcon className="h-4 w-4 mr-2" />
             Nuevo Artículo
           </Button>
         </div>
@@ -233,7 +237,7 @@ export default function KnowledgePage() {
       <div className="flex flex-wrap gap-3 items-center">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar en títulos y contenido..."
             value={filters.search || ""}
@@ -277,7 +281,7 @@ export default function KnowledgePage() {
 
         {/* Results Count */}
         <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          <BookOpen className="h-4 w-4" />
+          <MenuBookIcon className="h-4 w-4" />
           <span>{totalCount} artículos</span>
         </div>
       </div>
@@ -285,7 +289,7 @@ export default function KnowledgePage() {
       {/* ERROR STATE */}
       {error && (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
+          <ErrorOutlineIcon className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

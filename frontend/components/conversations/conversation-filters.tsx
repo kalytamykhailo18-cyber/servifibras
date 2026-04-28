@@ -3,7 +3,8 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, X } from "lucide-react";
+import SearchIcon from '@mui/icons-material/Search';
+import CloseIcon from '@mui/icons-material/Close';
 import { ConversationStatus, Channel, CONVERSATION_STATUS_LABELS, CHANNEL_LABELS } from "@/types";
 import type { ConversationFilters } from "@/types";
 
@@ -60,7 +61,7 @@ export function ConversationFiltersComponent({
     <div className="space-y-4">
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Buscar por contacto, teléfono o mensaje..."
           value={filters.search || ""}
@@ -107,7 +108,7 @@ export function ConversationFiltersComponent({
             onClick={clearFilters}
             className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
-            <X className="h-4 w-4" />
+            <CloseIcon className="h-4 w-4" />
             Limpiar filtros
           </button>
         )}

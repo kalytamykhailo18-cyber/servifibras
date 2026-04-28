@@ -17,7 +17,9 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api/endpoints";
 import { toast } from "sonner";
-import { Save, RefreshCw, AlertTriangle } from "lucide-react";
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SaveIcon from '@mui/icons-material/Save';
+import WarningIcon from '@mui/icons-material/Warning';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SystemConfig {
@@ -129,7 +131,7 @@ export function SystemSettingsForm() {
             {/* Maintenance Mode Warning */}
             {maintenanceMode && (
               <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
+                <WarningIcon className="h-4 w-4" />
                 <AlertDescription>
                   El modo mantenimiento deshabilitará el acceso al sistema para todos los usuarios
                   excepto administradores.
@@ -319,7 +321,7 @@ export function SystemSettingsForm() {
 
             <div className="flex gap-2">
               <Button type="submit" disabled={isSaving}>
-                <Save className="h-4 w-4 mr-2" />
+                <SaveIcon className="h-4 w-4 mr-2" />
                 {isSaving ? "Guardando..." : "Guardar Cambios"}
               </Button>
               <Button
@@ -328,7 +330,7 @@ export function SystemSettingsForm() {
                 onClick={fetchSystemConfig}
                 disabled={isLoading}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
+                <RefreshIcon className="h-4 w-4 mr-2" />
                 Recargar
               </Button>
             </div>

@@ -13,18 +13,16 @@ import { SendMessageForm } from "@/components/conversations/send-message-form";
 import { api } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/store/auth-store";
 import type { ConversationWithRelations } from "@/types";
-import {
-  ArrowLeft,
-  UserPlus,
-  Hand,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Phone,
-  Mail,
-  Tag,
-  MessageSquare,
-} from "lucide-react";
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CancelIcon from '@mui/icons-material/Cancel';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import EmailIcon from '@mui/icons-material/Email';
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
+import PanToolIcon from '@mui/icons-material/PanTool';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import PhoneIcon from '@mui/icons-material/Phone';
 import { CHANNEL_LABELS, CONVERSATION_STATUS_LABELS, CONTACT_TYPE_LABELS, ConversationStatus } from "@/types";
 import { toast } from "sonner";
 
@@ -150,7 +148,7 @@ export default function ConversationDetailPage() {
     return (
       <div className="space-y-6">
         <Button variant="ghost" onClick={() => router.push("/dashboard/conversations")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
         <Alert variant="destructive">
@@ -169,7 +167,7 @@ export default function ConversationDetailPage() {
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={() => router.push("/dashboard/conversations")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
 
@@ -180,7 +178,7 @@ export default function ConversationDetailPage() {
             onClick={handleTakeover}
             disabled={isUpdating}
           >
-            <Hand className="h-4 w-4 mr-2" />
+            <PanToolIcon className="h-4 w-4 mr-2" />
             Tomar Conversación
           </Button>
         </div>
@@ -213,19 +211,19 @@ export default function ConversationDetailPage() {
                   <SelectContent>
                     <SelectItem value="ACTIVE">
                       <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <CheckCircleIcon className="h-4 w-4 text-green-600" />
                         Activa
                       </div>
                     </SelectItem>
                     <SelectItem value="WAITING">
                       <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-yellow-600" />
+                        <AccessTimeIcon className="h-4 w-4 text-yellow-600" />
                         Esperando
                       </div>
                     </SelectItem>
                     <SelectItem value="CLOSED">
                       <div className="flex items-center gap-2">
-                        <XCircle className="h-4 w-4 text-gray-600" />
+                        <CancelIcon className="h-4 w-4 text-gray-600" />
                         Cerrada
                       </div>
                     </SelectItem>
@@ -248,7 +246,7 @@ export default function ConversationDetailPage() {
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   <div className="text-center">
-                    <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                    <ChatBubbleOutlineIcon className="h-12 w-12 mx-auto mb-4 opacity-20" />
                     <p>No hay mensajes aún</p>
                   </div>
                 </div>
@@ -275,19 +273,19 @@ export default function ConversationDetailPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2 text-sm">
-                <Phone className="h-4 w-4 text-muted-foreground" />
+                <PhoneIcon className="h-4 w-4 text-muted-foreground" />
                 <span>{conversation.contact.phone || "Sin teléfono"}</span>
               </div>
 
               {conversation.contact.email && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <EmailIcon className="h-4 w-4 text-muted-foreground" />
                   <span>{conversation.contact.email}</span>
                 </div>
               )}
 
               <div className="flex items-center gap-2 text-sm">
-                <Tag className="h-4 w-4 text-muted-foreground" />
+                <LocalOfferIcon className="h-4 w-4 text-muted-foreground" />
                 <span>{CONTACT_TYPE_LABELS[conversation.contact.type]}</span>
               </div>
             </CardContent>
@@ -301,7 +299,7 @@ export default function ConversationDetailPage() {
             <CardContent>
               {conversation.assigned ? (
                 <div className="flex items-center gap-2 mb-3">
-                  <UserPlus className="h-4 w-4 text-muted-foreground" />
+                  <PersonAddIcon className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">{conversation.assigned.name}</span>
                 </div>
               ) : (

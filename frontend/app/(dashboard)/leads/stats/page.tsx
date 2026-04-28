@@ -7,7 +7,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricsCard } from "@/components/analytics/metrics-card";
 import { api } from "@/lib/api/endpoints";
-import { ArrowLeft, TrendingUp, DollarSign, Target, Award, XCircle } from "lucide-react";
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import CancelIcon from '@mui/icons-material/Cancel';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import GpsFixedIcon from '@mui/icons-material/GpsFixed';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { CHANNEL_LABELS, LEAD_STATUS_LABELS, type LeadPipelineStats } from "@/types";
@@ -65,7 +70,7 @@ export default function LeadsStatsPage() {
       {/* HEADER */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/leads")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver al Pipeline
         </Button>
       </div>
@@ -83,28 +88,28 @@ export default function LeadsStatsPage() {
           title="Total Oportunidades"
           value={stats.totalLeads}
           description="En el pipeline"
-          icon={TrendingUp}
+          icon={TrendingUpIcon}
         />
 
         <MetricsCard
           title="Tasa de Conversión"
           value={`${stats.conversionRate.toFixed(1)}%`}
           description="Oportunidades ganadas"
-          icon={Target}
+          icon={GpsFixedIcon}
         />
 
         <MetricsCard
           title="Valor Ganado"
           value={`$${(stats.totalWonValue || 0).toLocaleString("es-AR")}`}
           description="USD cerrados"
-          icon={Award}
+          icon={EmojiEventsIcon}
         />
 
         <MetricsCard
           title="Tamaño Promedio"
           value={`$${(stats.averageDealSize || stats.avgDealSize).toLocaleString("es-AR")}`}
           description="USD por deal"
-          icon={DollarSign}
+          icon={AttachMoneyIcon}
         />
       </div>
 

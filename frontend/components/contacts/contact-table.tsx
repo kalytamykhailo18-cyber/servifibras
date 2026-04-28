@@ -19,7 +19,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Eye, Edit, Trash2, Phone, Mail } from "lucide-react";
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import EmailIcon from '@mui/icons-material/Email';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import PhoneIcon from '@mui/icons-material/Phone';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { Contact } from "@/types";
 import { CONTACT_TYPE_LABELS, CHANNEL_LABELS } from "@/types";
 
@@ -94,13 +99,13 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
                 <div className="flex flex-col gap-1">
                   {contact.phone && (
                     <div className="flex items-center gap-1.5 text-sm">
-                      <Phone className="h-3 w-3 text-muted-foreground" />
+                      <PhoneIcon className="h-3 w-3 text-muted-foreground" />
                       <span>{contact.phone}</span>
                     </div>
                   )}
                   {contact.email && (
                     <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <Mail className="h-3 w-3" />
+                      <EmailIcon className="h-3 w-3" />
                       <span>{contact.email}</span>
                     </div>
                   )}
@@ -128,18 +133,18 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
                   <DropdownMenuTrigger>
                     <Button variant="ghost" className="h-8 w-8 p-0">
                       <span className="sr-only">Abrir menú</span>
-                      <MoreHorizontal className="h-4 w-4" />
+                      <MoreHorizIcon className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => router.push(`/dashboard/contacts/${contact.id}`)}>
-                      <Eye className="mr-2 h-4 w-4" />
+                      <VisibilityIcon className="mr-2 h-4 w-4" />
                       Ver detalles
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(contact)}>
-                      <Edit className="mr-2 h-4 w-4" />
+                      <EditIcon className="mr-2 h-4 w-4" />
                       Editar
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -147,7 +152,7 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
                       onClick={() => onDelete(contact)}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <DeleteIcon className="mr-2 h-4 w-4" />
                       Eliminar
                     </DropdownMenuItem>
                   </DropdownMenuContent>

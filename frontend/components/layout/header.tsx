@@ -11,7 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { LogOut, User } from "lucide-react";
+import LogoutIcon from '@mui/icons-material/Logout';
+import PersonIcon from '@mui/icons-material/Person';
 import { USER_ROLE_LABELS } from "@/types";
 
 // ============================================================================
@@ -71,7 +72,7 @@ export function Header() {
             <DropdownMenuSeparator />
 
             <DropdownMenuItem className="cursor-pointer">
-              <User className="mr-2 h-4 w-4" />
+              <PersonIcon className="mr-2 h-4 w-4" />
               <span>Perfil</span>
             </DropdownMenuItem>
 
@@ -81,7 +82,7 @@ export function Header() {
               className="cursor-pointer text-destructive focus:text-destructive"
               onClick={logout}
             >
-              <LogOut className="mr-2 h-4 w-4" />
+              <LogoutIcon className="mr-2 h-4 w-4" />
               <span>Cerrar Sesión</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

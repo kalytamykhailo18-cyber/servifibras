@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api/endpoints";
 import { Channel, CHANNEL_LABELS } from "@/types";
 import { toast } from "sonner";
-import { Save } from "lucide-react";
+import SaveIcon from '@mui/icons-material/Save';
 
 interface ChannelConfig {
   enabled: boolean;
@@ -266,7 +266,7 @@ export function ChannelConfigForm() {
                     </div>
 
                     <Button type="submit" disabled={isSaving}>
-                      <Save className="h-4 w-4 mr-2" />
+                      <SaveIcon className="h-4 w-4 mr-2" />
                       {isSaving ? "Guardando..." : "Guardar Cambios"}
                     </Button>
                   </form>

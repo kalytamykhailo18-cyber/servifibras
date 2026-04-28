@@ -12,7 +12,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api/endpoints";
 import type { ContactWithRelations } from "@/types";
 import { CONTACT_TYPE_LABELS, CHANNEL_LABELS, CONVERSATION_STATUS_LABELS } from "@/types";
-import { ArrowLeft, Phone, Mail, Tag, MessageSquare, TrendingUp, Package, Edit } from "lucide-react";
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import EditIcon from '@mui/icons-material/Edit';
+import EmailIcon from '@mui/icons-material/Email';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
+import PhoneIcon from '@mui/icons-material/Phone';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -72,7 +79,7 @@ export default function ContactDetailPage() {
     return (
       <div className="space-y-6">
         <Button variant="ghost" onClick={() => router.push("/dashboard/contacts")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
         <Alert variant="destructive">
@@ -95,12 +102,12 @@ export default function ContactDetailPage() {
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={() => router.push("/dashboard/contacts")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
 
         <Button variant="outline" size="sm">
-          <Edit className="h-4 w-4 mr-2" />
+          <EditIcon className="h-4 w-4 mr-2" />
           Editar Contacto
         </Button>
       </div>
@@ -126,21 +133,21 @@ export default function ContactDetailPage() {
 
               {contact.phone && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <PhoneIcon className="h-4 w-4 text-muted-foreground" />
                   <span>{contact.phone}</span>
                 </div>
               )}
 
               {contact.email && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <EmailIcon className="h-4 w-4 text-muted-foreground" />
                   <span className="break-all">{contact.email}</span>
                 </div>
               )}
 
               {contact.channel && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Tag className="h-4 w-4 text-muted-foreground" />
+                  <LocalOfferIcon className="h-4 w-4 text-muted-foreground" />
                   <Badge variant="outline">
                     {CHANNEL_LABELS[contact.channel]}
                   </Badge>
@@ -157,7 +164,7 @@ export default function ContactDetailPage() {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
-                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                  <ChatBubbleOutlineIcon className="h-4 w-4 text-muted-foreground" />
                   <span>Conversaciones</span>
                 </div>
                 <Badge variant="outline">{conversationsCount}</Badge>
@@ -165,7 +172,7 @@ export default function ContactDetailPage() {
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
                   <span>Oportunidades</span>
                 </div>
                 <Badge variant="outline">{leadsCount}</Badge>
@@ -173,7 +180,7 @@ export default function ContactDetailPage() {
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
-                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <InventoryIcon className="h-4 w-4 text-muted-foreground" />
                   <span>Pedidos</span>
                 </div>
                 <Badge variant="outline">{ordersCount}</Badge>
@@ -236,7 +243,7 @@ export default function ContactDetailPage() {
                 ))
               ) : (
                 <div className="text-center py-12 border rounded-lg">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <ChatBubbleOutlineIcon className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p className="text-muted-foreground">No hay conversaciones</p>
                 </div>
               )}
@@ -269,7 +276,7 @@ export default function ContactDetailPage() {
                 ))
               ) : (
                 <div className="text-center py-12 border rounded-lg">
-                  <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <TrendingUpIcon className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p className="text-muted-foreground">No hay oportunidades de venta</p>
                 </div>
               )}
@@ -300,7 +307,7 @@ export default function ContactDetailPage() {
                 ))
               ) : (
                 <div className="text-center py-12 border rounded-lg">
-                  <Package className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <InventoryIcon className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p className="text-muted-foreground">No hay pedidos</p>
                 </div>
               )}

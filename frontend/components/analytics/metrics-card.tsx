@@ -1,13 +1,13 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LucideIcon } from "lucide-react";
+import { SvgIconComponent } from "@mui/icons-material";
 
 interface MetricsCardProps {
   title: string;
   value: string | number;
   description?: string;
-  icon: LucideIcon;
+  icon: SvgIconComponent;
   trend?: {
     value: number;
     isPositive: boolean;

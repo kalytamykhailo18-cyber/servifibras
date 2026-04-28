@@ -18,7 +18,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { OrderStatusBadge } from "./order-status-badge";
 import type { Order } from "@/types";
-import { MoreVertical, Eye, Edit, Trash2, Package } from "lucide-react";
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -34,7 +38,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
   if (orders.length === 0) {
     return (
       <div className="text-center py-12 border rounded-lg">
-        <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+        <InventoryIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
         <p className="text-lg font-medium">No hay pedidos</p>
         <p className="text-sm text-muted-foreground">
           Crea un nuevo pedido para comenzar
@@ -107,7 +111,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                 <DropdownMenu>
                   <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreVertical className="h-4 w-4" />
+                      <MoreVertIcon className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -117,7 +121,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                         router.push(`/orders/${order.id}`);
                       }}
                     >
-                      <Eye className="h-4 w-4 mr-2" />
+                      <VisibilityIcon className="h-4 w-4 mr-2" />
                       Ver detalles
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -126,7 +130,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                         onEdit(order);
                       }}
                     >
-                      <Edit className="h-4 w-4 mr-2" />
+                      <EditIcon className="h-4 w-4 mr-2" />
                       Editar
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -136,7 +140,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                       }}
                       className="text-red-600"
                     >
-                      <Trash2 className="h-4 w-4 mr-2" />
+                      <DeleteIcon className="h-4 w-4 mr-2" />
                       Eliminar
                     </DropdownMenuItem>
                   </DropdownMenuContent>

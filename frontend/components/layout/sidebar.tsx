@@ -3,16 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import {
-  LayoutDashboard,
-  MessageSquare,
-  Users,
-  BookOpen,
-  BarChart3,
-  TrendingUp,
-  Package,
-  Settings,
-} from "lucide-react";
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
+import PeopleIcon from '@mui/icons-material/People';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import InventoryIcon from '@mui/icons-material/Inventory';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 // ============================================================================
 // NAVIGATION ITEMS
@@ -22,42 +20,42 @@ const navigationItems = [
   {
     name: "Dashboard",
     href: "/dashboard",
-    icon: LayoutDashboard,
+    icon: DashboardIcon,
   },
   {
     name: "Conversaciones",
     href: "/dashboard/conversations",
-    icon: MessageSquare,
+    icon: ChatBubbleOutlineIcon,
   },
   {
     name: "Contactos",
     href: "/dashboard/contacts",
-    icon: Users,
+    icon: PeopleIcon,
   },
   {
     name: "Base de Conocimiento",
     href: "/dashboard/knowledge",
-    icon: BookOpen,
+    icon: MenuBookIcon,
   },
   {
     name: "Analíticas",
     href: "/dashboard/analytics",
-    icon: BarChart3,
+    icon: BarChartIcon,
   },
   {
     name: "Oportunidades",
     href: "/dashboard/leads",
-    icon: TrendingUp,
+    icon: TrendingUpIcon,
   },
   {
     name: "Pedidos",
     href: "/dashboard/orders",
-    icon: Package,
+    icon: InventoryIcon,
   },
   {
     name: "Configuración",
     href: "/dashboard/settings",
-    icon: Settings,
+    icon: SettingsIcon,
   },
 ];
 

@@ -19,7 +19,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Edit, Trash2, Eye } from "lucide-react";
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { KnowledgeBase } from "@/types";
 
 interface KnowledgeTableProps {
@@ -113,18 +116,18 @@ export function KnowledgeTable({
                   <DropdownMenuTrigger>
                     <Button variant="ghost" className="h-8 w-8 p-0">
                       <span className="sr-only">Abrir menú</span>
-                      <MoreHorizontal className="h-4 w-4" />
+                      <MoreHorizIcon className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => onEdit(item)}>
-                      <Eye className="mr-2 h-4 w-4" />
+                      <VisibilityIcon className="mr-2 h-4 w-4" />
                       Ver completo
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(item)}>
-                      <Edit className="mr-2 h-4 w-4" />
+                      <EditIcon className="mr-2 h-4 w-4" />
                       Editar
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -132,7 +135,7 @@ export function KnowledgeTable({
                       onClick={() => onDelete(item)}
                       className="text-destructive focus:text-destructive"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
+                      <DeleteIcon className="mr-2 h-4 w-4" />
                       Eliminar
                     </DropdownMenuItem>
                   </DropdownMenuContent>
