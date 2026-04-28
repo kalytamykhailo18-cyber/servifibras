@@ -69,15 +69,7 @@ apiClient.interceptors.request.use(
 
 apiClient.interceptors.response.use(
   (response) => {
-    // Unwrap {success, data} wrapper ONLY if there are no other fields besides success and data
-    // This prevents losing pagination metadata like total, limit, offset
-    if (response.data && response.data.success !== undefined && response.data.data !== undefined) {
-      const keys = Object.keys(response.data);
-      // Only unwrap if the response has exactly 2 keys: success and data
-      if (keys.length === 2 && keys.includes('success') && keys.includes('data')) {
-        response.data = response.data.data;
-      }
-    }
+    // Don't automatically unwrap responses - let each endpoint handle its own response format
     return response;
   },
   (error: AxiosError<ApiError>) => {
