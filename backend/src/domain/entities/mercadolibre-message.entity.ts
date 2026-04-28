@@ -1,0 +1,84 @@
+/**
+ * DOMAIN LAYER - MercadoLibre Message Entities
+ * For MercadoLibre questions and direct messages
+ */
+
+export enum MercadoLibreMessageType {
+  QUESTION = 'question', // Question on product listing
+  MESSAGE = 'message',   // Direct message
+}
+
+export enum MercadoLibreStatus {
+  UNANSWERED = 'UNANSWERED',
+  ANSWERED = 'ANSWERED',
+  CLOSED_UNANSWERED = 'CLOSED_UNANSWERED',
+  UNDER_REVIEW = 'UNDER_REVIEW',
+  BANNED = 'BANNED',
+}
+
+/**
+ * Represents an incoming question or message from MercadoLibre
+ */
+export class MercadoLibreIncomingMessage {
+  constructor(
+    public readonly id: string,
+    public readonly type: MercadoLibreMessageType,
+    public readonly from: string, // User ID or nickname
+    public readonly fromId: string, // User ID
+    public readonly text: string,
+    public readonly itemId: string | null, // Product ID for questions
+    public readonly status: MercadoLibreStatus,
+    public readonly dateCreated: Date,
+  ) {}
+
+  isQuestion(): boolean {
+    return this.type === MercadoLibreMessageType.QUESTION;
+  }
+
+  isMessage(): boolean {
+    return this.type === MercadoLibreMessageType.MESSAGE;
+  }
+
+  needsAnswer(): boolean {
+    return this.status === MercadoLibreStatus.UNANSWERED && this.text && this.text.length > 0;
+  }
+}
+
+/**
+ * Represents an outgoing answer to MercadoLibre
+ */
+export class MercadoLibreOutgoingMessage {
+  constructor(
+    public readonly type: MercadoLibreMessageType,
+    public readonly questionId: string | null, // For answering questions
+    public readonly text: string,
+  ) {}
+
+  validate(): boolean {
+    // MercadoLibre limit is 2000 characters for answers
+    return (
+      this.text.length > 0 &&
+      this.text.length <= 2000 &&
+      (this.type === MercadoLibreMessageType.MESSAGE || this.questionId !== null)
+    );
+  }
+}
+
+/**
+ * Result of sending a MercadoLibre message
+ */
+export class MercadoLibreSendResult {
+  constructor(
+    public readonly success: boolean,
+    public readonly messageId: string | null,
+    public readonly error: string | null,
+  ) {}
+
+  static success(messageId: string): MercadoLibreSendResult {
+    return new MercadoLibreSendResult(true, messageId, null);
+  }
+
+  static failure(error: string): MercadoLibreSendResult {
+    return new MercadoLibreSendResult(false, null, error);
+  }
+}

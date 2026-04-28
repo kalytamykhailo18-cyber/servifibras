@@ -4,6 +4,9 @@
  */
 
 import { WhatsAppIncomingMessage } from '../../domain/entities/whatsapp-message.entity';
+import { SocialIncomingMessage } from '../../domain/entities/social-message.entity';
+import { MercadoLibreIncomingMessage } from '../../domain/entities/mercadolibre-message.entity';
+import { WebchatIncomingMessage } from '../../domain/entities/webchat-message.entity';
 
 /**
  * Result of processing a conversation message
@@ -31,7 +34,28 @@ export interface IConversationHandler {
   ): Promise<ConversationHandleResult>;
 
   /**
+   * Handle an incoming social media message (Facebook/Instagram)
+   */
+  handleSocialMessage(
+    message: SocialIncomingMessage,
+  ): Promise<ConversationHandleResult>;
+
+  /**
+   * Handle an incoming MercadoLibre message (question or DM)
+   */
+  handleMercadoLibreMessage(
+    message: MercadoLibreIncomingMessage,
+  ): Promise<ConversationHandleResult>;
+
+  /**
+   * Handle an incoming TiendaNube Webchat message
+   */
+  handleWebchatMessage(
+    message: WebchatIncomingMessage,
+  ): Promise<ConversationHandleResult>;
+
+  /**
    * Get conversation history for a contact
    */
-  getConversationHistory(phoneNumber: string, limit?: number): Promise<any[]>;
+  getConversationHistory(contactIdentifier: string, limit?: number): Promise<any[]>;
 }
