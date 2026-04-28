@@ -1,43 +1,18 @@
 // ============================================================================
 // SERVIFIBRAS MIDDLEWARE - Route Protection
 // ============================================================================
+// NOTE: Middleware runs on the server and cannot access localStorage.
+// Auth protection is handled by the dashboard layout component on the client.
+// This middleware only handles basic public/auth route redirects.
+// ============================================================================
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Routes that require authentication
-const protectedRoutes = ["/dashboard"];
-
-// Routes that should redirect to dashboard if authenticated
-const authRoutes = ["/login"];
-
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Check if user has auth token
-  const token = request.cookies.get("servifibras_auth_token")?.value;
-  const isAuthenticated = !!token;
-
-  // Check if route is protected
-  const isProtectedRoute = protectedRoutes.some((route) =>
-    pathname.startsWith(route)
-  );
-
-  // Check if route is auth route (login)
-  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
-
-  // Redirect to login if trying to access protected route without auth
-  if (isProtectedRoute && !isAuthenticated) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("from", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Redirect to dashboard if trying to access login while authenticated
-  if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
+  // Middleware cannot access localStorage (client-side only)
+  // Route protection is handled by dashboard layout component
+  // Just allow all requests to pass through
   return NextResponse.next();
 }
 
