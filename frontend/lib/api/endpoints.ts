@@ -370,8 +370,50 @@ export const knowledgeApi = {
    * Get paginated knowledge base items with filters
    */
   getAll: async (params?: GetKnowledgeParams): Promise<GetKnowledgeResponse> => {
-    const response = await apiClient.get<GetKnowledgeResponse>("/admin/knowledge", { params });
-    return response.data;
+    console.log('[API] knowledgeApi.getAll called with params:', params);
+
+    // Transform page-based params to offset-based for backend
+    const limit = params?.limit || 20;
+    const page = params?.page || 1;
+
+    const backendParams: any = {
+      limit,
+      offset: (page - 1) * limit,
+    };
+
+    if (params) {
+      if (params.category) backendParams.category = params.category;
+      if (params.subcategory) backendParams.subcategory = params.subcategory;
+      if (params.active !== undefined) backendParams.active = params.active;
+      if (params.search) backendParams.search = params.search;
+    }
+
+    const response = await apiClient.get<{
+      success: boolean;
+      data: KnowledgeBase[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>("/admin/knowledge", { params: backendParams });
+
+    console.log('[API] Knowledge raw response:', response.data);
+
+    // Transform backend response to frontend format
+    const responseLimit = response.data.limit || 20;
+    const responseOffset = response.data.offset || 0;
+    const responsePage = Math.floor(responseOffset / responseLimit) + 1;
+    const responseTotalPages = Math.ceil(response.data.total / responseLimit);
+
+    const result = {
+      items: response.data.data,
+      total: response.data.total,
+      page: responsePage,
+      limit: responseLimit,
+      totalPages: responseTotalPages,
+    };
+
+    console.log('[API] Knowledge transformed response:', result);
+    return result;
   },
 
   /**
