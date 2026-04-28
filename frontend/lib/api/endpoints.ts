@@ -264,9 +264,48 @@ export const contactsApi = {
    */
   getAll: async (params?: GetContactsParams): Promise<GetContactsResponse> => {
     console.log('[API] contactsApi.getAll called with params:', params);
-    const response = await apiClient.get<GetContactsResponse>("/admin/contacts", { params });
-    console.log('[API] Contacts response:', response.data);
-    return response.data;
+
+    // Transform page-based params to offset-based for backend
+    const limit = params?.limit || 20;
+    const page = params?.page || 1;
+
+    const backendParams: any = {
+      limit,
+      offset: (page - 1) * limit,
+    };
+
+    if (params) {
+      if (params.type) backendParams.type = params.type;
+      if (params.channel) backendParams.channel = params.channel;
+      if (params.search) backendParams.search = params.search;
+    }
+
+    const response = await apiClient.get<{
+      success: boolean;
+      data: Contact[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>("/admin/contacts", { params: backendParams });
+
+    console.log('[API] Contacts raw response:', response.data);
+
+    // Transform backend response to frontend format
+    const responseLimit = response.data.limit || 20;
+    const responseOffset = response.data.offset || 0;
+    const responsePage = Math.floor(responseOffset / responseLimit) + 1;
+    const responseTotalPages = Math.ceil(response.data.total / responseLimit);
+
+    const result = {
+      contacts: response.data.data,
+      total: response.data.total,
+      page: responsePage,
+      limit: responseLimit,
+      totalPages: responseTotalPages,
+    };
+
+    console.log('[API] Contacts transformed response:', result);
+    return result;
   },
 
   /**
