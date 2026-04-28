@@ -121,14 +121,15 @@ export const conversationsApi = {
    */
   getAll: async (params?: GetConversationsParams): Promise<GetConversationsResponse> => {
     // Transform page-based params to offset-based for backend
-    const backendParams: any = {};
+    const limit = params?.limit || 20;
+    const page = params?.page || 1;
+
+    const backendParams: any = {
+      limit,
+      offset: (page - 1) * limit,
+    };
 
     if (params) {
-      if (params.page) {
-        const limit = params.limit || 20;
-        backendParams.offset = (params.page - 1) * limit;
-        backendParams.limit = limit;
-      }
       if (params.status) backendParams.status = params.status;
       if (params.channel) backendParams.channel = params.channel;
       if (params.assignedTo) backendParams.assignedTo = params.assignedTo;
@@ -144,17 +145,17 @@ export const conversationsApi = {
     }>("/admin/conversations", { params: backendParams });
 
     // Transform backend response to frontend format
-    const limit = response.data.limit || 20;
-    const offset = response.data.offset || 0;
-    const page = Math.floor(offset / limit) + 1;
-    const totalPages = Math.ceil(response.data.total / limit);
+    const responseLimit = response.data.limit || 20;
+    const responseOffset = response.data.offset || 0;
+    const responsePage = Math.floor(responseOffset / responseLimit) + 1;
+    const responseTotalPages = Math.ceil(response.data.total / responseLimit);
 
     return {
       conversations: response.data.data,
       total: response.data.total,
-      page,
-      limit,
-      totalPages,
+      page: responsePage,
+      limit: responseLimit,
+      totalPages: responseTotalPages,
     };
   },
 
