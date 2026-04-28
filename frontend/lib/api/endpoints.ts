@@ -120,10 +120,42 @@ export const conversationsApi = {
    * Get paginated list of conversations with filters
    */
   getAll: async (params?: GetConversationsParams): Promise<GetConversationsResponse> => {
-    const response = await apiClient.get<GetConversationsResponse>("/admin/conversations", {
-      params,
-    });
-    return response.data;
+    // Transform page-based params to offset-based for backend
+    const backendParams: any = {};
+
+    if (params) {
+      if (params.page) {
+        const limit = params.limit || 20;
+        backendParams.offset = (params.page - 1) * limit;
+        backendParams.limit = limit;
+      }
+      if (params.status) backendParams.status = params.status;
+      if (params.channel) backendParams.channel = params.channel;
+      if (params.assignedTo) backendParams.assignedTo = params.assignedTo;
+      if (params.search) backendParams.search = params.search;
+    }
+
+    const response = await apiClient.get<{
+      success: boolean;
+      data: ConversationWithRelations[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>("/admin/conversations", { params: backendParams });
+
+    // Transform backend response to frontend format
+    const limit = response.data.limit || 20;
+    const offset = response.data.offset || 0;
+    const page = Math.floor(offset / limit) + 1;
+    const totalPages = Math.ceil(response.data.total / limit);
+
+    return {
+      conversations: response.data.data,
+      total: response.data.total,
+      page,
+      limit,
+      totalPages,
+    };
   },
 
   /**
@@ -131,8 +163,11 @@ export const conversationsApi = {
    * Get single conversation with messages and relations
    */
   getById: async (id: string): Promise<ConversationWithRelations> => {
-    const response = await apiClient.get<ConversationWithRelations>(`/admin/conversations/${id}`);
-    return response.data;
+    const response = await apiClient.get<{
+      success: boolean;
+      data: ConversationWithRelations;
+    }>(`/admin/conversations/${id}`);
+    return response.data.data;
   },
 
   /**

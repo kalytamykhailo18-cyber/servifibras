@@ -65,7 +65,7 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
     : "Sin mensajes";
 
   return (
-    <Link href={`/dashboard/conversations/${conversation.id}`}>
+    <Link href={`/conversations/${conversation.id}`}>
       <Card className={`transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer ${
         conversation.isUnread ? "border-primary border-2" : ""
       }`}>
