@@ -69,9 +69,14 @@ apiClient.interceptors.request.use(
 
 apiClient.interceptors.response.use(
   (response) => {
-    // Unwrap {success, data} wrapper if present
+    // Unwrap {success, data} wrapper ONLY if there are no other fields besides success and data
+    // This prevents losing pagination metadata like total, limit, offset
     if (response.data && response.data.success !== undefined && response.data.data !== undefined) {
-      response.data = response.data.data;
+      const keys = Object.keys(response.data);
+      // Only unwrap if the response has exactly 2 keys: success and data
+      if (keys.length === 2 && keys.includes('success') && keys.includes('data')) {
+        response.data = response.data.data;
+      }
     }
     return response;
   },
