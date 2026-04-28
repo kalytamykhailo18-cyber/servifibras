@@ -147,7 +147,7 @@ export default function ConversationDetailPage() {
   if (error || !conversation) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => router.push("/dashboard/conversations")}>
+        <Button variant="ghost" onClick={() => router.push("/conversations")}>
           <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
@@ -166,7 +166,7 @@ export default function ConversationDetailPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* HEADER */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => router.push("/dashboard/conversations")}>
+        <Button variant="ghost" onClick={() => router.push("/conversations")}>
           <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
@@ -328,7 +328,7 @@ export default function ConversationDetailPage() {
                 variant="outline"
                 size="sm"
                 className="w-full justify-start"
-                onClick={() => router.push(`/dashboard/contacts/${conversation.contactId}`)}
+                onClick={() => router.push(`/contacts/${conversation.contactId}`)}
               >
                 Ver perfil del contacto
               </Button>

@@ -78,7 +78,7 @@ export default function ContactDetailPage() {
   if (error || !contact) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => router.push("/dashboard/contacts")}>
+        <Button variant="ghost" onClick={() => router.push("/contacts")}>
           <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
@@ -101,7 +101,7 @@ export default function ContactDetailPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* HEADER */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => router.push("/dashboard/contacts")}>
+        <Button variant="ghost" onClick={() => router.push("/contacts")}>
           <ArrowBackIcon className="h-4 w-4 mr-2" />
           Volver
         </Button>
@@ -210,7 +210,7 @@ export default function ContactDetailPage() {
                 contact.conversations.map((conversation) => (
                   <Link
                     key={conversation.id}
-                    href={`/dashboard/conversations/${conversation.id}`}
+                    href={`/conversations/${conversation.id}`}
                   >
                     <Card className="hover:shadow-md transition-shadow cursor-pointer">
                       <CardContent className="p-4">
