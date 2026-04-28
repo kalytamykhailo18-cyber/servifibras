@@ -1,4 +1,5 @@
 "use client";
+// Version: 2.0 - Added comprehensive logging for debugging
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,9 @@ export default function ConversationsPage() {
   // ========================================================================
 
   const fetchConversations = async (page: number = 1) => {
+    console.log('[CONVERSATIONS PAGE] fetchConversations called with page:', page);
+    console.log('[CONVERSATIONS PAGE] Current filters:', filters);
+
     try {
       setIsLoading(true);
       setError(null);
@@ -54,13 +58,18 @@ export default function ConversationsPage() {
         params.search = filters.search.trim();
       }
 
+      console.log('[CONVERSATIONS PAGE] Calling API with params:', params);
       const response = await api.conversations.getAll(params);
+      console.log('[CONVERSATIONS PAGE] API response:', response);
 
       setConversations(response.conversations);
       setTotalCount(response.total);
       setCurrentPage(response.page);
       setTotalPages(response.totalPages);
+
+      console.log('[CONVERSATIONS PAGE] State updated successfully');
     } catch (err: any) {
+      console.error('[CONVERSATIONS PAGE] Error fetching conversations:', err);
       setError(err.message || "Error al cargar conversaciones");
     } finally {
       setIsLoading(false);

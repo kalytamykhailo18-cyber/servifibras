@@ -120,6 +120,8 @@ export const conversationsApi = {
    * Get paginated list of conversations with filters
    */
   getAll: async (params?: GetConversationsParams): Promise<GetConversationsResponse> => {
+    console.log('[API] conversationsApi.getAll called with params:', params);
+
     // Transform page-based params to offset-based for backend
     const limit = params?.limit || 20;
     const page = params?.page || 1;
@@ -136,6 +138,8 @@ export const conversationsApi = {
       if (params.search) backendParams.search = params.search;
     }
 
+    console.log('[API] Sending request to backend with params:', backendParams);
+
     const response = await apiClient.get<{
       success: boolean;
       data: ConversationWithRelations[];
@@ -144,19 +148,40 @@ export const conversationsApi = {
       offset: number;
     }>("/admin/conversations", { params: backendParams });
 
+    console.log('[API] Raw response from backend:', {
+      status: response.status,
+      dataKeys: Object.keys(response.data || {}),
+      hasSuccess: response.data?.success,
+      hasData: !!response.data?.data,
+      dataIsArray: Array.isArray(response.data?.data),
+      dataLength: response.data?.data?.length,
+      total: response.data?.total,
+      limit: response.data?.limit,
+      offset: response.data?.offset,
+    });
+
     // Transform backend response to frontend format
     const responseLimit = response.data.limit || 20;
     const responseOffset = response.data.offset || 0;
     const responsePage = Math.floor(responseOffset / responseLimit) + 1;
     const responseTotalPages = Math.ceil(response.data.total / responseLimit);
 
-    return {
+    const result = {
       conversations: response.data.data,
       total: response.data.total,
       page: responsePage,
       limit: responseLimit,
       totalPages: responseTotalPages,
     };
+
+    console.log('[API] Transformed response:', {
+      conversationsCount: result.conversations?.length,
+      total: result.total,
+      page: result.page,
+      totalPages: result.totalPages,
+    });
+
+    return result;
   },
 
   /**
