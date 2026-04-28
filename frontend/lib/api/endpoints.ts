@@ -263,7 +263,9 @@ export const contactsApi = {
    * Get paginated list of contacts with filters
    */
   getAll: async (params?: GetContactsParams): Promise<GetContactsResponse> => {
+    console.log('[API] contactsApi.getAll called with params:', params);
     const response = await apiClient.get<GetContactsResponse>("/admin/contacts", { params });
+    console.log('[API] Contacts response:', response.data);
     return response.data;
   },
 
