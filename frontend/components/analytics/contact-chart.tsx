@@ -9,7 +9,13 @@ interface ContactChartProps {
   metrics: ContactMetrics;
 }
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#A28BFE"];
+const COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+];
 
 export function ContactChart({ metrics }: ContactChartProps) {
   // Prepare data for contact channels
@@ -34,7 +40,7 @@ export function ContactChart({ metrics }: ContactChartProps) {
               labelLine={false}
               label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
               outerRadius={80}
-              fill="#8884d8"
+              fill="var(--chart-1)"
               dataKey="value"
             >
               {channelData.map((entry, index) => (

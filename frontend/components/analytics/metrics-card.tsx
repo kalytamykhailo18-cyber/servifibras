@@ -25,7 +25,9 @@ export function MetricsCard({
     <Card className="transition-all hover:shadow-lg hover:scale-[1.02] duration-200">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10">
+          <Icon className="h-5 w-5 text-primary" />
+        </div>
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>

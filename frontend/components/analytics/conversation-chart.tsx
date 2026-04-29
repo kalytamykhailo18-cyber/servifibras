@@ -30,7 +30,7 @@ export function ConversationChart({ metrics }: ConversationChartProps) {
             <XAxis dataKey="name" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="value" fill="hsl(var(--primary))" />
+            <Bar dataKey="value" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

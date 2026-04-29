@@ -222,7 +222,7 @@ export default function OrdersStatsPage() {
                 <Line
                   type="monotone"
                   dataKey="revenue"
-                  stroke="hsl(var(--primary))"
+                  stroke="var(--chart-1)"
                   strokeWidth={2}
                   name="Ingresos (USD)"
                 />

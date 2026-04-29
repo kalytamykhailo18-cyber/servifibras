@@ -130,16 +130,16 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
               </TableCell>
               <TableCell className="text-right">
                 <DropdownMenu>
-                  <DropdownMenuTrigger>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
-                      <span className="sr-only">Abrir menú</span>
-                      <MoreHorizIcon className="h-4 w-4" />
-                    </Button>
+                  <DropdownMenuTrigger
+                    render={<Button variant="ghost" className="h-8 w-8 p-0" />}
+                  >
+                    <span className="sr-only">Abrir menú</span>
+                    <MoreHorizIcon className="h-4 w-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => router.push(`/dashboard/contacts/${contact.id}`)}>
+                    <DropdownMenuItem onClick={() => router.push(`/contacts/${contact.id}`)}>
                       <VisibilityIcon className="mr-2 h-4 w-4" />
                       Ver detalles
                     </DropdownMenuItem>

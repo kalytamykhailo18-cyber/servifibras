@@ -203,7 +203,7 @@ export default function LeadsStatsPage() {
                 <XAxis dataKey="name" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="oportunidades" fill="hsl(var(--primary))" />
+                <Bar dataKey="oportunidades" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

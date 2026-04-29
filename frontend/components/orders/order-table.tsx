@@ -109,10 +109,11 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
               </TableCell>
               <TableCell className="text-right">
                 <DropdownMenu>
-                  <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreVertIcon className="h-4 w-4" />
-                    </Button>
+                  <DropdownMenuTrigger
+                    onClick={(e) => e.stopPropagation()}
+                    render={<Button variant="ghost" size="sm" className="h-8 w-8 p-0" />}
+                  >
+                    <MoreVertIcon className="h-4 w-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem

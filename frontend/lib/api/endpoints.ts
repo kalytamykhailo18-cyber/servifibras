@@ -120,7 +120,6 @@ export const conversationsApi = {
    * Get paginated list of conversations with filters
    */
   getAll: async (params?: GetConversationsParams): Promise<GetConversationsResponse> => {
-    console.log('[API] conversationsApi.getAll called with params:', params);
 
     // Transform page-based params to offset-based for backend
     const limit = params?.limit || 20;
@@ -138,7 +137,6 @@ export const conversationsApi = {
       if (params.search) backendParams.search = params.search;
     }
 
-    console.log('[API] Sending request to backend with params:', backendParams);
 
     const response = await apiClient.get<{
       success: boolean;
@@ -148,17 +146,6 @@ export const conversationsApi = {
       offset: number;
     }>("/admin/conversations", { params: backendParams });
 
-    console.log('[API] Raw response from backend:', {
-      status: response.status,
-      dataKeys: Object.keys(response.data || {}),
-      hasSuccess: response.data?.success,
-      hasData: !!response.data?.data,
-      dataIsArray: Array.isArray(response.data?.data),
-      dataLength: response.data?.data?.length,
-      total: response.data?.total,
-      limit: response.data?.limit,
-      offset: response.data?.offset,
-    });
 
     // Transform backend response to frontend format
     const responseLimit = response.data.limit || 20;
@@ -174,12 +161,6 @@ export const conversationsApi = {
       totalPages: responseTotalPages,
     };
 
-    console.log('[API] Transformed response:', {
-      conversationsCount: result.conversations?.length,
-      total: result.total,
-      page: result.page,
-      totalPages: result.totalPages,
-    });
 
     return result;
   },
@@ -263,7 +244,6 @@ export const contactsApi = {
    * Get paginated list of contacts with filters
    */
   getAll: async (params?: GetContactsParams): Promise<GetContactsResponse> => {
-    console.log('[API] contactsApi.getAll called with params:', params);
 
     // Transform page-based params to offset-based for backend
     const limit = params?.limit || 20;
@@ -288,7 +268,6 @@ export const contactsApi = {
       offset: number;
     }>("/admin/contacts", { params: backendParams });
 
-    console.log('[API] Contacts raw response:', response.data);
 
     // Transform backend response to frontend format
     const responseLimit = response.data.limit || 20;
@@ -304,7 +283,6 @@ export const contactsApi = {
       totalPages: responseTotalPages,
     };
 
-    console.log('[API] Contacts transformed response:', result);
     return result;
   },
 
@@ -370,7 +348,6 @@ export const knowledgeApi = {
    * Get paginated knowledge base items with filters
    */
   getAll: async (params?: GetKnowledgeParams): Promise<GetKnowledgeResponse> => {
-    console.log('[API] knowledgeApi.getAll called with params:', params);
 
     // Transform page-based params to offset-based for backend
     const limit = params?.limit || 20;
@@ -396,7 +373,6 @@ export const knowledgeApi = {
       offset: number;
     }>("/admin/knowledge", { params: backendParams });
 
-    console.log('[API] Knowledge raw response:', response.data);
 
     // Transform backend response to frontend format
     const responseLimit = response.data.limit || 20;
@@ -412,7 +388,6 @@ export const knowledgeApi = {
       totalPages: responseTotalPages,
     };
 
-    console.log('[API] Knowledge transformed response:', result);
     return result;
   },
 

@@ -73,14 +73,11 @@ apiClient.interceptors.response.use(
     // This prevents losing pagination metadata like total, limit, offset
     if (response.data && typeof response.data === 'object' && response.data.success !== undefined && response.data.data !== undefined) {
       const keys = Object.keys(response.data);
-      console.log('[API CLIENT] Response interceptor - keys:', keys);
 
       // Only unwrap if the response has exactly 2 keys: success and data
       if (keys.length === 2 && keys.includes('success') && keys.includes('data')) {
-        console.log('[API CLIENT] Unwrapping simple {success, data} response');
         response.data = response.data.data;
       } else {
-        console.log('[API CLIENT] Keeping full response structure (has pagination or other fields)');
       }
     }
     return response;

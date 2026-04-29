@@ -1,3 +1,5 @@
+// Servifibras AI Platform - Database Schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,39 +9,60 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model configurations {
-  id          String            @id
-  type        ConfigurationType
-  key         String            @unique
-  value       Json
-  description String?
-  isActive    Boolean           @default(true)
-  metadata    Json?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime
+// Team Members (Brenda, Franco, Aldo, Admin)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  name      String
+  role      UserRole
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([isActive])
-  @@index([key])
-  @@index([type])
+  conversations Conversation[]
+  leads         Lead[]
+
+  @@map("users")
 }
 
-model contacts {
-  id            String          @id
-  name          String?
-  phone         String?         @unique
-  email         String?
-  type          ContactType     @default(MINORISTA)
-  channel       Channel?
-  metadata      Json?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime
-  conversations conversations[]
-  leads         leads[]
-  orders        orders[]
+enum UserRole {
+  ADMIN
+  ATENCION
+  VENTAS
+  LOGISTICA
 }
 
-model conversations {
-  id            String             @id
+// Customer Information
+model Contact {
+  id        String      @id @default(uuid())
+  name      String?
+  phone     String?     @unique
+  email     String?
+  type      ContactType @default(MINORISTA)
+  channel   Channel?
+  metadata  Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  conversations Conversation[]
+  leads         Lead[]
+  orders        Order[]
+
+  @@map("contacts")
+}
+
+enum ContactType {
+  MINORISTA
+  MAYORISTA
+  EMPRENDEDOR
+  INDUSTRIAL
+}
+
+// Chat Sessions
+model Conversation {
+  id            String             @id @default(uuid())
   contactId     String
   channel       Channel
   status        ConversationStatus @default(ACTIVE)
@@ -49,34 +72,72 @@ model conversations {
   isUnread      Boolean            @default(true)
   metadata      Json?
   createdAt     DateTime           @default(now())
-  updatedAt     DateTime
-  users         users?             @relation(fields: [assignedTo], references: [id])
-  contacts      contacts           @relation(fields: [contactId], references: [id])
-  messages      messages[]
+  updatedAt     DateTime           @updatedAt
 
+  contact  Contact   @relation(fields: [contactId], references: [id])
+  assigned User?     @relation(fields: [assignedTo], references: [id])
+  messages Message[]
+
+  @@index([contactId])
   @@index([assignedTo])
   @@index([channel])
-  @@index([contactId])
   @@index([status])
+  @@map("conversations")
 }
 
-model knowledge_base {
-  id          String   @id
-  category    String
-  subcategory String?
-  title       String
-  content     String
-  active      Boolean  @default(true)
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime
-
-  @@index([active])
-  @@index([category])
+enum Channel {
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  MERCADOLIBRE
+  TIENDANUBE_WEBCHAT
 }
 
-model leads {
-  id              String     @id
+enum ConversationStatus {
+  ACTIVE
+  CLOSED
+  WAITING
+}
+
+// Individual Messages
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  sender         MessageSender
+  content        String
+  contentType    ContentType   @default(TEXT)
+  isFromAI       Boolean       @default(false)
+  metadata       Json?
+  timestamp      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
+  @@map("messages")
+}
+
+enum MessageSender {
+  CUSTOMER
+  AI
+  BRENDA
+  FRANCO
+  ALDO
+  ADMIN
+}
+
+enum ContentType {
+  TEXT
+  IMAGE
+  VOICE
+  VIDEO
+  DOCUMENT
+  LOCATION
+}
+
+// Wholesale Opportunities
+model Lead {
+  id              String     @id @default(uuid())
   contactId       String
   assignedTo      String?
   status          LeadStatus @default(NEW)
@@ -87,32 +148,29 @@ model leads {
   wonAmount       Float?
   lostReason      String?
   createdAt       DateTime   @default(now())
-  updatedAt       DateTime
-  users           users?     @relation(fields: [assignedTo], references: [id])
-  contacts        contacts   @relation(fields: [contactId], references: [id])
+  updatedAt       DateTime   @updatedAt
 
-  @@index([assignedTo])
+  contact  Contact @relation(fields: [contactId], references: [id])
+  assigned User?   @relation(fields: [assignedTo], references: [id])
+
   @@index([contactId])
+  @@index([assignedTo])
   @@index([status])
+  @@map("leads")
 }
 
-model messages {
-  id             String        @id
-  conversationId String
-  sender         MessageSender
-  content        String
-  contentType    ContentType   @default(TEXT)
-  isFromAI       Boolean       @default(false)
-  metadata       Json?
-  timestamp      DateTime      @default(now())
-  conversations  conversations @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@index([timestamp])
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUOTE_SENT
+  NEGOTIATING
+  WON
+  LOST
 }
 
-model orders {
-  id             String      @id
+// Confirmed Sales
+model Order {
+  id             String      @id @default(uuid())
   orderNumber    String      @unique
   contactId      String
   amount         Float
@@ -125,81 +183,14 @@ model orders {
   deliveredAt    DateTime?
   notes          String?
   createdAt      DateTime    @default(now())
-  updatedAt      DateTime
-  contacts       contacts    @relation(fields: [contactId], references: [id])
+  updatedAt      DateTime    @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id])
 
   @@index([contactId])
   @@index([orderNumber])
   @@index([status])
-}
-
-model users {
-  id            String          @id
-  email         String          @unique
-  username      String          @unique
-  password      String
-  name          String
-  role          UserRole
-  active        Boolean         @default(true)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime
-  conversations conversations[]
-  leads         leads[]
-}
-
-enum Channel {
-  WHATSAPP
-  FACEBOOK
-  INSTAGRAM
-  MERCADOLIBRE
-  TIENDANUBE_WEBCHAT
-}
-
-enum ConfigurationType {
-  CHANNEL
-  AI
-  PRICING
-  SYSTEM
-}
-
-enum ContactType {
-  MINORISTA
-  MAYORISTA
-  EMPRENDEDOR
-  INDUSTRIAL
-}
-
-enum ContentType {
-  TEXT
-  IMAGE
-  VOICE
-  VIDEO
-  DOCUMENT
-  LOCATION
-}
-
-enum ConversationStatus {
-  ACTIVE
-  CLOSED
-  WAITING
-}
-
-enum LeadStatus {
-  NEW
-  CONTACTED
-  QUOTE_SENT
-  NEGOTIATING
-  WON
-  LOST
-}
-
-enum MessageSender {
-  CUSTOMER
-  AI
-  BRENDA
-  FRANCO
-  ALDO
-  ADMIN
+  @@map("orders")
 }
 
 enum OrderStatus {
@@ -210,9 +201,44 @@ enum OrderStatus {
   CANCELLED
 }
 
-enum UserRole {
-  ADMIN
-  ATENCION
-  VENTAS
-  LOGISTICA
+// Product Knowledge Base
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  category    String
+  subcategory String?
+  title       String
+  content     String
+  active      Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([active])
+  @@map("knowledge_base")
+}
+
+// System Configuration (channels, AI, pricing, etc.)
+model Configuration {
+  id          String            @id @default(uuid())
+  type        ConfigurationType
+  key         String            @unique
+  value       Json
+  description String?
+  isActive    Boolean           @default(true)
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([type])
+  @@index([key])
+  @@index([isActive])
+  @@map("configurations")
+}
+
+enum ConfigurationType {
+  CHANNEL
+  AI
+  PRICING
+  SYSTEM
 }

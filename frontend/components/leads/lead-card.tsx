@@ -79,15 +79,11 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
             </Badge>
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertIcon className="h-4 w-4" />
-              </Button>
+            <DropdownMenuTrigger
+              onClick={(e) => e.stopPropagation()}
+              render={<Button variant="ghost" size="sm" className="h-8 w-8 p-0" />}
+            >
+              <MoreVertIcon className="h-4 w-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => onView(lead)}>
