@@ -20,8 +20,8 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import PhoneIcon from '@mui/icons-material/Phone';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDistanceToNow } from "@/lib/date";
+import { formatMoney, formatNumber } from "@/lib/format";
 
 export default function ContactDetailPage() {
   const params = useParams();
@@ -225,10 +225,7 @@ export default function ContactDetailPage() {
                           </div>
                           {conversation.lastMessageAt && (
                             <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(conversation.lastMessageAt), {
-                                addSuffix: true,
-                                locale: es,
-                              })}
+                              {safeFormatDistanceToNow(conversation.lastMessageAt)}
                             </span>
                           )}
                         </div>
@@ -264,7 +261,7 @@ export default function ContactDetailPage() {
                         </div>
                         {lead.estimatedValue && (
                           <span className="text-sm font-medium">
-                            ${lead.estimatedValue.toLocaleString("es-AR")}
+                            ${formatNumber(lead.estimatedValue)}
                           </span>
                         )}
                       </div>
@@ -294,7 +291,7 @@ export default function ContactDetailPage() {
                           <Badge className="mt-1">{order.status}</Badge>
                         </div>
                         <span className="text-sm font-medium">
-                          ${order.amount.toLocaleString("es-AR")} {order.currency}
+                          ${formatNumber(order.amount)} {order.currency}
                         </span>
                       </div>
                       {order.trackingNumber && (

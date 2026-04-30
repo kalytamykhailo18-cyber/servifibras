@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 
-// ============================================================================
-// DASHBOARD LAYOUT
-// ============================================================================
+const TOKEN_KEY = "servifibras_auth_token";
 
 export default function DashboardLayout({
   children,
@@ -16,22 +14,32 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+  const { isAuthenticated, checkAuth } = useAuthStore();
+  // Gate the entire layout on a synchronous token check so we don't redirect
+  // to /login during the brief moment before Zustand persist rehydrates the
+  // store from localStorage. Without this, navigation to any dashboard route
+  // bounces through /login → /conversations.
+  const [bootstrapped, setBootstrapped] = useState(false);
 
-  // Check authentication on mount
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/login");
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      router.replace("/login");
+      return;
     }
-  }, [isAuthenticated, isLoading, router]);
+    checkAuth().finally(() => setBootstrapped(true));
+  }, [checkAuth, router]);
 
-  // Show loading state while checking auth
-  if (isLoading) {
+  // After bootstrap, trust the store. If it ever goes false (logout, expired
+  // token), bounce back to login.
+  useEffect(() => {
+    if (bootstrapped && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [bootstrapped, isAuthenticated, router]);
+
+  if (!bootstrapped) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -42,22 +50,15 @@ export default function DashboardLayout({
     );
   }
 
-  // Don't render dashboard if not authenticated
   if (!isAuthenticated) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* SIDEBAR */}
       <Sidebar />
-
-      {/* MAIN CONTENT */}
       <div className="lg:pl-64">
-        {/* HEADER */}
         <Header />
-
-        {/* PAGE CONTENT */}
         <main className="p-6">{children}</main>
       </div>
     </div>

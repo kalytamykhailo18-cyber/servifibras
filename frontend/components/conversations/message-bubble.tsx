@@ -2,8 +2,7 @@
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDate } from "@/lib/date";
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
 import type { Message, MessageSender } from "@/types";
@@ -74,7 +73,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             </Badge>
           )}
           <span className="text-xs text-muted-foreground">
-            {format(new Date(message.timestamp), "HH:mm", { locale: es })}
+            {safeFormatDate(message.timestamp, "HH:mm")}
           </span>
         </div>
 
@@ -92,7 +91,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Timestamp */}
         <span className="text-xs text-muted-foreground mt-1 px-1">
-          {format(new Date(message.timestamp), "dd/MM/yyyy", { locale: es })}
+          {safeFormatDate(message.timestamp, "dd/MM/yyyy")}
         </span>
       </div>
     </div>

@@ -97,6 +97,7 @@ export class ContactManagementService implements IContactManagementService {
           name: contact.name,
           phone: contact.phone,
           email: contact.email,
+          type: contact.type,
           channel: contact.channel,
           metadata: (contact.metadata as Record<string, any>) || {},
           createdAt: contact.createdAt,
@@ -150,6 +151,7 @@ export class ContactManagementService implements IContactManagementService {
         name: contact.name,
         phone: contact.phone,
         email: contact.email,
+          type: contact.type,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -175,10 +177,11 @@ export class ContactManagementService implements IContactManagementService {
     try {
       const contact = await this.prisma.contact.create({
         data: {
-          name: input.name,
+          name: input.name ?? null,
           phone: input.phone || null,
           email: input.email || null,
-          channel: input.channel,
+          type: input.type, // undefined → Prisma default MINORISTA
+          channel: input.channel ?? null,
           metadata: input.metadata || {},
         },
         include: {
@@ -195,6 +198,7 @@ export class ContactManagementService implements IContactManagementService {
         name: contact.name,
         phone: contact.phone,
         email: contact.email,
+          type: contact.type,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -244,6 +248,7 @@ export class ContactManagementService implements IContactManagementService {
         name: contact.name,
         phone: contact.phone,
         email: contact.email,
+          type: contact.type,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -344,6 +349,7 @@ export class ContactManagementService implements IContactManagementService {
           name: contact.name,
           phone: contact.phone,
           email: contact.email,
+          type: contact.type,
           channel: contact.channel,
           metadata: (contact.metadata as Record<string, any>) || {},
           createdAt: contact.createdAt,

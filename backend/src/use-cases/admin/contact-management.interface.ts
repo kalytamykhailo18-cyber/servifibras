@@ -3,7 +3,7 @@
  * Defines contact management operations for admin dashboard
  */
 
-import { Channel } from '@prisma/client';
+import { Channel, ContactType } from '@prisma/client';
 
 export interface ContactListFilter {
   channel?: Channel;
@@ -15,10 +15,11 @@ export interface ContactListFilter {
 
 export interface ContactDetails {
   id: string;
-  name: string;
+  name: string | null;
   phone: string | null;
   email: string | null;
-  channel: Channel;
+  type: ContactType;
+  channel: Channel | null;
   metadata: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
@@ -33,10 +34,11 @@ export interface ContactDetails {
 }
 
 export interface CreateContactInput {
-  name: string;
+  name?: string;
   phone?: string;
   email?: string;
-  channel: Channel;
+  type?: ContactType;
+  channel?: Channel;
   metadata?: Record<string, any>;
 }
 

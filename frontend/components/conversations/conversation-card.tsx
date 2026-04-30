@@ -4,8 +4,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDistanceToNow } from "@/lib/date";
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
 import PersonIcon from '@mui/icons-material/Person';
@@ -58,10 +57,7 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
   };
 
   const timeAgo = conversation.lastMessageAt
-    ? formatDistanceToNow(new Date(conversation.lastMessageAt), {
-        addSuffix: true,
-        locale: es,
-      })
+    ? safeFormatDistanceToNow(conversation.lastMessageAt)
     : "Sin mensajes";
 
   return (

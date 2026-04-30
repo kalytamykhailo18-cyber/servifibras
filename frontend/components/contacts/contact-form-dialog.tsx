@@ -18,13 +18,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Contact, ContactFormData } from "@/types";
 import { ContactType, Channel, CONTACT_TYPE_LABELS, CHANNEL_LABELS } from "@/types";
 
-const contactSchema = z.object({
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email("Email inválido").optional().or(z.literal("")),
-  type: z.nativeEnum(ContactType),
-  channel: z.nativeEnum(Channel).optional(),
-});
+const contactSchema = z
+  .object({
+    name: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    type: z.nativeEnum(ContactType),
+    channel: z.nativeEnum(Channel).optional(),
+  })
+  .superRefine((val, ctx) => {
+    // Email is optional, but if the user typed something it must look like one.
+    // Using superRefine with explicit `path` makes the error attach to
+    // `errors.email` so the field's <p>{errors.email.message}</p> renders.
+    if (val.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.email)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Email inválido",
+        path: ["email"],
+      });
+    }
+  });
 
 interface ContactFormDialogProps {
   open: boolean;
@@ -102,7 +115,7 @@ export function ContactFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4">
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="name">Nombre</Label>

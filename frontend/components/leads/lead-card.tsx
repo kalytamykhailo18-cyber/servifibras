@@ -17,8 +17,8 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PersonIcon from '@mui/icons-material/Person';
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDistanceToNow } from "@/lib/date";
+import { formatNumber } from "@/lib/format";
 
 interface LeadCardProps {
   lead: Lead;
@@ -115,7 +115,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
         {lead.estimatedValue !== null && lead.estimatedValue > 0 && (
           <div className="flex items-center gap-2 text-xs font-medium text-green-600">
             <AttachMoneyIcon className="h-3 w-3" />
-            <span>${lead.estimatedValue.toLocaleString("es-AR")}</span>
+            <span>${formatNumber(lead.estimatedValue)}</span>
           </div>
         )}
 
@@ -131,10 +131,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <CalendarTodayIcon className="h-3 w-3" />
           <span>
-            {formatDistanceToNow(new Date(lead.createdAt), {
-              addSuffix: true,
-              locale: es,
-            })}
+            {safeFormatDistanceToNow(lead.createdAt)}
           </span>
         </div>
 

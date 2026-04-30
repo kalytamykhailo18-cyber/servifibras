@@ -19,7 +19,7 @@ import { ContactManagementService } from '../../../adapters/admin/contact-manage
 import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
-import { Channel } from '@prisma/client';
+import { Channel, ContactType } from '@prisma/client';
 
 @Controller('admin/contacts')
 @UseGuards(AuthGuard, RolesGuard)
@@ -138,17 +138,18 @@ export class ContactsController {
   async createContact(
     @Body()
     body: {
-      name: string;
+      name?: string;
       phone?: string;
       email?: string;
-      channel: Channel;
+      type?: ContactType;
+      channel?: Channel;
       metadata?: Record<string, any>;
     },
   ) {
-    if (!body.name || !body.channel) {
+    if (!body.name && !body.phone && !body.email) {
       return {
         success: false,
-        error: 'Name and channel are required',
+        error: 'At least one of name, phone, or email is required',
       };
     }
 
@@ -156,6 +157,7 @@ export class ContactsController {
       name: body.name,
       phone: body.phone,
       email: body.email,
+      type: body.type,
       channel: body.channel,
       metadata: body.metadata,
     });

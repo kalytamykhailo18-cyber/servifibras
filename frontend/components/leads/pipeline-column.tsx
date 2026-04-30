@@ -8,6 +8,7 @@ import {
 import { LeadCard } from "./lead-card";
 import { LeadStatus, type Lead } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatNumber } from "@/lib/format";
 
 interface PipelineColumnProps {
   status: LeadStatus;
@@ -58,7 +59,7 @@ export function PipelineColumn({
         </div>
         {totalValue > 0 && (
           <p className="text-xs text-muted-foreground">
-            ${totalValue.toLocaleString("es-AR")} USD
+            ${formatNumber(totalValue)} USD
           </p>
         )}
       </div>

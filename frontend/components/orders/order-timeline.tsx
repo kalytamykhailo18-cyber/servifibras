@@ -2,8 +2,7 @@ import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CircleOutlinedIcon from '@mui/icons-material/CircleOutlined';
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDate } from "@/lib/date";
 
 interface OrderTimelineProps {
   currentStatus: OrderStatus;
@@ -92,7 +91,7 @@ export function OrderTimeline({
               </p>
               {item.date && (
                 <p className="text-sm text-muted-foreground">
-                  {format(new Date(item.date), "PPp", { locale: es })}
+                  {safeFormatDate(item.date, "PPp")}
                 </p>
               )}
               {isCurrent && !item.date && (

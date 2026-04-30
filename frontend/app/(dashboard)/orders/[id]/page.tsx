@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,11 +23,13 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDate } from "@/lib/date";
+import { formatMoney, formatNumber } from "@/lib/format";
 
-export default function OrderDetailPage({ params }: { params: { id: string } }) {
+export default function OrderDetailPage() {
   const router = useRouter();
+  const params = useParams();
+  const orderId = params.id as string;
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -40,7 +42,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const fetchOrder = async () => {
     try {
       setIsLoading(true);
-      const data = await api.orders.getById(params.id);
+      const data = await api.orders.getById(orderId);
       setOrder(data);
       setTrackingNumber(data.trackingNumber || "");
       setCarrier(data.carrier || "");
@@ -54,7 +56,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
   useEffect(() => {
     fetchOrder();
-  }, [params.id]);
+  }, [orderId]);
 
   // ========================================================================
   // HANDLERS
@@ -131,7 +133,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             #{order.orderNumber}
           </h1>
           <p className="text-muted-foreground">
-            Creado el {format(new Date(order.createdAt), "PPP", { locale: es })}
+            Creado el {safeFormatDate(order.createdAt, "PPP")}
           </p>
         </div>
         <OrderStatusBadge status={order.status} />
@@ -200,9 +202,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                           )}
                         </div>
                       </div>
-                      {product.price && (
+                      {product.price != null && (
                         <span className="font-semibold text-green-600">
-                          ${product.price.toLocaleString("es-AR")}
+                          ${formatNumber(product.price)}
                         </span>
                       )}
                     </div>
@@ -230,7 +232,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <div>
                   <Label>Monto Total</Label>
                   <p className="text-2xl font-bold text-green-600">
-                    {order.currency} ${order.amount.toLocaleString("es-AR")}
+                    {formatMoney(order.amount, order.currency)}
                   </p>
                 </div>
                 <div>
@@ -325,7 +327,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               </Button>
               {order.dispatchedAt && (
                 <p className="text-xs text-muted-foreground">
-                  Despachado: {format(new Date(order.dispatchedAt), "PPP", { locale: es })}
+                  Despachado: {safeFormatDate(order.dispatchedAt, "PPP")}
                 </p>
               )}
             </CardContent>
@@ -343,11 +345,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Creado</span>
-                <span>{format(new Date(order.createdAt), "PP", { locale: es })}</span>
+                <span>{safeFormatDate(order.createdAt, "PP")}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Actualizado</span>
-                <span>{format(new Date(order.updatedAt), "PP", { locale: es })}</span>
+                <span>{safeFormatDate(order.updatedAt, "PP")}</span>
               </div>
             </CardContent>
           </Card>

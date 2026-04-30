@@ -15,6 +15,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import { ORDER_STATUS_LABELS, type OrderFulfillmentStats } from "@/types";
+import { formatNumber } from "@/lib/format";
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#A28BFE"];
 
@@ -92,14 +93,14 @@ export default function OrdersStatsPage() {
 
         <MetricsCard
           title="Ingresos Totales"
-          value={`$${stats.totalRevenue.toLocaleString("es-AR")}`}
+          value={`$${formatNumber(stats.totalRevenue)}`}
           description="USD facturados"
           icon={AttachMoneyIcon}
         />
 
         <MetricsCard
           title="Valor Promedio"
-          value={`$${(stats.averageOrderValue || stats.avgOrderValue).toLocaleString("es-AR")}`}
+          value={`$${formatNumber(stats.averageOrderValue || stats.avgOrderValue)}`}
           description="USD por pedido"
           icon={TrendingUpIcon}
         />
@@ -216,7 +217,7 @@ export default function OrdersStatsPage() {
                 <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip
-                  formatter={(value) => `$${(value || 0).toLocaleString("es-AR")}`}
+                  formatter={(value) => `$${formatNumber(value)}`}
                 />
                 <Legend />
                 <Line
@@ -263,7 +264,7 @@ export default function OrdersStatsPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-lg font-bold text-green-600">
-                      ${product.revenue.toLocaleString("es-AR")}
+                      ${formatNumber(product.revenue)}
                     </p>
                     <p className="text-xs text-muted-foreground">USD</p>
                   </div>

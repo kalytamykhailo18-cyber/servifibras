@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricsCard } from "@/components/analytics/metrics-card";
 import { api } from "@/lib/api/endpoints";
+import { formatNumber } from "@/lib/format";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -100,14 +101,14 @@ export default function LeadsStatsPage() {
 
         <MetricsCard
           title="Valor Ganado"
-          value={`$${(stats.totalWonValue || 0).toLocaleString("es-AR")}`}
+          value={`$${formatNumber(stats.totalWonValue)}`}
           description="USD cerrados"
           icon={EmojiEventsIcon}
         />
 
         <MetricsCard
           title="Tamaño Promedio"
-          value={`$${(stats.averageDealSize || stats.avgDealSize).toLocaleString("es-AR")}`}
+          value={`$${formatNumber(stats.averageDealSize || stats.avgDealSize)}`}
           description="USD por deal"
           icon={AttachMoneyIcon}
         />
@@ -121,7 +122,7 @@ export default function LeadsStatsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-blue-600">
-              ${(stats.totalEstimatedValue || 0).toLocaleString("es-AR")} USD
+              ${formatNumber(stats.totalEstimatedValue)} USD
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Potencial del pipeline
@@ -135,7 +136,7 @@ export default function LeadsStatsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-green-600">
-              ${(stats.totalWonValue || 0).toLocaleString("es-AR")} USD
+              ${formatNumber(stats.totalWonValue)} USD
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Oportunidades cerradas
@@ -149,7 +150,7 @@ export default function LeadsStatsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-red-600">
-              ${(stats.totalLostValue || 0).toLocaleString("es-AR")} USD
+              ${formatNumber(stats.totalLostValue)} USD
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Oportunidades perdidas

@@ -23,8 +23,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDistanceToNow } from "@/lib/date";
+import { formatMoney } from "@/lib/format";
 
 interface OrderTableProps {
   orders: Order[];
@@ -83,7 +83,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
               </TableCell>
               <TableCell>
                 <span className="font-semibold text-green-600">
-                  {order.currency} ${order.amount.toLocaleString("es-AR")}
+                  {formatMoney(order.amount, order.currency)}
                 </span>
               </TableCell>
               <TableCell>
@@ -102,10 +102,7 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                 )}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {formatDistanceToNow(new Date(order.createdAt), {
-                  addSuffix: true,
-                  locale: es,
-                })}
+                {safeFormatDistanceToNow(order.createdAt)}
               </TableCell>
               <TableCell className="text-right">
                 <DropdownMenu>

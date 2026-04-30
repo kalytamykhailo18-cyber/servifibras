@@ -170,11 +170,12 @@ export const conversationsApi = {
    * Get single conversation with messages and relations
    */
   getById: async (id: string): Promise<ConversationWithRelations> => {
-    const response = await apiClient.get<{
-      success: boolean;
-      data: ConversationWithRelations;
-    }>(`/admin/conversations/${id}`);
-    return response.data.data;
+    // Response interceptor already unwraps {success, data} → data, so the
+    // conversation sits at response.data (NOT response.data.data).
+    const response = await apiClient.get<ConversationWithRelations>(
+      `/admin/conversations/${id}`,
+    );
+    return response.data;
   },
 
   /**
@@ -225,11 +226,11 @@ export const conversationsApi = {
   },
 
   /**
-   * GET /admin/conversations/stats
+   * GET /admin/conversations/stats/summary
    * Get conversation statistics and metrics
    */
   getStats: async (): Promise<ConversationMetrics> => {
-    const response = await apiClient.get<ConversationMetrics>("/admin/conversations/stats");
+    const response = await apiClient.get<ConversationMetrics>("/admin/conversations/stats/summary");
     return response.data;
   },
 };
@@ -537,11 +538,11 @@ export const leadsApi = {
   },
 
   /**
-   * GET /admin/leads/stats
+   * GET /admin/leads/stats/pipeline
    * Get sales pipeline statistics (conversion rates, revenue, etc.)
    */
   getStats: async (): Promise<LeadPipelineStats> => {
-    const response = await apiClient.get<LeadPipelineStats>("/admin/leads/stats");
+    const response = await apiClient.get<LeadPipelineStats>("/admin/leads/stats/pipeline");
     return response.data;
   },
 
@@ -623,11 +624,11 @@ export const ordersApi = {
   },
 
   /**
-   * GET /admin/orders/stats
+   * GET /admin/orders/stats/summary
    * Get order fulfillment statistics (revenue, top products, etc.)
    */
   getStats: async (): Promise<OrderFulfillmentStats> => {
-    const response = await apiClient.get<OrderFulfillmentStats>("/admin/orders/stats");
+    const response = await apiClient.get<OrderFulfillmentStats>("/admin/orders/stats/summary");
     return response.data;
   },
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -27,12 +27,14 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import PersonIcon from '@mui/icons-material/Person';
 import { toast } from "sonner";
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
+import { safeFormatDate, safeFormatDistanceToNow } from "@/lib/date";
+import { formatNumber } from "@/lib/format";
 import { LeadStatus, CHANNEL_LABELS, LEAD_STATUS_LABELS } from "@/types";
 
-export default function LeadDetailPage({ params }: { params: { id: string } }) {
+export default function LeadDetailPage() {
   const router = useRouter();
+  const params = useParams();
+  const leadId = params.id as string;
   const [lead, setLead] = useState<Lead | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,7 +48,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   const fetchLead = async () => {
     try {
       setIsLoading(true);
-      const data = await api.leads.getById(params.id);
+      const data = await api.leads.getById(leadId);
       setLead(data);
       setWonAmount(data.wonAmount || 0);
       setLostReason(data.lostReason || "");
@@ -70,7 +72,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     fetchLead();
     fetchUsers();
-  }, [params.id]);
+  }, [leadId]);
 
   // ========================================================================
   // HANDLERS
@@ -158,10 +160,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
           </h1>
           <p className="text-muted-foreground">
             Creada{" "}
-            {formatDistanceToNow(new Date(lead.createdAt), {
-              addSuffix: true,
-              locale: es,
-            })}
+            {safeFormatDistanceToNow(lead.createdAt)}
           </p>
         </div>
         <Badge className={getStatusColor(lead.status)}>
@@ -223,7 +222,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
               <div>
                 <Label>Valor Estimado</Label>
                 <p className="text-sm font-medium text-green-600">
-                  ${lead.estimatedValue?.toLocaleString("es-AR") || 0} USD
+                  ${formatNumber(lead.estimatedValue)} USD
                 </p>
               </div>
               <div>
@@ -248,7 +247,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 <div>
                   <Label>Monto Ganado</Label>
                   <p className="text-2xl font-bold text-green-700">
-                    ${lead.wonAmount.toLocaleString("es-AR")} USD
+                    ${formatNumber(lead.wonAmount)} USD
                   </p>
                 </div>
               </CardContent>
@@ -383,11 +382,11 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Creada</span>
-                <span>{new Date(lead.createdAt).toLocaleDateString("es-AR")}</span>
+                <span>{safeFormatDate(lead.createdAt, "P")}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Actualizada</span>
-                <span>{new Date(lead.updatedAt).toLocaleDateString("es-AR")}</span>
+                <span>{safeFormatDate(lead.updatedAt, "P")}</span>
               </div>
             </CardContent>
           </Card>
