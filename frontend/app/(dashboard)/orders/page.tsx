@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -16,12 +14,14 @@ import { OrderTable } from "@/components/orders/order-table";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
-import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
-import AddIcon from '@mui/icons-material/Add';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import { ORDER_STATUS_LABELS } from "@/types";
+import AddIcon from "@mui/icons-material/Add";
+import BarChartIcon from "@mui/icons-material/BarChart";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -43,10 +43,6 @@ export default function OrdersPage() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-
-  // ========================================================================
-  // FETCH ORDERS
-  // ========================================================================
 
   const fetchOrders = async () => {
     try {
@@ -70,10 +66,6 @@ export default function OrdersPage() {
     fetchOrders();
   }, [statusFilter]);
 
-  // ========================================================================
-  // HANDLERS
-  // ========================================================================
-
   const handleEdit = (order: Order) => {
     setEditingOrder(order);
     setIsFormOpen(true);
@@ -85,7 +77,6 @@ export default function OrdersPage() {
 
   const confirmDelete = async () => {
     if (!deletingOrder) return;
-
     try {
       await api.orders.delete(deletingOrder.id);
       toast.success("Pedido eliminado correctamente");
@@ -102,100 +93,119 @@ export default function OrdersPage() {
     setEditingOrder(null);
   };
 
-  // ========================================================================
-  // RENDER: LOADING STATE
-  // ========================================================================
-
   if (isLoading && orders.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <Skeleton className="h-8 w-64 mb-2" />
-            <Skeleton className="h-4 w-96" />
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-11 w-11 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-40" />
+              <Skeleton className="h-4 w-72" />
+            </div>
           </div>
           <div className="flex gap-2">
-            <Skeleton className="h-10 w-32" />
-            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-10 w-32 rounded-full" />
+            <Skeleton className="h-10 w-28 rounded-full" />
+            <Skeleton className="h-10 w-36 rounded-full" />
           </div>
         </div>
-        <Skeleton className="h-[600px]" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Skeleton className="h-11 w-52 rounded-xl" />
+        </div>
+        <Skeleton className="h-96 rounded-2xl" />
       </div>
     );
   }
-
-  // ========================================================================
-  // RENDER: ERROR STATE
-  // ========================================================================
 
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Pedidos</h1>
-            <p className="text-muted-foreground">
-              Gestiona los pedidos confirmados y su cumplimiento
-            </p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(34_197_94/0.45)]">
+              <InventoryIcon sx={{ fontSize: 22 }} />
+            </span>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">Pedidos</h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona los pedidos confirmados y su cumplimiento
+              </p>
+            </div>
           </div>
-          <Button onClick={fetchOrders} variant="outline" size="sm">
-            <RefreshIcon className="h-4 w-4 mr-2" />
+          <button
+            type="button"
+            onClick={fetchOrders}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97]"
+          >
+            <RefreshIcon sx={{ fontSize: 16 }} />
             Reintentar
-          </Button>
+          </button>
         </div>
 
-        <Alert variant="destructive">
-          <ErrorOutlineIcon className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-200/70 bg-red-50/80 px-4 py-3 text-sm text-red-700">
+          <ErrorOutlineIcon sx={{ fontSize: 18 }} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
       </div>
     );
   }
 
-  // ========================================================================
-  // RENDER: MAIN CONTENT
-  // ========================================================================
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pedidos</h1>
-          <p className="text-muted-foreground">
-            Gestiona los pedidos confirmados y su cumplimiento
-          </p>
+      {/* PAGE HEADER */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(34_197_94/0.45)]">
+            <InventoryIcon sx={{ fontSize: 22 }} />
+          </span>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Pedidos</h1>
+            <p className="text-sm text-muted-foreground">
+              Gestiona los pedidos confirmados y su cumplimiento
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
             onClick={() => router.push("/orders/stats")}
-            variant="outline"
-            size="sm"
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97]"
           >
-            <BarChartIcon className="h-4 w-4 mr-2" />
+            <BarChartIcon sx={{ fontSize: 16 }} />
             Estadísticas
-          </Button>
+          </button>
 
-          <Button onClick={fetchOrders} variant="outline" size="sm">
+          <button
+            type="button"
+            onClick={fetchOrders}
+            disabled={isLoading}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+          >
             <RefreshIcon
-              className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
+              sx={{ fontSize: 16 }}
+              className={isLoading ? "animate-spin" : ""}
             />
             Actualizar
-          </Button>
+          </button>
 
-          <Button onClick={() => setIsFormOpen(true)} size="sm">
-            <AddIcon className="h-4 w-4 mr-2" />
+          <button
+            type="button"
+            onClick={() => setIsFormOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(34_197_94/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(34_197_94/0.65)] active:translate-y-0 active:scale-[0.97]"
+          >
+            <AddIcon sx={{ fontSize: 18 }} />
             Nuevo Pedido
-          </Button>
+          </button>
         </div>
       </div>
 
       {/* FILTERS */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <FilterListIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Filtrar por estado:</span>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600">
+          <FilterListIcon sx={{ fontSize: 16 }} className="text-slate-400" />
+          Filtrar por estado:
         </div>
         <Select value={statusFilter} onValueChange={(value) => value && setStatusFilter(value)}>
           <SelectTrigger className="w-[200px]">
@@ -210,19 +220,15 @@ export default function OrdersPage() {
             ))}
           </SelectContent>
         </Select>
-        <span className="text-sm text-muted-foreground">
-          {orders.length} pedido{orders.length !== 1 ? "s" : ""}
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="font-semibold text-slate-900 tabular-nums">{orders.length}</span>
+          pedido{orders.length !== 1 ? "s" : ""}
         </span>
       </div>
 
-      {/* ORDERS TABLE */}
-      <OrderTable
-        orders={orders}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
+      <OrderTable orders={orders} onEdit={handleEdit} onDelete={handleDelete} />
 
-      {/* CREATE/EDIT DIALOG */}
       <OrderFormDialog
         open={isFormOpen}
         onOpenChange={handleFormClose}
@@ -233,23 +239,34 @@ export default function OrdersPage() {
         }}
       />
 
-      {/* DELETE CONFIRMATION */}
       <AlertDialog
         open={!!deletingOrder}
         onOpenChange={() => setDeletingOrder(null)}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar pedido?</AlertDialogTitle>
-            <AlertDialogDescription>
+        <AlertDialogContent className="rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150">
+          <AlertDialogHeader className="space-y-3">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-red-500 to-rose-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(239_68_68/0.45)]">
+              <DeleteIcon sx={{ fontSize: 22 }} />
+            </span>
+            <AlertDialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+              ¿Eliminar pedido?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-slate-600">
               Esta acción no se puede deshacer. El pedido{" "}
-              <strong>{deletingOrder?.orderNumber}</strong> será eliminado
-              permanentemente.
+              <strong className="font-semibold text-slate-900">
+                {deletingOrder?.orderNumber}
+              </strong>{" "}
+              será eliminado permanentemente.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600">
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97]">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-gradient-to-r from-red-600 to-rose-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(239_68_68/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(239_68_68/0.65)] active:translate-y-0 active:scale-[0.97]"
+            >
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>

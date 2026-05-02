@@ -11,14 +11,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { KnowledgeBase, KnowledgeFormData } from "@/types";
 import { PRODUCT_CATEGORIES } from "@/types";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import EditIcon from "@mui/icons-material/Edit";
 
 const knowledgeSchema = z.object({
   category: z.string().min(1, "La categoría es requerida"),
@@ -66,7 +72,6 @@ export function KnowledgeFormDialog({
   const selectedCategory = watch("category");
   const isActive = watch("active");
 
-  // Reset form when dialog opens/closes or knowledge changes
   useEffect(() => {
     if (open && knowledge) {
       reset({
@@ -94,28 +99,35 @@ export function KnowledgeFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? "Editar Conocimiento" : "Nuevo Conocimiento"}
-          </DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Modifica la información del artículo de conocimiento"
-              : "Agrega nuevo contenido a la base de conocimiento"}
-          </DialogDescription>
+      <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150 sm:max-w-[600px]">
+        <DialogHeader className="flex flex-row items-center gap-3 space-y-0">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)]">
+            {isEdit ? <EditIcon sx={{ fontSize: 22 }} /> : <MenuBookIcon sx={{ fontSize: 22 }} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+              {isEdit ? "Editar Conocimiento" : "Nuevo Conocimiento"}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              {isEdit
+                ? "Modifica la información del artículo de conocimiento"
+                : "Agrega nuevo contenido a la base de conocimiento"}
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="mt-2 space-y-4">
           {/* Category */}
-          <div className="space-y-2">
-            <Label>Categoría</Label>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Categoría
+            </label>
             <Select
               value={selectedCategory}
               onValueChange={(value) => value && setValue("category", value)}
               disabled={isLoading}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Selecciona la categoría" />
               </SelectTrigger>
               <SelectContent>
@@ -130,13 +142,15 @@ export function KnowledgeFormDialog({
               </SelectContent>
             </Select>
             {errors.category && (
-              <p className="text-sm text-destructive">{errors.category.message}</p>
+              <p className="mt-1 text-xs text-red-600">{errors.category.message}</p>
             )}
           </div>
 
           {/* Subcategory */}
-          <div className="space-y-2">
-            <Label htmlFor="subcategory">Subcategoría (opcional)</Label>
+          <div>
+            <label htmlFor="subcategory" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Subcategoría <span className="font-normal normal-case text-slate-400">(opcional)</span>
+            </label>
             <Input
               id="subcategory"
               placeholder="Ej: Poliéster, Epoxi, etc."
@@ -146,8 +160,10 @@ export function KnowledgeFormDialog({
           </div>
 
           {/* Title */}
-          <div className="space-y-2">
-            <Label htmlFor="title">Título</Label>
+          <div>
+            <label htmlFor="title" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Título
+            </label>
             <Input
               id="title"
               placeholder="Título descriptivo del artículo"
@@ -155,37 +171,47 @@ export function KnowledgeFormDialog({
               disabled={isLoading}
             />
             {errors.title && (
-              <p className="text-sm text-destructive">{errors.title.message}</p>
+              <p className="mt-1 text-xs text-red-600">{errors.title.message}</p>
             )}
           </div>
 
           {/* Content */}
-          <div className="space-y-2">
-            <Label htmlFor="content">Contenido</Label>
+          <div>
+            <label htmlFor="content" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Contenido
+            </label>
             <Textarea
               id="content"
               placeholder="Escribe el contenido completo del artículo..."
               rows={8}
               {...register("content")}
               disabled={isLoading}
-              className="font-mono text-sm"
+              className="resize-none font-mono text-[13px] leading-relaxed"
             />
             {errors.content && (
-              <p className="text-sm text-destructive">{errors.content.message}</p>
+              <p className="mt-1 text-xs text-red-600">{errors.content.message}</p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Puedes usar formato de texto plano. El contenido será utilizado por la IA para responder consultas.
+            <p className="mt-1.5 text-xs text-slate-500">
+              El contenido será utilizado por la IA para responder consultas.
             </p>
           </div>
 
           {/* Active Toggle */}
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="space-y-0.5">
-              <Label htmlFor="active">Estado</Label>
-              <p className="text-sm text-muted-foreground">
+          <div
+            className={`flex items-center justify-between gap-3 rounded-xl border p-4 transition-colors duration-200 ${
+              isActive
+                ? "border-emerald-200/70 bg-emerald-50/50"
+                : "border-slate-200 bg-slate-50/50"
+            }`}
+          >
+            <div className="min-w-0">
+              <label htmlFor="active" className="block text-sm font-semibold text-slate-900">
+                Estado
+              </label>
+              <p className="text-xs text-slate-600">
                 {isActive
-                  ? "Este artículo está activo y será usado por la IA"
-                  : "Este artículo está inactivo y no será usado"}
+                  ? "Activo — la IA usará este artículo para responder."
+                  : "Inactivo — la IA no lo tendrá en cuenta."}
               </p>
             </div>
             <Switch
@@ -197,18 +223,31 @@ export function KnowledgeFormDialog({
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4">
-            <Button
+          <div className="flex justify-end gap-2 pt-3">
+            <button
               type="button"
-              variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={isLoading}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] disabled:opacity-60"
             >
               Cancelar
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Guardando..." : isEdit ? "Actualizar" : "Crear"}
-            </Button>
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
+            >
+              {isLoading ? (
+                <>
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Guardando...
+                </>
+              ) : isEdit ? (
+                "Actualizar"
+              ) : (
+                "Crear"
+              )}
+            </button>
           </div>
         </form>
       </DialogContent>

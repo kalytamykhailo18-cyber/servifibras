@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PipelineBoard } from "@/components/leads/pipeline-board";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
 import { api } from "@/lib/api/endpoints";
-import type { Lead } from "@/types";
+import type { Lead, LeadStatus } from "@/types";
 import AddIcon from '@mui/icons-material/Add';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import DeleteIcon from '@mui/icons-material/Delete';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -38,7 +38,8 @@ export default function LeadsPage() {
   // FETCH LEADS
   // ========================================================================
 
-  const fetchLeads = async () => {
+  // Initial load — shows the pipeline skeleton
+  const loadLeads = async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -52,8 +53,23 @@ export default function LeadsPage() {
     }
   };
 
+  // Silent refresh — no skeleton flash, used after edits/deletes/drag-drop
+  const refreshLeads = async () => {
+    try {
+      const response = await api.leads.list({ limit: 1000 });
+      setLeads(response.data);
+    } catch (err: any) {
+      toast.error(err.message || "Error al recargar oportunidades");
+    }
+  };
+
+  // Optimistic single-lead status update — used by drag-drop in PipelineBoard
+  const handleLeadStatusChanged = (leadId: string, status: LeadStatus) => {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status } : l)));
+  };
+
   useEffect(() => {
-    fetchLeads();
+    loadLeads();
   }, []);
 
   // ========================================================================
@@ -79,7 +95,7 @@ export default function LeadsPage() {
     try {
       await api.leads.delete(deletingLead.id);
       toast.success("Oportunidad eliminada correctamente");
-      fetchLeads();
+      refreshLeads();
     } catch (error: any) {
       toast.error(error.message || "Error al eliminar oportunidad");
     } finally {
@@ -99,17 +115,25 @@ export default function LeadsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <Skeleton className="h-8 w-64 mb-2" />
-            <Skeleton className="h-4 w-96" />
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-11 w-11 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-56" />
+              <Skeleton className="h-4 w-72" />
+            </div>
           </div>
           <div className="flex gap-2">
-            <Skeleton className="h-10 w-32" />
-            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-10 w-32 rounded-full" />
+            <Skeleton className="h-10 w-28 rounded-full" />
+            <Skeleton className="h-10 w-44 rounded-full" />
           </div>
         </div>
-        <Skeleton className="h-[600px]" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-[600px] rounded-2xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -121,23 +145,34 @@ export default function LeadsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Pipeline de Ventas</h1>
-            <p className="text-muted-foreground">
-              Gestiona las oportunidades de venta en el pipeline
-            </p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-orange-500 to-red-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(249_115_22/0.45)]">
+              <TrendingUpIcon sx={{ fontSize: 22 }} />
+            </span>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                Pipeline de Ventas
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Gestiona las oportunidades de venta en el pipeline
+              </p>
+            </div>
           </div>
-          <Button onClick={fetchLeads} variant="outline" size="sm">
-            <RefreshIcon className="h-4 w-4 mr-2" />
+          <button
+            type="button"
+            onClick={loadLeads}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97]"
+          >
+            <RefreshIcon sx={{ fontSize: 16 }} />
             Reintentar
-          </Button>
+          </button>
         </div>
 
-        <Alert variant="destructive">
-          <ErrorOutlineIcon className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-200/70 bg-red-50/80 px-4 py-3 text-sm text-red-700">
+          <ErrorOutlineIcon sx={{ fontSize: 18 }} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
       </div>
     );
   }
@@ -148,43 +183,61 @@ export default function LeadsPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pipeline de Ventas</h1>
-          <p className="text-muted-foreground">
-            Gestiona las oportunidades de venta arrastrando entre columnas
-          </p>
+      {/* PAGE HEADER */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-orange-500 to-red-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(249_115_22/0.45)]">
+            <TrendingUpIcon sx={{ fontSize: 22 }} />
+          </span>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              Pipeline de Ventas
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Gestiona las oportunidades de venta arrastrando entre columnas
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
             onClick={() => router.push("/leads/stats")}
-            variant="outline"
-            size="sm"
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97]"
           >
-            <BarChartIcon className="h-4 w-4 mr-2" />
+            <BarChartIcon sx={{ fontSize: 16 }} />
             Estadísticas
-          </Button>
+          </button>
 
-          <Button onClick={fetchLeads} variant="outline" size="sm">
+          <button
+            type="button"
+            onClick={refreshLeads}
+            disabled={isLoading}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+          >
             <RefreshIcon
-              className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
+              sx={{ fontSize: 16 }}
+              className={isLoading ? "animate-spin" : ""}
             />
             Actualizar
-          </Button>
+          </button>
 
-          <Button onClick={() => setIsFormOpen(true)} size="sm">
-            <AddIcon className="h-4 w-4 mr-2" />
+          <button
+            type="button"
+            onClick={() => setIsFormOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-orange-600 to-red-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(249_115_22/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(249_115_22/0.65)] active:translate-y-0 active:scale-[0.97]"
+          >
+            <AddIcon sx={{ fontSize: 18 }} />
             Nueva Oportunidad
-          </Button>
+          </button>
         </div>
       </div>
 
       {/* PIPELINE BOARD */}
       <PipelineBoard
         leads={leads}
-        onLeadsChange={fetchLeads}
+        onLeadsChange={refreshLeads}
+        onLeadStatusChanged={handleLeadStatusChanged}
         onViewLead={handleViewLead}
         onEditLead={handleEditLead}
         onDeleteLead={handleDeleteLead}
@@ -196,7 +249,7 @@ export default function LeadsPage() {
         onOpenChange={handleFormClose}
         lead={editingLead || undefined}
         onSuccess={() => {
-          fetchLeads();
+          refreshLeads();
           handleFormClose();
         }}
       />
@@ -206,17 +259,27 @@ export default function LeadsPage() {
         open={!!deletingLead}
         onOpenChange={() => setDeletingLead(null)}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar oportunidad?</AlertDialogTitle>
-            <AlertDialogDescription>
+        <AlertDialogContent className="rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150">
+          <AlertDialogHeader className="space-y-3">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-red-500 to-rose-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(239_68_68/0.45)]">
+              <DeleteIcon sx={{ fontSize: 22 }} />
+            </span>
+            <AlertDialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+              ¿Eliminar oportunidad?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-slate-600">
               Esta acción no se puede deshacer. La oportunidad será eliminada
               permanentemente del pipeline.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600">
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97]">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-gradient-to-r from-red-600 to-rose-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(239_68_68/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(239_68_68/0.65)] active:translate-y-0 active:scale-[0.97]"
+            >
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>

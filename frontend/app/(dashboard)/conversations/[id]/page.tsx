@@ -2,17 +2,21 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MessageBubble } from "@/components/conversations/message-bubble";
 import { SendMessageForm } from "@/components/conversations/send-message-form";
 import { api } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/store/auth-store";
-import type { ConversationWithRelations } from "@/types";
+import { ContentType, MessageSender, UserRole } from "@/types";
+import type { ConversationWithRelations, Message } from "@/types";
+
+const ROLE_TO_SENDER: Record<UserRole, MessageSender> = {
+  [UserRole.ADMIN]: MessageSender.ADMIN,
+  [UserRole.ATENCION]: MessageSender.BRENDA,
+  [UserRole.VENTAS]: MessageSender.FRANCO,
+  [UserRole.LOGISTICA]: MessageSender.ALDO,
+};
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -21,6 +25,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EmailIcon from '@mui/icons-material/Email';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import PanToolIcon from '@mui/icons-material/PanTool';
+import PersonIcon from '@mui/icons-material/Person';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PhoneIcon from '@mui/icons-material/Phone';
 import { CHANNEL_LABELS, CONVERSATION_STATUS_LABELS, CONTACT_TYPE_LABELS, ConversationStatus } from "@/types";
@@ -44,7 +49,8 @@ export default function ConversationDetailPage() {
   // FETCH CONVERSATION
   // ========================================================================
 
-  const fetchConversation = async () => {
+  // Initial load — shows the full-page skeleton
+  const loadConversation = async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -57,13 +63,23 @@ export default function ConversationDetailPage() {
     }
   };
 
+  // Silent refresh — keeps the rendered UI in place, just refreshes data
+  const refreshConversation = async () => {
+    try {
+      const data = await api.conversations.getById(conversationId);
+      setConversation(data);
+    } catch (err: any) {
+      toast.error(err.message || "Error al recargar conversación");
+    }
+  };
+
   useEffect(() => {
-    fetchConversation();
+    loadConversation();
   }, [conversationId]);
 
-  // Auto-scroll to bottom when messages load
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [conversation?.messages]);
 
   // ========================================================================
@@ -77,7 +93,7 @@ export default function ConversationDetailPage() {
       setIsUpdating(true);
       await api.conversations.takeover(conversationId);
       toast.success("Conversación tomada correctamente");
-      fetchConversation();
+      await refreshConversation();
     } catch (err: any) {
       toast.error(err.message || "Error al tomar conversación");
     } finally {
@@ -90,7 +106,7 @@ export default function ConversationDetailPage() {
       setIsUpdating(true);
       await api.conversations.assign(conversationId, { userId });
       toast.success("Conversación asignada correctamente");
-      fetchConversation();
+      await refreshConversation();
     } catch (err: any) {
       toast.error(err.message || "Error al asignar conversación");
     } finally {
@@ -103,7 +119,7 @@ export default function ConversationDetailPage() {
       setIsUpdating(true);
       await api.conversations.updateStatus(conversationId, { status });
       toast.success("Estado actualizado");
-      fetchConversation();
+      await refreshConversation();
     } catch (err: any) {
       toast.error(err.message || "Error al actualizar estado");
     } finally {
@@ -111,13 +127,45 @@ export default function ConversationDetailPage() {
     }
   };
 
+  // Append a temporary message immediately, replace with the server copy after refresh
   const handleSendMessage = async (content: string) => {
-    await api.conversations.sendMessage(conversationId, { content });
-    toast.success("Mensaje enviado");
+    if (!conversation) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const sender = user ? ROLE_TO_SENDER[user.role] ?? MessageSender.ADMIN : MessageSender.ADMIN;
+    const optimistic: Message = {
+      id: tempId,
+      conversationId,
+      sender,
+      content,
+      contentType: ContentType.TEXT,
+      isFromAI: false,
+      metadata: null,
+      timestamp: new Date().toISOString(),
+    };
+
+    setConversation({
+      ...conversation,
+      messages: [...(conversation.messages ?? []), optimistic],
+    });
+
+    try {
+      await api.conversations.sendMessage(conversationId, { content });
+      await refreshConversation();
+    } catch (err: any) {
+      // Roll back the optimistic message on failure
+      setConversation((current) =>
+        current
+          ? { ...current, messages: (current.messages ?? []).filter((m) => m.id !== tempId) }
+          : current,
+      );
+      toast.error(err?.message || "Error al enviar mensaje");
+      throw err;
+    }
   };
 
   const handleMessageSent = () => {
-    fetchConversation();
+    // No-op — handleSendMessage already refreshes once the server confirms.
   };
 
   // ========================================================================
@@ -127,13 +175,19 @@ export default function ConversationDetailPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-10 w-full" />
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <Skeleton className="h-[600px]" />
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-9 w-24 rounded-full" />
+          <Skeleton className="h-10 w-48 rounded-full" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-2">
+            <Skeleton className="h-24 rounded-2xl" />
+            <Skeleton className="h-[540px] rounded-2xl" />
           </div>
-          <div>
-            <Skeleton className="h-[400px]" />
+          <div className="space-y-4">
+            <Skeleton className="h-44 rounded-2xl" />
+            <Skeleton className="h-40 rounded-2xl" />
+            <Skeleton className="h-32 rounded-2xl" />
           </div>
         </div>
       </div>
@@ -147,13 +201,21 @@ export default function ConversationDetailPage() {
   if (error || !conversation) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => router.push("/conversations")}>
-          <ArrowBackIcon className="h-4 w-4 mr-2" />
+        <button
+          type="button"
+          onClick={() => router.push("/conversations")}
+          className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900"
+        >
+          <ArrowBackIcon
+            sx={{ fontSize: 16 }}
+            className="transition-transform duration-300 group-hover:-translate-x-0.5"
+          />
           Volver
-        </Button>
-        <Alert variant="destructive">
-          <AlertDescription>{error || "Conversación no encontrada"}</AlertDescription>
-        </Alert>
+        </button>
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-200/70 bg-red-50/80 px-4 py-3 text-sm text-red-700">
+          <span className="mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full bg-red-500" />
+          <span>{error || "Conversación no encontrada"}</span>
+        </div>
       </div>
     );
   }
@@ -164,78 +226,81 @@ export default function ConversationDetailPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* HEADER */}
+      {/* TOP ACTION BAR */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => router.push("/conversations")}>
-          <ArrowBackIcon className="h-4 w-4 mr-2" />
+        <button
+          type="button"
+          onClick={() => router.push("/conversations")}
+          className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
+        >
+          <ArrowBackIcon
+            sx={{ fontSize: 16 }}
+            className="transition-transform duration-300 group-hover:-translate-x-0.5"
+          />
           Volver
-        </Button>
+        </button>
 
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTakeover}
-            disabled={isUpdating}
-          >
-            <PanToolIcon className="h-4 w-4 mr-2" />
-            Tomar Conversación
-          </Button>
-        </div>
+        <button
+          type="button"
+          onClick={handleTakeover}
+          disabled={isUpdating}
+          className="group inline-flex h-10 items-center gap-2 overflow-hidden rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(59_130_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(59_130_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0 disabled:hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.5)]"
+        >
+          <PanToolIcon sx={{ fontSize: 16 }} />
+          Tomar Conversación
+        </button>
       </div>
 
       {/* MAIN CONTENT GRID */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* MESSAGES COLUMN */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Conversation Header */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{conversation.contact.name || "Sin nombre"}</CardTitle>
-                  <div className="flex gap-2 mt-2">
-                    <Badge variant="outline">{CHANNEL_LABELS[conversation.channel]}</Badge>
-                    <Badge variant="outline">{CONVERSATION_STATUS_LABELS[conversation.status]}</Badge>
-                  </div>
-                </div>
-
-                <Select
-                  value={conversation.status}
-                  onValueChange={(value) => handleStatusChange(value as ConversationStatus)}
-                  disabled={isUpdating}
-                >
-                  <SelectTrigger className="w-[150px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ACTIVE">
-                      <div className="flex items-center gap-2">
-                        <CheckCircleIcon className="h-4 w-4 text-green-600" />
-                        Activa
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="WAITING">
-                      <div className="flex items-center gap-2">
-                        <AccessTimeIcon className="h-4 w-4 text-yellow-600" />
-                        Esperando
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="CLOSED">
-                      <div className="flex items-center gap-2">
-                        <CancelIcon className="h-4 w-4 text-gray-600" />
-                        Cerrada
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+          {/* CONVERSATION HEADER */}
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-xl font-bold tracking-tight text-slate-900">
+                {conversation.contact.name || "Sin nombre"}
+              </h2>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/70 bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                  {CHANNEL_LABELS[conversation.channel]}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-medium text-slate-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  {CONVERSATION_STATUS_LABELS[conversation.status]}
+                </span>
               </div>
-            </CardHeader>
-          </Card>
+            </div>
 
-          {/* Messages */}
-          <Card className="min-h-[500px] max-h-[600px] flex flex-col">
-            <CardContent className="flex-1 overflow-y-auto p-6">
+            <Select
+              value={conversation.status}
+              onValueChange={(value) => handleStatusChange(value as ConversationStatus)}
+              disabled={isUpdating}
+            >
+              <SelectTrigger className="w-[160px] shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ACTIVE">
+                  <CheckCircleIcon sx={{ fontSize: 16 }} className="text-green-600" />
+                  Activa
+                </SelectItem>
+                <SelectItem value="WAITING">
+                  <AccessTimeIcon sx={{ fontSize: 16 }} className="text-amber-600" />
+                  Esperando
+                </SelectItem>
+                <SelectItem value="CLOSED">
+                  <CancelIcon sx={{ fontSize: 16 }} className="text-slate-500" />
+                  Cerrada
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* MESSAGES — single shell, two regions (scrolling thread + composer) */}
+          <div className="flex max-h-[640px] min-h-[500px] flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white p-6">
               {conversation.messages && conversation.messages.length > 0 ? (
                 <>
                   {conversation.messages.map((message) => (
@@ -244,105 +309,131 @@ export default function ConversationDetailPage() {
                   <div ref={messagesEndRef} />
                 </>
               ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <div className="text-center">
-                    <ChatBubbleOutlineIcon className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                    <p>No hay mensajes aún</p>
-                  </div>
+                <div className="flex h-full flex-col items-center justify-center text-center">
+                  <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-slate-200 to-slate-100 text-slate-400">
+                    <ChatBubbleOutlineIcon sx={{ fontSize: 28 }} />
+                  </span>
+                  <h3 className="text-base font-semibold text-slate-900">Sin mensajes</h3>
+                  <p className="mt-1 text-sm text-slate-500">Iniciá la conversación enviando el primer mensaje.</p>
                 </div>
               )}
-            </CardContent>
+            </div>
 
-            {/* Send Message Form */}
-            <div className="border-t p-4">
+            <div className="border-t border-slate-200/70 bg-white p-4">
               <SendMessageForm
                 conversationId={conversationId}
                 onSendMessage={handleSendMessage}
                 onMessageSent={handleMessageSent}
               />
             </div>
-          </Card>
+          </div>
         </div>
 
         {/* SIDEBAR COLUMN */}
         <div className="space-y-4">
-          {/* Contact Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Información del Contacto</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <PhoneIcon className="h-4 w-4 text-muted-foreground" />
-                <span>{conversation.contact.phone || "Sin teléfono"}</span>
+          {/* CONTACT INFO */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Información del contacto
+            </h3>
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                  <PhoneIcon sx={{ fontSize: 14 }} />
+                </span>
+                <span className="text-slate-700">
+                  {conversation.contact.phone || "Sin teléfono"}
+                </span>
               </div>
 
               {conversation.contact.email && (
-                <div className="flex items-center gap-2 text-sm">
-                  <EmailIcon className="h-4 w-4 text-muted-foreground" />
-                  <span>{conversation.contact.email}</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                    <EmailIcon sx={{ fontSize: 14 }} />
+                  </span>
+                  <span className="truncate text-slate-700">{conversation.contact.email}</span>
                 </div>
               )}
 
-              <div className="flex items-center gap-2 text-sm">
-                <LocalOfferIcon className="h-4 w-4 text-muted-foreground" />
-                <span>{CONTACT_TYPE_LABELS[conversation.contact.type]}</span>
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600">
+                  <LocalOfferIcon sx={{ fontSize: 14 }} />
+                </span>
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                  {CONTACT_TYPE_LABELS[conversation.contact.type]}
+                </span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Assignment */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Asignación</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {conversation.assigned ? (
-                <div className="flex items-center gap-2 mb-3">
-                  <PersonAddIcon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{conversation.assigned.name}</span>
+          {/* ASSIGNMENT */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Asignación
+            </h3>
+
+            {conversation.assigned ? (
+              <div className="mb-4 flex items-center gap-2.5 rounded-xl bg-emerald-50 p-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-400 text-xs font-semibold text-white">
+                  {conversation.assigned.name?.charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-900">
+                    {conversation.assigned.name}
+                  </p>
+                  <p className="text-[11px] text-emerald-700">Asignado</p>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground mb-3">No asignada</p>
-              )}
+              </div>
+            ) : (
+              <div className="mb-4 flex items-center gap-2.5 rounded-xl bg-slate-50 p-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-200 text-slate-400">
+                  <PersonAddIcon sx={{ fontSize: 16 }} />
+                </span>
+                <p className="text-sm text-slate-500">Sin asignar</p>
+              </div>
+            )}
 
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => user && handleAssign(user.id)}
-                disabled={isUpdating}
-              >
-                Asignarme a mí
-              </Button>
-            </CardContent>
-          </Card>
+            <button
+              type="button"
+              onClick={() => user && handleAssign(user.id)}
+              disabled={isUpdating}
+              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            >
+              <PersonAddIcon sx={{ fontSize: 14 }} />
+              Asignarme a mí
+            </button>
+          </div>
 
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Acciones Rápidas</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start"
+          {/* QUICK ACTIONS */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Acciones rápidas
+            </h3>
+            <div className="space-y-2">
+              <button
+                type="button"
                 onClick={() => router.push(`/contacts/${conversation.contactId}`)}
+                className="group flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
               >
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-100">
+                  <PersonIcon sx={{ fontSize: 14 }} />
+                </span>
                 Ver perfil del contacto
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start"
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleStatusChange(ConversationStatus.CLOSED)}
                 disabled={isUpdating || conversation.status === "CLOSED"}
+                className="group flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
               >
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-rose-50 text-rose-600 transition-colors group-hover:bg-rose-100 group-disabled:bg-slate-100 group-disabled:text-slate-400">
+                  <CancelIcon sx={{ fontSize: 14 }} />
+                </span>
                 Cerrar conversación
-              </Button>
-            </CardContent>
-          </Card>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

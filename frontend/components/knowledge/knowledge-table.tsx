@@ -1,7 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -15,14 +13,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import VisibilityIcon from '@mui/icons-material/Visibility';
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import type { KnowledgeBase } from "@/types";
 
 interface KnowledgeTableProps {
@@ -32,117 +30,158 @@ interface KnowledgeTableProps {
   onToggleActive: (item: KnowledgeBase, active: boolean) => void;
 }
 
+const CATEGORY_TINT: Record<string, { dot: string; pill: string }> = {
+  "Resinas":         { dot: "bg-blue-500",    pill: "bg-blue-50 text-blue-700 border-blue-200/70" },
+  "Fibra de Vidrio": { dot: "bg-violet-500",  pill: "bg-violet-50 text-violet-700 border-violet-200/70" },
+  "Cauchos":         { dot: "bg-orange-500",  pill: "bg-orange-50 text-orange-700 border-orange-200/70" },
+  "General":         { dot: "bg-slate-400",   pill: "bg-slate-50 text-slate-700 border-slate-200" },
+  "FAQ":             { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 border-emerald-200/70" },
+  "Tutoriales":      { dot: "bg-pink-500",    pill: "bg-pink-50 text-pink-700 border-pink-200/70" },
+};
+
+const fallback = { dot: "bg-slate-400", pill: "bg-slate-50 text-slate-600 border-slate-200" };
+
 export function KnowledgeTable({
   items,
   onEdit,
   onDelete,
   onToggleActive,
 }: KnowledgeTableProps) {
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case "Resinas":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
-      case "Fibra de Vidrio":
-        return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300";
-      case "Cauchos":
-        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300";
-      case "General":
-        return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300";
-      case "FAQ":
-        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
-      case "Tutoriales":
-        return "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-300";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
   if (items.length === 0) {
     return (
-      <div className="text-center py-12 border rounded-lg">
-        <p className="text-muted-foreground">No se encontraron artículos de conocimiento</p>
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
+        <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-100 to-purple-50 text-violet-400">
+          <MenuBookIcon sx={{ fontSize: 28 }} />
+        </span>
+        <h3 className="text-base font-semibold text-slate-900">Sin artículos</h3>
+        <p className="mt-1 max-w-sm text-sm text-slate-500">
+          No se encontraron artículos de conocimiento. Probá ajustar los filtros o crear uno nuevo.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="border rounded-lg">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead>Título</TableHead>
-            <TableHead>Categoría</TableHead>
-            <TableHead>Subcategoría</TableHead>
-            <TableHead>Estado</TableHead>
-            <TableHead className="text-right">Acciones</TableHead>
+          <TableRow className="border-b border-slate-200/70 bg-slate-50/50 hover:bg-slate-50/50">
+            <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Título
+            </TableHead>
+            <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Categoría
+            </TableHead>
+            <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Subcategoría
+            </TableHead>
+            <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Estado
+            </TableHead>
+            <TableHead className="h-11 px-4 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Acciones
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((item) => (
-            <TableRow key={item.id} className="hover:bg-muted/50">
-              <TableCell className="font-medium max-w-md">
-                <div>
-                  <p className="truncate">{item.title}</p>
-                  <p className="text-xs text-muted-foreground truncate mt-1">
-                    {item.content.substring(0, 100)}...
+          {items.map((item) => {
+            const tint = CATEGORY_TINT[item.category] ?? fallback;
+            return (
+              <TableRow
+                key={item.id}
+                className={`border-b border-slate-100 transition-colors duration-150 last:border-b-0 hover:bg-violet-50/30 ${item.active ? "" : "opacity-60"}`}
+              >
+                <TableCell className="max-w-md px-4 py-3">
+                  <p className="truncate text-sm font-semibold text-slate-900">{item.title}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {item.content.substring(0, 110)}…
                   </p>
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className={getCategoryColor(item.category)}>
-                  {item.category}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {item.subcategory ? (
-                  <span className="text-sm">{item.subcategory}</span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">-</span>
-                )}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={item.active}
-                    onCheckedChange={(checked) => onToggleActive(item, checked)}
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    {item.active ? "Activo" : "Inactivo"}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={<Button variant="ghost" className="h-8 w-8 p-0" />}
+                </TableCell>
+
+                <TableCell className="px-4 py-3">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${tint.pill}`}
                   >
-                    <span className="sr-only">Abrir menú</span>
-                    <MoreHorizIcon className="h-4 w-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onEdit(item)}>
-                      <VisibilityIcon className="mr-2 h-4 w-4" />
-                      Ver completo
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(item)}>
-                      <EditIcon className="mr-2 h-4 w-4" />
-                      Editar
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => onDelete(item)}
-                      className="text-destructive focus:text-destructive"
+                    <span className={`h-1.5 w-1.5 rounded-full ${tint.dot}`} />
+                    {item.category}
+                  </span>
+                </TableCell>
+
+                <TableCell className="px-4 py-3">
+                  {item.subcategory ? (
+                    <span className="text-sm text-slate-700">{item.subcategory}</span>
+                  ) : (
+                    <span className="text-sm text-slate-400">—</span>
+                  )}
+                </TableCell>
+
+                <TableCell className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <Switch
+                      checked={item.active}
+                      onCheckedChange={(checked) => onToggleActive(item, checked)}
+                    />
+                    <span
+                      className={`text-xs font-medium ${
+                        item.active ? "text-emerald-700" : "text-slate-400"
+                      }`}
                     >
-                      <DeleteIcon className="mr-2 h-4 w-4" />
-                      Eliminar
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
+                      {item.active ? "Activo" : "Inactivo"}
+                    </span>
+                  </div>
+                </TableCell>
+
+                <TableCell className="px-4 py-3 text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label="Abrir menú de acciones"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900"
+                        />
+                      }
+                    >
+                      <MoreHorizIcon sx={{ fontSize: 18 }} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-52 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-1.5 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.18)] backdrop-blur-xl backdrop-saturate-150"
+                    >
+                      <DropdownMenuItem
+                        onClick={() => onEdit(item)}
+                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-blue-50 focus:text-blue-700"
+                      >
+                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
+                          <VisibilityIcon sx={{ fontSize: 14 }} />
+                        </span>
+                        Ver completo
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => onEdit(item)}
+                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-amber-50 focus:text-amber-700"
+                      >
+                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-amber-500 to-orange-400 text-white">
+                          <EditIcon sx={{ fontSize: 14 }} />
+                        </span>
+                        Editar
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
+                      <DropdownMenuItem
+                        onClick={() => onDelete(item)}
+                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-red-50 focus:text-red-700"
+                      >
+                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+                          <DeleteIcon sx={{ fontSize: 14 }} />
+                        </span>
+                        Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -13,18 +11,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { OrderTimeline } from "@/components/orders/order-timeline";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
 import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import InventoryIcon from '@mui/icons-material/Inventory';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import EmailIcon from "@mui/icons-material/Email";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import PersonIcon from "@mui/icons-material/Person";
+import PhoneIcon from "@mui/icons-material/Phone";
+import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+import NotesIcon from "@mui/icons-material/Notes";
 import { toast } from "sonner";
 import { safeFormatDate } from "@/lib/date";
 import { formatMoney, formatNumber } from "@/lib/format";
+
+const SECTION_LABEL = "mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -34,10 +38,6 @@ export default function OrderDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState("");
-
-  // ========================================================================
-  // FETCH ORDER
-  // ========================================================================
 
   const fetchOrder = async () => {
     try {
@@ -58,13 +58,8 @@ export default function OrderDetailPage() {
     fetchOrder();
   }, [orderId]);
 
-  // ========================================================================
-  // HANDLERS
-  // ========================================================================
-
   const handleStatusChange = async (status: OrderStatus) => {
     if (!order) return;
-
     try {
       await api.orders.updateStatus(order.id, { status });
       toast.success("Estado actualizado correctamente");
@@ -79,7 +74,6 @@ export default function OrderDetailPage() {
       toast.error("Completa el número de tracking y transportista");
       return;
     }
-
     try {
       await api.orders.updateTracking(order.id, { trackingNumber, carrier });
       toast.success("Información de tracking actualizada");
@@ -89,25 +83,27 @@ export default function OrderDetailPage() {
     }
   };
 
-  // ========================================================================
-  // RENDER: LOADING STATE
-  // ========================================================================
-
   if (isLoading || !order) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-10 w-32" />
-        <Skeleton className="h-64" />
-        <Skeleton className="h-96" />
+        <Skeleton className="h-9 w-36 rounded-full" />
+        <Skeleton className="h-20 rounded-2xl" />
+        <div className="grid gap-6 md:grid-cols-3">
+          <div className="space-y-4 md:col-span-2">
+            <Skeleton className="h-44 rounded-2xl" />
+            <Skeleton className="h-56 rounded-2xl" />
+            <Skeleton className="h-32 rounded-2xl" />
+          </div>
+          <div className="space-y-4">
+            <Skeleton className="h-72 rounded-2xl" />
+            <Skeleton className="h-32 rounded-2xl" />
+            <Skeleton className="h-44 rounded-2xl" />
+          </div>
+        </div>
       </div>
     );
   }
 
-  // ========================================================================
-  // RENDER: MAIN CONTENT
-  // ========================================================================
-
-  // Parse products
   let productsDisplay: any = order.products;
   if (typeof order.products === "string") {
     try {
@@ -119,20 +115,26 @@ export default function OrderDetailPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* HEADER */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/orders")}>
-          <ArrowBackIcon className="h-4 w-4 mr-2" />
-          Volver a Pedidos
-        </Button>
-      </div>
+      {/* TOP BAR */}
+      <button
+        type="button"
+        onClick={() => router.push("/orders")}
+        className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
+      >
+        <ArrowBackIcon
+          sx={{ fontSize: 16 }}
+          className="transition-transform duration-300 group-hover:-translate-x-0.5"
+        />
+        Volver a Pedidos
+      </button>
 
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight font-mono">
+      {/* IDENTITY ROW */}
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+        <div className="min-w-0 flex-1">
+          <h1 className="font-mono text-2xl font-bold tracking-tight text-slate-900">
             #{order.orderNumber}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-sm text-slate-500">
             Creado el {safeFormatDate(order.createdAt, "PPP")}
           </p>
         </div>
@@ -141,166 +143,140 @@ export default function OrderDetailPage() {
 
       {/* MAIN GRID */}
       <div className="grid gap-6 md:grid-cols-3">
-        {/* LEFT COLUMN - Order Details */}
-        <div className="md:col-span-2 space-y-6">
+        {/* LEFT — DETAILS */}
+        <div className="space-y-4 md:col-span-2">
           {/* Customer Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Información del Cliente</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Nombre</Label>
-                  <p className="text-sm font-medium">
-                    {order.contact?.name || "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <Label>Teléfono</Label>
-                  <p className="text-sm font-medium">
-                    {order.contact?.phone || "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <p className="text-sm font-medium">
-                    {order.contact?.email || "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <Label>Tipo</Label>
-                  <p className="text-sm font-medium">
-                    {order.contact?.type || "N/A"}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Información del Cliente</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailRow icon={<PersonIcon sx={{ fontSize: 14 }} />} tint="bg-blue-50 text-blue-600" label="Nombre" value={order.contact?.name || "N/A"} />
+              <DetailRow icon={<PhoneIcon sx={{ fontSize: 14 }} />} tint="bg-emerald-50 text-emerald-600" label="Teléfono" value={order.contact?.phone || "N/A"} />
+              <DetailRow icon={<EmailIcon sx={{ fontSize: 14 }} />} tint="bg-violet-50 text-violet-600" label="Email" value={order.contact?.email || "N/A"} />
+              <DetailRow icon={<LocalOfferIcon sx={{ fontSize: 14 }} />} tint="bg-amber-50 text-amber-600" label="Tipo" value={order.contact?.type || "N/A"} />
+            </div>
+          </div>
 
           {/* Products */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Productos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {Array.isArray(productsDisplay) ? (
-                <div className="space-y-3">
-                  {productsDisplay.map((product: any, index: number) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-3 border rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <InventoryIcon className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{product.name || product.product}</p>
-                          {product.qty && (
-                            <p className="text-sm text-muted-foreground">
-                              Cantidad: {product.qty}
-                            </p>
-                          )}
-                        </div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Productos</h3>
+            {Array.isArray(productsDisplay) ? (
+              <div className="space-y-2">
+                {productsDisplay.map((product: any, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white px-3 py-2.5 transition-colors duration-150 hover:border-emerald-200 hover:bg-emerald-50/30"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_4px_10px_-2px_rgb(34_197_94/0.45)]">
+                        <InventoryIcon sx={{ fontSize: 16 }} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {product.name || product.product}
+                        </p>
+                        {product.qty && (
+                          <p className="text-xs text-slate-500">
+                            Cantidad: <span className="font-medium tabular-nums text-slate-700">{product.qty}</span>
+                          </p>
+                        )}
                       </div>
-                      {product.price != null && (
-                        <span className="font-semibold text-green-600">
-                          ${formatNumber(product.price)}
-                        </span>
-                      )}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-4 bg-muted rounded-lg">
-                  <pre className="text-sm whitespace-pre-wrap font-mono">
-                    {typeof productsDisplay === "string"
-                      ? productsDisplay
-                      : JSON.stringify(productsDisplay, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    {product.price != null && (
+                      <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold tabular-nums text-emerald-700">
+                        ${formatNumber(product.price)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <pre className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/50 p-3 font-mono text-xs leading-relaxed text-slate-700">
+                {typeof productsDisplay === "string"
+                  ? productsDisplay
+                  : JSON.stringify(productsDisplay, null, 2)}
+              </pre>
+            )}
+          </div>
 
           {/* Order Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Detalles del Pedido</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Monto Total</Label>
-                  <p className="text-2xl font-bold text-green-600">
-                    {formatMoney(order.amount, order.currency)}
-                  </p>
-                </div>
-                <div>
-                  <Label>Moneda</Label>
-                  <p className="text-sm font-medium">{order.currency}</p>
-                </div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Detalles del Pedido</h3>
+            <div className="space-y-4">
+              <div>
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  Monto Total
+                </p>
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-green-500 to-emerald-400 px-3 py-1 text-base font-bold tabular-nums text-white shadow-[0_4px_12px_-2px_rgb(34_197_94/0.45)]">
+                  {formatMoney(order.amount, order.currency)}
+                </span>
               </div>
               {order.notes && (
                 <div>
-                  <Label>Notas</Label>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {order.notes}
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Notas
                   </p>
+                  <div className="flex gap-2.5 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                      <NotesIcon sx={{ fontSize: 14 }} />
+                    </span>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                      {order.notes}
+                    </p>
+                  </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT COLUMN - Status & Actions */}
-        <div className="space-y-6">
+        {/* RIGHT — STATUS & ACTIONS */}
+        <div className="space-y-4">
           {/* Status Timeline */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Línea de Tiempo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <OrderTimeline
-                currentStatus={order.status}
-                dispatchedAt={order.dispatchedAt ? new Date(order.dispatchedAt) : null}
-                deliveredAt={order.deliveredAt ? new Date(order.deliveredAt) : null}
-                createdAt={new Date(order.createdAt)}
-              />
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Línea de Tiempo</h3>
+            <OrderTimeline
+              currentStatus={order.status}
+              dispatchedAt={order.dispatchedAt ? new Date(order.dispatchedAt) : null}
+              deliveredAt={order.deliveredAt ? new Date(order.deliveredAt) : null}
+              createdAt={new Date(order.createdAt)}
+            />
+          </div>
 
           {/* Change Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Cambiar Estado</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={order.status} onValueChange={(value) => handleStatusChange(value as OrderStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Cambiar Estado</h3>
+            <Select
+              value={order.status}
+              onValueChange={(value) => handleStatusChange(value as OrderStatus)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          {/* Tracking Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <LocalShippingIcon className="h-4 w-4" />
+          {/* Tracking */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 text-white">
+                <LocalShippingIcon sx={{ fontSize: 14 }} />
+              </span>
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                 Información de Envío
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </h3>
+            </div>
+            <div className="space-y-3">
               <div>
-                <Label htmlFor="trackingNumber">Número de Tracking</Label>
+                <label htmlFor="trackingNumber" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Número de Tracking
+                </label>
                 <Input
                   id="trackingNumber"
                   value={trackingNumber}
@@ -309,7 +285,9 @@ export default function OrderDetailPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="carrier">Transportista</Label>
+                <label htmlFor="carrier" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Transportista
+                </label>
                 <Input
                   id="carrier"
                   value={carrier}
@@ -317,44 +295,66 @@ export default function OrderDetailPage() {
                   placeholder="DHL, FedEx, Correo Argentino..."
                 />
               </div>
-              <Button
+              <button
+                type="button"
                 onClick={handleTrackingUpdate}
-                className="w-full"
-                size="sm"
                 disabled={!trackingNumber || !carrier}
+                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
                 Actualizar Tracking
-              </Button>
+              </button>
               {order.dispatchedAt && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-slate-500">
                   Despachado: {safeFormatDate(order.dispatchedAt, "PPP")}
                 </p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Order Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Información</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">ID</span>
-                <span className="font-mono text-xs">{order.id.slice(0, 8)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Creado</span>
-                <span>{safeFormatDate(order.createdAt, "PP")}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Actualizado</span>
-                <span>{safeFormatDate(order.updatedAt, "PP")}</span>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className={SECTION_LABEL}>Información</h3>
+            <div className="space-y-2 text-sm">
+              <InfoRow label="ID" value={<span className="font-mono text-xs text-slate-700">{order.id.slice(0, 8)}</span>} />
+              <InfoRow label="Creado" value={safeFormatDate(order.createdAt, "PP")} />
+              <InfoRow label="Actualizado" value={safeFormatDate(order.updatedAt, "PP")} />
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DetailRow({
+  icon,
+  tint,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  tint: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${tint}`}>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="truncate text-sm font-medium text-slate-900">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-slate-500">{label}</span>
+      <span className="truncate text-xs font-medium text-slate-700">{value}</span>
     </div>
   );
 }

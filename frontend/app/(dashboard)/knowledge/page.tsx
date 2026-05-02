@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +20,7 @@ import { api } from "@/lib/api/endpoints";
 import type { KnowledgeBase, KnowledgeFormData, KnowledgeFilters, GetKnowledgeParams } from "@/types";
 import { PRODUCT_CATEGORIES } from "@/types";
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -192,16 +191,27 @@ export default function KnowledgePage() {
   if (isLoading && items.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <Skeleton className="h-8 w-48 mb-2" />
-            <Skeleton className="h-4 w-96" />
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-11 w-11 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-56" />
+              <Skeleton className="h-4 w-72" />
+            </div>
           </div>
-          <Skeleton className="h-10 w-32" />
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-28 rounded-full" />
+            <Skeleton className="h-10 w-40 rounded-full" />
+          </div>
         </div>
 
-        <Skeleton className="h-20" />
-        <Skeleton className="h-96" />
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Skeleton className="h-11 w-72 rounded-xl" />
+          <Skeleton className="h-11 w-44 rounded-xl" />
+          <Skeleton className="h-11 w-36 rounded-xl" />
+        </div>
+
+        <Skeleton className="h-96 rounded-2xl" />
       </div>
     );
   }
@@ -212,32 +222,49 @@ export default function KnowledgePage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Base de Conocimiento</h1>
-          <p className="text-muted-foreground">
-            Gestiona el contenido utilizado por la IA para responder consultas
-          </p>
+      {/* PAGE HEADER */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)]">
+            <MenuBookIcon sx={{ fontSize: 22 }} />
+          </span>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Base de Conocimiento</h1>
+            <p className="text-sm text-muted-foreground">
+              Gestiona el contenido utilizado por la IA para responder consultas
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button onClick={handleRefresh} variant="outline" size="sm">
-            <RefreshIcon className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+          >
+            <RefreshIcon
+              sx={{ fontSize: 16 }}
+              className={isLoading ? "animate-spin" : ""}
+            />
             Actualizar
-          </Button>
-          <Button onClick={handleCreateClick}>
-            <AddIcon className="h-4 w-4 mr-2" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCreateClick}
+            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97]"
+          >
+            <AddIcon sx={{ fontSize: 18 }} />
             Nuevo Artículo
-          </Button>
+          </button>
         </div>
       </div>
 
       {/* FILTERS */}
-      <div className="flex flex-wrap gap-3 items-center">
-        {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="group relative flex-1 min-w-[220px] max-w-sm">
+          <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors duration-200 group-focus-within:text-blue-600" />
           <Input
             placeholder="Buscar en títulos y contenido..."
             value={filters.search || ""}
@@ -246,7 +273,6 @@ export default function KnowledgePage() {
           />
         </div>
 
-        {/* Category Filter */}
         <Select value={filters.category || "ALL"} onValueChange={handleCategoryChange}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Categoría" />
@@ -264,7 +290,6 @@ export default function KnowledgePage() {
           </SelectContent>
         </Select>
 
-        {/* Active Filter */}
         <Select
           value={typeof filters.active === "boolean" ? String(filters.active) : "ALL"}
           onValueChange={handleActiveChange}
@@ -279,19 +304,19 @@ export default function KnowledgePage() {
           </SelectContent>
         </Select>
 
-        {/* Results Count */}
-        <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          <MenuBookIcon className="h-4 w-4" />
-          <span>{totalCount} artículos</span>
-        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+          <span className="font-semibold text-slate-900">{totalCount}</span>
+          artículos
+        </span>
       </div>
 
       {/* ERROR STATE */}
       {error && (
-        <Alert variant="destructive">
-          <ErrorOutlineIcon className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-200/70 bg-red-50/80 px-4 py-3 text-sm text-red-700">
+          <ErrorOutlineIcon sx={{ fontSize: 18 }} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
       )}
 
       {/* KNOWLEDGE TABLE */}
@@ -304,28 +329,30 @@ export default function KnowledgePage() {
 
       {/* PAGINATION */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-4">
-          <Button
-            variant="outline"
-            size="sm"
+        <div className="flex items-center justify-center gap-3 pt-4">
+          <button
+            type="button"
             onClick={() => handlePageChange(currentPage - 1)}
             disabled={currentPage === 1 || isLoading}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
           >
-            Anterior
-          </Button>
+            ← Anterior
+          </button>
 
-          <span className="text-sm text-muted-foreground">
-            Página {currentPage} de {totalPages}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
+            <span className="font-semibold text-slate-900">{currentPage}</span>
+            <span className="text-slate-400">/</span>
+            <span>{totalPages}</span>
           </span>
 
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={() => handlePageChange(currentPage + 1)}
             disabled={currentPage === totalPages || isLoading}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
           >
-            Siguiente
-          </Button>
+            Siguiente →
+          </button>
         </div>
       )}
 
@@ -340,22 +367,42 @@ export default function KnowledgePage() {
 
       {/* DELETE CONFIRMATION DIALOG */}
       <AlertDialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar artículo?</AlertDialogTitle>
-            <AlertDialogDescription>
+        <AlertDialogContent className="rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150">
+          <AlertDialogHeader className="space-y-3">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-red-500 to-rose-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(239_68_68/0.45)]">
+              <DeleteIcon sx={{ fontSize: 22 }} />
+            </span>
+            <AlertDialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+              ¿Eliminar artículo?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-slate-600">
               Esta acción no se puede deshacer. Se eliminará permanentemente el artículo{" "}
-              <strong>{deleteItem?.title}</strong> de la base de conocimiento.
+              <strong className="font-semibold text-slate-900">
+                {deleteItem?.title}
+              </strong>{" "}
+              de la base de conocimiento.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel
+              disabled={isDeleting}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] disabled:opacity-60"
+            >
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(239_68_68/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(239_68_68/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
             >
-              {isDeleting ? "Eliminando..." : "Eliminar"}
+              {isDeleting ? (
+                <>
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Eliminando...
+                </>
+              ) : (
+                "Eliminar"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
