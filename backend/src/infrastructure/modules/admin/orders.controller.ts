@@ -126,6 +126,21 @@ export class OrdersController {
     res.send(buf);
   }
 
+  /**
+   * Marcos 2026-06-16: Zebra 10×15 cm shipping-label PDF.
+   * One label per page, ready to print on the Zebra thermal.
+   */
+  @Get(':id/etiqueta')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
+  async getOrderEtiqueta(@Param('id') id: string, @Res() res: Response) {
+    const buf = await this.orderManagement.renderEtiqueta(id);
+    if (!buf) throw new NotFoundException('Pedido no encontrado');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="etiqueta-${id.slice(0, 8)}.pdf"`);
+    res.setHeader('Content-Length', String(buf.length));
+    res.send(buf);
+  }
+
   // Get order by ID
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS)

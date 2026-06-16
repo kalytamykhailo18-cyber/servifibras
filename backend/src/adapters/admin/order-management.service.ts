@@ -355,6 +355,41 @@ export class OrderManagementService implements IOrderManagementService {
     });
   }
 
+  /**
+   * Marcos 2026-06-16: Zebra 10×15 cm shipping-label PDF. One label per
+   * order — Nombre + Dirección + Localidad + TEL + BULTOS. Pulls the
+   * address from Contact.metadata (the quick-client expanded form).
+   */
+  async renderEtiqueta(orderId: string): Promise<Buffer | null> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        contact: { select: { name: true, phone: true, metadata: true } },
+      },
+    });
+    if (!order) return null;
+    const meta = ((order.contact?.metadata ?? null) as any) || {};
+    const street = (meta.address ?? meta.domicilio ?? '') as string;
+    const number = (meta.streetNumber ?? meta.numero ?? '') as string;
+    const cross = (meta.crossStreet ?? meta.entreCalles ?? '') as string;
+    const localidad = (meta.locality ?? meta.localidad ?? null) as string | null;
+    const postal = (meta.postalCode ?? meta.codigoPostal ?? null) as string | null;
+    const direccionParts = [
+      [street, number].filter(Boolean).join(' ').trim(),
+      cross ? `entre ${cross}` : null,
+      postal ? `CP ${postal}` : null,
+    ].filter(Boolean);
+    const direccion = direccionParts.length > 0 ? direccionParts.join(' · ') : null;
+    const { buildEtiquetaPdf } = await import('./order-etiqueta-pdf.builder');
+    return buildEtiquetaPdf({
+      nombre: order.contact?.name ?? '',
+      direccion,
+      localidad,
+      telefono: order.contact?.phone ?? null,
+      bultos: 1,
+    });
+  }
+
   async getOrderStatistics(): Promise<OrderStatistics> {
     const allOrders = await this.prisma.order.findMany({
       select: {

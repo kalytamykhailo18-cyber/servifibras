@@ -1207,6 +1207,13 @@ export const ordersApi = {
     return URL.createObjectURL(r.data as Blob);
   },
 
+  /** Marcos 2026-06-16: Zebra 10×15 cm shipping-label PDF for the
+   *  warehouse's thermal printer. */
+  getEtiquetaBlobUrl: async (id: string): Promise<string> => {
+    const r = await apiClient.get(`/admin/orders/${id}/etiqueta`, { responseType: 'blob' });
+    return URL.createObjectURL(r.data as Blob);
+  },
+
   /**
    * GET /admin/orders/stats/summary
    * Get order fulfillment statistics (revenue, top products, etc.)

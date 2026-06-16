@@ -25,6 +25,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import LocalPrintshopIcon from "@mui/icons-material/LocalPrintshop";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { ordersApi } from "@/lib/api/endpoints";
 import { toast } from "sonner";
@@ -206,6 +207,24 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                         <EditIcon sx={{ fontSize: 14 }} />
                       </span>
                       Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          const url = await ordersApi.getEtiquetaBlobUrl(order.id);
+                          window.open(url, '_blank', 'noopener');
+                        } catch (err: any) {
+                          toast.error(err?.response?.data?.error || 'No se pudo generar la etiqueta');
+                        }
+                      }}
+                      data-testid={`order-row-${order.id}-etiqueta`}
+                      className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-pink-50 focus:text-pink-700"
+                    >
+                      <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-pink-500 to-rose-400 text-white">
+                        <LocalPrintshopIcon sx={{ fontSize: 14 }} />
+                      </span>
+                      Etiqueta envío (10×15)
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={async (e) => {
