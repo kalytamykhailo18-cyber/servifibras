@@ -820,20 +820,46 @@ export class MercadoLibreService implements IMercadoLibreService {
       return cached.value;
     }
 
-    const auth = await this.resolveAuth();
+    // Marcos 2026-06-16: try cuenta 1 first, fall back to cuenta 2 on 403.
+    // Listings sold under cuenta 2 reject cuenta 1's OAuth token, and
+    // the result was the agent answering ML questions without any
+    // publication context. The /items endpoint accepts either account's
+    // token for that account's items, so we just try both before
+    // giving up.
+    const accounts: Array<'mercadolibre' | 'mercadolibre_cuenta2'> = [
+      'mercadolibre',
+      'mercadolibre_cuenta2',
+    ];
+    let auth: Awaited<ReturnType<typeof this.resolveAuthFor>> = null;
+    let itemRes: Response | null = null;
+    for (const which of accounts) {
+      auth = await this.resolveAuthFor(which);
+      if (!auth) continue;
+      try {
+        itemRes = await fetch(`${this.apiUrl}/items/${encodeURIComponent(itemId)}`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${auth.accessToken}` },
+        });
+        if (itemRes.ok) break;
+        if (itemRes.status === 403 || itemRes.status === 401) {
+          // try the next account
+          itemRes = null;
+          continue;
+        }
+        break;
+      } catch (err: any) {
+        this.logger.warn(`Listing fetch ${itemId} (${which}) threw: ${err?.message}`);
+        itemRes = null;
+      }
+    }
     if (!auth) {
       this.logger.warn(`Listing fetch ${itemId}: no MercadoLibre OAuth credentials`);
       return null;
     }
 
     try {
-      // Catalog row first — title, price, stock, attributes, permalink.
-      const itemRes = await fetch(`${this.apiUrl}/items/${encodeURIComponent(itemId)}`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${auth.accessToken}` },
-      });
-      if (!itemRes.ok) {
-        this.logger.warn(`Listing fetch ${itemId}: items endpoint returned ${itemRes.status}`);
+      if (!itemRes || !itemRes.ok) {
+        this.logger.warn(`Listing fetch ${itemId}: items endpoint returned ${itemRes?.status ?? 'no response'} on all accounts`);
         return null;
       }
       const item: any = await itemRes.json();

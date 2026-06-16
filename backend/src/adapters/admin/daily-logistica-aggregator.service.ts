@@ -686,8 +686,17 @@ export class DailyLogisticaAggregatorService {
       // from real mayorista orders.
       const testFilterRaw = (process.env.LOGISTICA_TEST_ORDER_FILTER_REGEX || '').trim();
       const testFilterRe = testFilterRaw ? new RegExp(testFilterRaw, 'i') : null;
+      // Marcos 2026-06-16: extra filter on orderNumber so DEMO seed
+      // rows + E2E/AUDIT prefixes don't leak into MOTOS now that the
+      // pendientes fetch is unbounded. Matches against the
+      // orderNumber field directly (not contact.name).
+      const testOrderRaw = (process.env.LOGISTICA_TEST_ORDER_NUMBER_REGEX || '').trim();
+      const testOrderRe = testOrderRaw ? new RegExp(testOrderRaw, 'i') : null;
       for (const o of localOrders) {
         if (testFilterRe && o.contact?.name && testFilterRe.test(o.contact.name)) {
+          continue;
+        }
+        if (testOrderRe && o.orderNumber && testOrderRe.test(o.orderNumber)) {
           continue;
         }
         // Marcos 2026-06-10 — TN orders with shipping_pickup_type=pickup
