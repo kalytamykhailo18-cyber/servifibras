@@ -100,6 +100,11 @@ function fmtMoney(n: number, currency: string = 'ARS'): string {
   return `${sign}${withGroups},${decPart}`;
 }
 
+function hasShippingDetails(s: OrderPdfShipping | null | undefined): boolean {
+  if (!s) return false;
+  return !!(s.address || s.streetNumber || s.locality || s.postalCode || s.zone || s.carrier || s.cost != null);
+}
+
 export function buildOrderPdf(data: OrderPdfData): Promise<Buffer> {
   const company = loadCompany();
   return new Promise((resolve, reject) => {
@@ -118,11 +123,15 @@ export function buildOrderPdf(data: OrderPdfData): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
+      // Marcos 2026-06-16: the "Descargar PDF" surface is a shipping
+      // document — couriers need the buyer block + envío block, not
+      // the order detail or money. The per-line items table and the
+      // total box are intentionally NOT rendered. The Zebra etiqueta
+      // endpoint covers the compact 10×15 case; this stays on A4 in
+      // case the operator wants a full-page hand-off to a carrier.
       renderHeader(doc, company, data);
       renderBuyerBlock(doc, data);
-      if (data.shipping) renderShippingBlock(doc, data);
-      renderItemsTable(doc, data);
-      renderTotalsBox(doc, data);
+      if (hasShippingDetails(data.shipping)) renderShippingBlock(doc, data);
       if (data.notes) renderNotesBlock(doc, data);
       renderFooter(doc, company);
 
