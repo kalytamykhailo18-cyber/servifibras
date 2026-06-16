@@ -641,41 +641,45 @@ export class DailyLogisticaAggregatorService {
 
     // ─── Local Order rows (WA / mayorista / manual) → MOTOS / MICROS ──
     try {
-      const localOrders = await this.prisma.order.findMany({
-        where: {
-          // Bloque B item 3.11 — Marcos 2026-06-09: same backlog
-          // window as ML. Local orders (TN sync + WhatsApp /
-          // mayorista manual) that were placed up to 14 days ago
-          // but haven't been shipped yet should still show.
-          createdAt: { gte: new Date(backlogFromIso), lte: new Date(toIso) },
-          // Bloque B item 3.9 — Marcos 2026-06-08: surface CANCELLED
-          // orders too so the panel can show a red "CANCELADA" badge
-          // (otherwise pickers don't see that the buyer pulled the
-          // cart and may waste time preparing). The visual states
-          // are derived from `isCancelled` below.
-          status: {
-            in: [
-              OrderStatus.CONFIRMED,
-              OrderStatus.PROCESSING,
-              OrderStatus.DISPATCHED,
-              OrderStatus.CANCELLED,
-            ],
+      // Marcos 2026-06-16: pendientes (CONFIRMED / PROCESSING) must
+      // NEVER drop off the panel because they're old — they carry
+      // forward day-to-day automatically until the operator arms them.
+      // Two queries:
+      //   1. Active orders (CONFIRMED, PROCESSING) — no time filter,
+      //      they roll over from any past day until handled.
+      //   2. Recently dispatched / cancelled — bounded by the env
+      //      lookback so the Despachadas tab doesn't pollute with
+      //      ancient history.
+      const orderSelect = {
+        id: true,
+        orderNumber: true,
+        carrier: true,
+        notes: true,
+        products: true,
+        source: true,
+        status: true,
+        sectionOverride: true,
+        createdAt: true,
+        contact: { select: { name: true } },
+      };
+      const [activeOrders, recentSettled] = await Promise.all([
+        this.prisma.order.findMany({
+          where: {
+            status: { in: [OrderStatus.CONFIRMED, OrderStatus.PROCESSING] },
           },
-        },
-        select: {
-          id: true,
-          orderNumber: true,
-          carrier: true,
-          notes: true,
-          products: true,
-          source: true,
-          status: true,
-          sectionOverride: true,
-          createdAt: true,
-          contact: { select: { name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+          select: orderSelect,
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.order.findMany({
+          where: {
+            createdAt: { gte: new Date(backlogFromIso), lte: new Date(toIso) },
+            status: { in: [OrderStatus.DISPATCHED, OrderStatus.CANCELLED] },
+          },
+          select: orderSelect,
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+      const localOrders = [...activeOrders, ...recentSettled];
       // Marcos 2026-06-10: skip e2e/fixture orders whose contact name
       // matches the test-filter regex — they were polluting MOTOS with
       // "2D Test 2d-mayorista-…" rows and Marcos can't tell them apart
