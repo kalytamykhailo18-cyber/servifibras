@@ -411,7 +411,15 @@ export default function LogisticaDiariaPage() {
   };
 
   const bulkSetCourier = async (courier: string | null) => {
-    if (bulkPending || selected.size === 0) return;
+    if (bulkPending) return;
+    // Marcos 2026-06-16: previously this returned silently when no
+    // rows were checkboxed, which read as "Baires no se etiqueta".
+    // Surface the empty-selection state so the operator knows the
+    // dropdown needs row selections first.
+    if (selected.size === 0) {
+      toast.error("Seleccioná al menos una fila para asignarle el courier");
+      return;
+    }
     setBulkPending(true);
     try {
       const r = await api.dailyLogistica.setFlexCourier(Array.from(selected), date, courier);
