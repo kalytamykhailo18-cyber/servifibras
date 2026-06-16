@@ -5,6 +5,9 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { ContentType } from '@prisma/client';
 import { IWhatsAppService } from '../../use-cases/whatsapp/whatsapp.interface';
 import {
   WhatsAppIncomingMessage,
@@ -12,6 +15,24 @@ import {
   WhatsAppSendResult,
   WhatsAppMessageType,
 } from '../../domain/entities/whatsapp-message.entity';
+
+/** Meta Cloud API media-message types we emit. */
+type MetaMediaType = 'audio' | 'image' | 'video' | 'document';
+
+export interface SendMediaArgs {
+  /** E.164 phone of the recipient. */
+  to: string;
+  /** Absolute path to the file on disk. Must be readable by the backend. */
+  filePath: string;
+  /** Original filename — only used for `document` so the customer sees a sane name. */
+  filename: string;
+  /** MIME type as detected at upload time. */
+  mime: string;
+  /** Domain ContentType so we can derive the right Meta media-message shape. */
+  contentType: ContentType;
+  /** Optional text the customer will see alongside the media (image/video/document only). */
+  caption?: string;
+}
 
 @Injectable()
 export class WhatsAppService implements IWhatsAppService {
@@ -116,6 +137,230 @@ export class WhatsAppService implements IWhatsAppService {
   async sendTextMessage(to: string, text: string): Promise<WhatsAppSendResult> {
     const message = new WhatsAppOutgoingMessage(to, text);
     return this.sendMessage(message);
+  }
+
+  /**
+   * Send a media attachment (audio, image, video, document) to a WhatsApp
+   * recipient. Two HTTP calls to Meta:
+   *   1. POST /{phoneNumberId}/media — uploads the binary, returns `{id}`.
+   *   2. POST /{phoneNumberId}/messages — sends `type:<media>` referencing
+   *      the returned id.
+   *
+   * Voice notes specifically need `voice:true` on the audio shape; otherwise
+   * Meta renders the audio as a generic file attachment instead of the
+   * native voice-note bubble. That distinction is exactly what Marcos
+   * flagged about prometheo's outbound — files-instead-of-voice-notes
+   * generates customer mistrust.
+   */
+  async sendMedia(args: SendMediaArgs): Promise<WhatsAppSendResult> {
+    if (!this.isConfigured) {
+      return WhatsAppSendResult.failure('WhatsApp not configured');
+    }
+    if (!args.to || !args.filePath || !args.mime) {
+      return WhatsAppSendResult.failure('Invalid media args');
+    }
+    let buffer: Buffer;
+    try {
+      buffer = fs.readFileSync(args.filePath);
+    } catch (err: any) {
+      this.logger.error(`Cannot read media file ${args.filePath}: ${err.message}`);
+      return WhatsAppSendResult.failure('Media file unreadable');
+    }
+
+    const metaType = mediaTypeFromContentType(args.contentType);
+    if (!metaType) {
+      return WhatsAppSendResult.failure(
+        `ContentType ${args.contentType} not sendable as media`,
+      );
+    }
+
+    let mediaId: string;
+    try {
+      mediaId = await this.uploadMedia(buffer, args.filename, args.mime);
+    } catch (err: any) {
+      this.logger.error(`Meta media upload failed: ${err.message}`);
+      return WhatsAppSendResult.failure(`Media upload failed: ${err.message}`);
+    }
+
+    return this.sendMediaMessage(args.to, metaType, mediaId, args);
+  }
+
+  /**
+   * Upload binary to Meta's /media endpoint and return the media-id we'll
+   * reference when sending the message. Public so tests can exercise the
+   * upload path independently from the message-send path.
+   */
+  async uploadMedia(buffer: Buffer, filename: string, mime: string): Promise<string> {
+    if (!this.isConfigured) {
+      throw new Error('WhatsApp not configured');
+    }
+    const url = `${this.apiUrl}/${this.phoneNumberId}/media`;
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    // Use the runtime Blob so undici picks the right multipart shape; node's
+    // FormData rejects raw Buffers as fields.
+    // Cast to Uint8Array — Buffer is a subclass but TypeScript's lib.dom
+    // BlobPart constraint specifically forbids SharedArrayBuffer-backed
+    // views, which `Buffer` technically allows.
+    form.append('file', new Blob([new Uint8Array(buffer)], { type: mime }), filename);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+      body: form,
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.id) {
+      const reason = data?.error?.message || `HTTP ${res.status}`;
+      throw new Error(reason);
+    }
+    return String(data.id);
+  }
+
+  /**
+   * Inbound media download — given a Meta `mediaId` (from a customer's
+   * image / voice note / video / document message), fetch the temporary
+   * Graph API URL and download the binary. Returns the bytes + the
+   * server-reported MIME type so the caller can stash it under
+   * UPLOADS_DIR via `UploadStorageService.store`.
+   *
+   * Marcos 2026-06-06: Phase 1 wrap-up. Before this, the inbound handler
+   * dropped any non-text message on the floor — customers' voice notes
+   * and photos never reached the operator panel. With this in place the
+   * conversation handler can persist the media + show it in the bubble.
+   *
+   * Returns `null` when WA isn't configured, the mediaId resolution
+   * fails, or the binary fetch errors. Errors are non-fatal.
+   */
+  async downloadIncomingMedia(mediaId: string): Promise<{
+    buffer: Buffer;
+    mime: string;
+  } | null> {
+    if (!this.isConfigured || !mediaId) return null;
+    try {
+      // Step 1 — resolve the mediaId to a short-lived signed URL.
+      const metaRes = await fetch(`${this.apiUrl}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+      if (!metaRes.ok) {
+        this.logger.warn(`WA media resolve failed for ${mediaId}: HTTP ${metaRes.status}`);
+        return null;
+      }
+      const metaJson: any = await metaRes.json().catch(() => ({}));
+      const url = metaJson?.url;
+      const mime = String(metaJson?.mime_type || '').toLowerCase();
+      if (!url) {
+        this.logger.warn(`WA media resolve returned no url for ${mediaId}`);
+        return null;
+      }
+      // Step 2 — download the binary. Meta's CDN requires the same bearer.
+      const binRes = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+      if (!binRes.ok) {
+        this.logger.warn(`WA media download failed for ${mediaId}: HTTP ${binRes.status}`);
+        return null;
+      }
+      const arrayBuf = await binRes.arrayBuffer();
+      return { buffer: Buffer.from(arrayBuf), mime };
+    } catch (err: any) {
+      this.logger.warn(`WA media download errored for ${mediaId}: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Build the messages payload referencing an already-uploaded media id and
+   * POST it. Split out from `sendMedia` so caller paths that already have a
+   * media-id (e.g. forwarding) can reuse it.
+   */
+  async sendMediaMessage(
+    to: string,
+    metaType: MetaMediaType,
+    mediaId: string,
+    extras: { caption?: string; filename?: string },
+  ): Promise<WhatsAppSendResult> {
+    if (!this.isConfigured) {
+      return WhatsAppSendResult.failure('WhatsApp not configured');
+    }
+
+    const mediaShape: any = { id: mediaId };
+    // `voice:true` is what flips the bubble from "audio file" to native
+    // voice note in the customer's WhatsApp. Defining it on the audio
+    // path only — image/video/document don't accept it.
+    if (metaType === 'audio') {
+      mediaShape.voice = true;
+    } else if (extras.caption && extras.caption.length > 0) {
+      mediaShape.caption = extras.caption;
+    }
+    if (metaType === 'document' && extras.filename) {
+      mediaShape.filename = extras.filename;
+    }
+
+    const payload: any = {
+      messaging_product: 'whatsapp',
+      to,
+      type: metaType,
+      [metaType]: mediaShape,
+    };
+
+    try {
+      const res = await fetch(`${this.apiUrl}/${this.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return WhatsAppSendResult.failure(data?.error?.message || `HTTP ${res.status}`);
+      }
+      const messageId = data.messages?.[0]?.id;
+      if (!messageId) return WhatsAppSendResult.failure('No message ID returned');
+      this.logger.log(`✅ WhatsApp ${metaType} sent: ${messageId}`);
+      return WhatsAppSendResult.success(messageId);
+    } catch (err: any) {
+      this.logger.error(`Error sending WhatsApp ${metaType}: ${err.message}`);
+      return WhatsAppSendResult.failure(err.message);
+    }
+  }
+
+  /**
+   * Build the exact JSON payload that `sendMediaMessage` would POST. Pure,
+   * side-effect free — used by tests to assert payload shape (especially
+   * `voice:true` on audio) without hitting the real Meta endpoint.
+   */
+  buildMediaPayload(
+    to: string,
+    contentType: ContentType,
+    mediaId: string,
+    extras: { caption?: string; filename?: string } = {},
+  ): { ok: true; payload: any } | { ok: false; reason: string } {
+    const metaType = mediaTypeFromContentType(contentType);
+    if (!metaType) {
+      return { ok: false, reason: `ContentType ${contentType} not sendable as media` };
+    }
+    const mediaShape: any = { id: mediaId };
+    if (metaType === 'audio') {
+      mediaShape.voice = true;
+    } else if (extras.caption && extras.caption.length > 0) {
+      mediaShape.caption = extras.caption;
+    }
+    if (metaType === 'document' && extras.filename) {
+      mediaShape.filename = extras.filename;
+    }
+    return {
+      ok: true,
+      payload: {
+        messaging_product: 'whatsapp',
+        to,
+        type: metaType,
+        [metaType]: mediaShape,
+      },
+    };
   }
 
   async markAsRead(messageId: string): Promise<boolean> {
@@ -271,5 +516,15 @@ export class WhatsAppService implements IWhatsAppService {
       this.logger.error(`Health check failed: ${error.message}`);
       return false;
     }
+  }
+}
+
+function mediaTypeFromContentType(c: ContentType): MetaMediaType | null {
+  switch (c) {
+    case ContentType.VOICE:    return 'audio';
+    case ContentType.IMAGE:    return 'image';
+    case ContentType.VIDEO:    return 'video';
+    case ContentType.DOCUMENT: return 'document';
+    default: return null; // TEXT, LOCATION — caller bug or unsupported
   }
 }

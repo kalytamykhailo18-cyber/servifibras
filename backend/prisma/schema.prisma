@@ -11,18 +11,46 @@ datasource db {
 
 // Team Members (Brenda, Franco, Aldo, Admin)
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  username  String   @unique
-  password  String
-  name      String
-  role      UserRole
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  username            String    @unique
+  password            String
+  name                String
+  role                UserRole
+  active              Boolean   @default(true)
+  // Bloque C — security gap #9 (Marcos 2026-06-06): per-account
+  // login lockout. The auth service increments `failedLoginAttempts`
+  // on every wrong-password hit and resets it on success. When the
+  // counter crosses ACCOUNT_LOCKOUT_THRESHOLD inside
+  // ACCOUNT_LOCKOUT_WINDOW_MIN, `lockedUntil` gets stamped to now +
+  // ACCOUNT_LOCKOUT_DURATION_MIN and the user is rejected with the
+  // distinct `account_locked` reason until that timestamp passes.
+  // This is a layer ABOVE the existing IP-level throttle — an
+  // attacker rotating IPs still gets stopped per-account.
+  failedLoginAttempts Int       @default(0)
+  lastFailedLoginAt   DateTime?
+  lockedUntil         DateTime?
+  // Bloque C — security gap #10 (Marcos 2026-06-06): session idle
+  // expiry. AuthGuard updates this on every authenticated request
+  // (debounced — only writes if > 60s since last). Refresh + access
+  // paths reject with `idle_expired` when now - lastActiveAt exceeds
+  // SESSION_IDLE_TIMEOUT_MIN. Null means "never seen since the
+  // column was added" — treated as still-valid on the first check.
+  lastActiveAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  conversations Conversation[]
-  leads         Lead[]
+  conversations      Conversation[]
+  leads              Lead[]
+  internalNotes      InternalNote[]
+  accessLogs         AccessLog[]
+  refreshTokens      RefreshToken[]
+  conversationScores ConversationScore[] @relation("ConversationScoreAssignee")
+  messagesAuthored   Message[]
+  logisticaArmado    LogisticaArmado[]
+  publicationFaqs    PublicationFaq[]
+  competitorWatches  MlCompetitorWatch[]
+  dispatchTariffs    DispatchTariff[] @relation("DispatchTariffCreatedBy")
 
   @@map("users")
 }
@@ -36,20 +64,42 @@ enum UserRole {
 
 // Customer Information
 model Contact {
-  id        String      @id @default(uuid())
-  name      String?
-  phone     String?     @unique
-  email     String?
-  type      ContactType @default(MINORISTA)
-  channel   Channel?
-  metadata  Json?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id           String        @id @default(uuid())
+  name         String?
+  phone        String?       @unique
+  email        String?
+  // Legacy 4-value classification — kept while we migrate consumers; new
+  // code should read `customerType` / `funnelStage` below.
+  type         ContactType   @default(MINORISTA)
+  // Customer-type dimension (Marcos's 6-value taxonomy). Null until the
+  // contact has been classified at least once.
+  customerType CustomerType?
+  // Funnel-stage dimension. Driven by lead/order state transitions plus
+  // initial-message heuristics.
+  funnelStage  FunnelStage?
+  channel      Channel?
+  metadata     Json?
+  // Profile picture URL. Best-effort pulled from the platform when we
+  // first see the contact: Graph API for FB Messenger + Instagram, null
+  // for WhatsApp Cloud (no public profile-photo endpoint) / ML / webchat.
+  // Falls back to a deterministic initials avatar in the UI.
+  avatarUrl    String?
+  // Sandbox flag — true for contacts created by the in-panel "Probar como
+  // cliente" tool. Used to keep test conversations out of the real inbox
+  // and analytics; the AI still treats them the same.
+  isSandbox    Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   conversations Conversation[]
   leads         Lead[]
   orders        Order[]
+  quotes        Quote[]
+  mlBatchQueue  MlBatchQueueEntry[]
 
+  @@index([customerType])
+  @@index([funnelStage])
+  @@index([isSandbox])
   @@map("contacts")
 }
 
@@ -60,28 +110,89 @@ enum ContactType {
   INDUSTRIAL
 }
 
+// Two-dimension classification — Marcos's redesign. Each contact carries a
+// customer-type and a funnel-stage; combined filters ("MAYORISTA + NO_CONCRETO")
+// drive reactivation campaigns and per-segment analytics.
+enum CustomerType {
+  ARTESANO // Artesano / Hobbysta — small craft / DIY buyer
+  EMPRENDEDOR // small business owner buying inputs
+  MAYORISTA // Comercio mayorista
+  INDUSTRIAL // Empresa / Industrial
+  PRFV_LAMINADOS // PRFV / Laminados specialist
+  PROVEEDOR // Supplier / cross-vendor
+}
+
+enum FunnelStage {
+  CONSULTA // initial enquiry, no quote yet
+  COTIZADO // quote sent
+  NO_CONCRETO // quoted but didn't close
+  COMPRADOR // bought at least once
+  FRECUENTE // multiple purchases / ongoing relationship
+  REACTIVAR // dormant — flagged for re-engagement
+}
+
 // Chat Sessions
 model Conversation {
-  id            String             @id @default(uuid())
-  contactId     String
-  channel       Channel
-  status        ConversationStatus @default(ACTIVE)
-  assignedTo    String?
-  lastMessage   String?
-  lastMessageAt DateTime?
-  isUnread      Boolean            @default(true)
-  metadata      Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id                    String             @id @default(uuid())
+  contactId             String
+  channel               Channel
+  status                ConversationStatus @default(ACTIVE)
+  assignedTo            String?
+  lastMessage           String?
+  lastMessageAt         DateTime?
+  isUnread              Boolean            @default(true)
+  // True when the AI/customer signalled the conversation needs a human and
+  // no human has replied yet. Cleared the moment any staff member sends a
+  // reply through the panel.
+  needsHumanAttention   Boolean            @default(false)
+  // When the human-handoff flag was raised. Used to surface "wait time"
+  // and to sort the inbox so flagged conversations float to the top.
+  escalatedAt           DateTime?
+  // Per-conversation AI kill-switch. When true, inbound messages are still
+  // saved + classified, but the AI does not reply (operator handles it
+  // manually). Toggled from the conversation detail page when the AI is
+  // making mistakes Marcos doesn't want propagating.
+  aiPaused              Boolean            @default(false)
+  aiPausedAt            DateTime?
+  aiPausedBy            String?
+  // AI-generated conversational summary for the operator's right-rail
+  // panel. Regenerated by `ConversationSummaryService` after enough new
+  // customer messages have accumulated (see CONVERSATION_SUMMARY_*
+  // env vars). Shape: { summary, products, status, keyFacts }.
+  aiSummary             Json?
+  aiSummaryUpdatedAt    DateTime?
+  aiSummaryMessageCount Int?
+  // Sandbox flag — true for conversations created via the "Probar como
+  // cliente" panel tool. Excluded from the inbox + analytics so test
+  // chatter doesn't pollute real data; the AI pipeline runs identically.
+  isSandbox             Boolean            @default(false)
+  // Bloque B item 1 — Marcos 2026-06-06: ML cuenta split. When this
+  // conversation lives on the MERCADOLIBRE channel, this column
+  // carries the OAuthCredential `provider` key for the cuenta the
+  // inbound landed through ("mercadolibre" = cuenta 1,
+  // "mercadolibre_cuenta2" = cuenta 2). Null for non-ML
+  // conversations. Drives the per-cuenta analytics breakdown so
+  // Marcos can see metrics split by store.
+  mlAccountKey          String?
+  metadata              Json?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
-  contact  Contact   @relation(fields: [contactId], references: [id])
-  assigned User?     @relation(fields: [assignedTo], references: [id])
-  messages Message[]
+  contact       Contact             @relation(fields: [contactId], references: [id])
+  assigned      User?               @relation(fields: [assignedTo], references: [id])
+  messages      Message[]
+  internalNotes InternalNote[]
+  score         ConversationScore?
+  orders        Order[]
+  mlBatchQueue  MlBatchQueueEntry[]
 
   @@index([contactId])
   @@index([assignedTo])
   @@index([channel])
   @@index([status])
+  @@index([needsHumanAttention])
+  @@index([isSandbox])
+  @@index([mlAccountKey])
   @@map("conversations")
 }
 
@@ -104,9 +215,25 @@ model Message {
   id             String        @id @default(uuid())
   conversationId String
   sender         MessageSender
+  // For text-only messages this is the text body. For attachment messages
+  // this is the optional caption ("" if none) — the media itself lives in
+  // the attachment* fields below.
   content        String
   contentType    ContentType   @default(TEXT)
   isFromAI       Boolean       @default(false)
+  // Optional file attachment. URL is the operator-facing path
+  // (`/admin/uploads/{name}`); the binary lives under UPLOADS_DIR on disk.
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentMime String?
+  attachmentSize Int?
+  // Author of the message when sent by a staff member (manual reply
+  // from the panel). Null for CUSTOMER and AI messages — those are
+  // attributed by the `sender` enum alone. Per-user attribution lets
+  // the operator transcript distinguish "Marcos" from "the seeded
+  // admin user" instead of collapsing both to the generic ADMIN role.
+  authorId       String?
+  author         User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
   metadata       Json?
   timestamp      DateTime      @default(now())
 
@@ -114,7 +241,26 @@ model Message {
 
   @@index([conversationId])
   @@index([timestamp])
+  @@index([authorId])
   @@map("messages")
+}
+
+// Internal staff-only notes attached to a conversation. Never sent to the
+// customer; visible only inside the panel. Used for handoff context when a
+// conversation is transferred between roles.
+model InternalNote {
+  id             String   @id @default(uuid())
+  conversationId String
+  authorId       String
+  content        String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id])
+
+  @@index([conversationId])
+  @@index([authorId])
+  @@map("internal_notes")
 }
 
 enum MessageSender {
@@ -137,21 +283,29 @@ enum ContentType {
 
 // Wholesale Opportunities
 model Lead {
-  id              String     @id @default(uuid())
-  contactId       String
-  assignedTo      String?
-  status          LeadStatus @default(NEW)
-  source          Channel
-  productInterest String?
-  estimatedValue  Float?
-  notes           String?
-  wonAmount       Float?
-  lostReason      String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                   String     @id @default(uuid())
+  contactId            String
+  assignedTo           String?
+  status               LeadStatus @default(NEW)
+  source               Channel
+  productInterest      String?
+  estimatedValue       Float?
+  notes                String?
+  wonAmount            Float?
+  lostReason           String?
+  followupCount        Int        @default(0)
+  lastFollowupAt       DateTime?
+  // Conversation the lead was generated from (auto-detection mayorista
+  // gate sets this on create). Used by the panel to deep-link from the
+  // opportunity straight back to the chat. Optional because existing
+  // rows pre-date the field and Meta-Ads-sourced leads have no chat.
+  sourceConversationId String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   contact  Contact @relation(fields: [contactId], references: [id])
   assigned User?   @relation(fields: [assignedTo], references: [id])
+  quotes   Quote[]
 
   @@index([contactId])
   @@index([assignedTo])
@@ -173,6 +327,12 @@ model Order {
   id             String      @id @default(uuid())
   orderNumber    String      @unique
   contactId      String
+  // Optional conversation that this order was registered from. Lets us
+  // back-link an order to the chat where the operator captured it, and
+  // surface "Pedidos de esta conversación" in the conversation sidebar.
+  // Nullable so legacy orders + admin-registered orders without a chat
+  // don't break.
+  conversationId String?
   amount         Float
   currency       String      @default("USD")
   products       Json
@@ -182,15 +342,57 @@ model Order {
   dispatchedAt   DateTime?
   deliveredAt    DateTime?
   notes          String?
+  // Bloque B item 3 — Marcos 2026-06-08: order provenance so TN
+  // sync can upsert without clobbering manual rows. MANUAL covers
+  // the legacy "Registrar pedido" path from the operator panel,
+  // TIENDANUBE covers rows imported by the TN orders cron, and
+  // MERCADOLIBRE is reserved for the future ML orders sync.
+  source         OrderSource @default(MANUAL)
+  // External order id from the source platform (TN order id, ML
+  // order id). Null for MANUAL rows. Combined with `source` it
+  // forms a unique correlation key the sync uses to upsert
+  // idempotently — if TN sends the same order twice we update
+  // the existing row instead of double-counting.
+  externalId     String?
+  // Marcos 2026-06-12: section preselected by the operator when
+  // creating a manual order ("Enviar a"). One of
+  // MOTOS / MICROS / RETIRA_CASEROS / LAMINADOS_PRFV. Drives where
+  // the order shows up in the daily logística panel — bypasses the
+  // carrier-regex inference that ML/TN orders use. Free-form
+  // string so future sections don't require a migration.
+  sectionOverride String?
+  // Marcos 2026-06-12: invoicing lifecycle. Manual orders land
+  // armado-but-unbilled; the operator ticks them off the "Pendientes
+  // de facturación" list once the invoice is issued. Null while
+  // unpaid; stamped at the moment of the tick + who clicked.
+  invoicedAt   DateTime?
+  invoicedById String?
+  // Marcos 2026-06-12: shipping cost the seller pays to the carrier
+  // (e.g. Andreani's per-package fee) + the destination zone
+  // (typically the province from TN's shipping_address). The
+  // /analytics dispatch-stats card sums these per carrier so Marcos
+  // can cross-check the courier's invoice against the platform.
+  shippingCost Float?
+  shippingZone String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  contact Contact @relation(fields: [contactId], references: [id])
+  contact      Contact       @relation(fields: [contactId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([contactId])
+  @@index([conversationId])
   @@index([orderNumber])
   @@index([status])
+  @@index([invoicedAt])
+  @@unique([source, externalId])
   @@map("orders")
+}
+
+enum OrderSource {
+  MANUAL
+  TIENDANUBE
+  MERCADOLIBRE
 }
 
 enum OrderStatus {
@@ -199,6 +401,293 @@ enum OrderStatus {
   DISPATCHED
   DELIVERED
   CANCELLED
+}
+
+// Mass remarketing campaign — Marcos's brief: "lo que falta es el botón de
+// mandar campaña a la lista filtrada". Each row captures the segment,
+// the message body, and aggregate counters; the per-recipient deliveries
+// live in `CampaignDelivery`.
+model MarketingCampaign {
+  id              String         @id @default(uuid())
+  name            String
+  status          CampaignStatus @default(DRAFT)
+  // Spanish text body. Supports {{nombre}} for first-name interpolation.
+  messageTemplate String
+  // JSON arrays serialised so we can query/filter without a Prisma enum-
+  // array migration: ["MAYORISTA","INDUSTRIAL"], ["NO_CONCRETO"], etc.
+  customerTypes   Json
+  funnelStages    Json
+  // Optional channel narrowing. Null = use each contact's preferred channel.
+  channel         Channel?
+  targetCount     Int            @default(0)
+  sentCount       Int            @default(0)
+  failedCount     Int            @default(0)
+  createdBy       String?
+  createdAt       DateTime       @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  deliveries CampaignDelivery[]
+
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+model CampaignDelivery {
+  id           String                 @id @default(uuid())
+  campaignId   String
+  contactId    String
+  channel      Channel
+  status       CampaignDeliveryStatus @default(PENDING)
+  // Final composed text after {{nombre}} interpolation. Stored so audit
+  // history shows what the customer actually saw, even if the campaign
+  // template was edited later.
+  renderedText String
+  error        String?
+  sentAt       DateTime?
+  createdAt    DateTime               @default(now())
+
+  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([contactId])
+  @@index([status])
+  @@map("campaign_deliveries")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  COMPLETED
+  FAILED
+}
+
+enum CampaignDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+// Operator-side response templates triggered by typing "/" in the
+// conversation composer. Marcos's brief: "horarios de atención, dirección
+// de retiro, datos bancarios — quiero que el operador apriete / y le salga
+// la respuesta lista."
+model QuickReply {
+  id         String   @id @default(uuid())
+  // Short token typed after "/" to summon this reply (e.g. "horarios",
+  // "direccion", "banco"). Lower-case, no spaces. Unique so the picker can
+  // resolve unambiguously.
+  shortcut   String   @unique
+  // Display title shown in the picker.
+  title      String
+  // Actual text inserted into the message composer.
+  content    String
+  // Optional grouping ("info", "ventas", "logistica") so the picker can
+  // section them. Free-form for v1.
+  category   String?
+  active     Boolean  @default(true)
+  // How many times this template has been used. Bumped server-side when
+  // an operator triggers it. Useful for "popular shortcuts" sorting.
+  usageCount Int      @default(0)
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active])
+  @@index([shortcut])
+  @@map("quick_replies")
+}
+
+// Quotes / presupuestos. Mirrors the layout of the paper presupuesto
+// Marcos sent (Servifibras SRL header + buyer form + items + totals).
+// Buyer fields are snapshotted at creation time so a quote sent last
+// week still shows the address/CUIT it had then, even if the Contact
+// row gets updated later.
+model Quote {
+  id             String      @id @default(uuid())
+  // Display number in Marcos's "0001-00000324" format. Auto-generated
+  // monotonic by issuing a global sequence of integers and formatting
+  // to padded suffix; the prefix is configurable per branch.
+  quoteNumber    String      @unique
+  contactId      String?
+  leadId         String?
+  // Buyer snapshot
+  buyerName      String
+  buyerAddress   String?
+  buyerLocality  String?
+  buyerTaxId     String?
+  buyerTaxStatus String?
+  // Quote terms
+  paymentMethod  String?
+  paymentTerms   String?
+  deliveryTerm   String?
+  issueDate      DateTime    @default(now())
+  expirationDate DateTime
+  // Money
+  currency       String      @default("ARS")
+  items          Json // [{quantity, description, unitPrice, total}]
+  netAmount      Float
+  taxRate        Float       @default(0.21)
+  taxAmount      Float
+  totalAmount    Float
+  // Lifecycle
+  status         QuoteStatus @default(DRAFT)
+  notes          String?
+  createdBy      String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  contact Contact? @relation(fields: [contactId], references: [id])
+  lead    Lead?    @relation(fields: [leadId], references: [id])
+
+  @@index([contactId])
+  @@index([leadId])
+  @@index([status])
+  @@map("quotes")
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// Per-API-call usage record for Claude cost tracking. One row per real
+// Anthropic call so admin can see "where did this month's $X go" and the
+// budget guard can hard-stop calls when the monthly cap is reached.
+//
+// `callSite` keeps each call's purpose distinct: "reply" (customer reply),
+// "redact" (Redactar con IA), "json:complexity" / "json:customer_type" /
+// "json:mayorista" / "json:handoff" (LLM-backed detectors), "ask",
+// "health" (the 10-token ping).
+model ClaudeUsageEvent {
+  id                String   @id @default(uuid())
+  callSite          String
+  model             String
+  // Total input tokens billed for this call — for cached calls this is
+  // (uncached input) + (cache creation) + (cache read). The widget
+  // displays this as the "tokens" number; the breakdown lives in the
+  // cache* fields below for hit-ratio + savings math.
+  inputTokens       Int      @default(0)
+  outputTokens      Int      @default(0)
+  // Cache deltas — how much of `inputTokens` was billed at the cache
+  // write rate (1.25×) vs the cache read rate (0.1×). Zero for calls
+  // made without `cache_control` markers or against models that don't
+  // support prompt caching. Powers the dashboard widget's "savings"
+  // row that demonstrates the prompt-caching ROI to Marcos.
+  cacheCreateTokens Int      @default(0)
+  cacheReadTokens   Int      @default(0)
+  costUsd           Float    @default(0)
+  // Captures graceful-degradation paths so we can compute "what % of LLM
+  // attempts actually got a useful answer".
+  errored           Boolean  @default(false)
+  // True when the call originated from a sandbox / E2E test
+  // conversation (`Conversation.isSandbox = true`) or a synthetic
+  // probe. Lets the dashboard split "real customer" spend from
+  // "dev / test" spend so Marcos sees the actual customer-facing cost,
+  // not the inflated number that includes our iteration cycle.
+  // Marcos 2026-06-04 cost concern surfaced that the dashboard mixed
+  // both streams — this is the fix.
+  isTestTraffic     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@index([callSite])
+  @@index([isTestTraffic])
+  @@index([createdAt])
+  @@map("claude_usage_events")
+}
+
+// Structured product catalog. Sits alongside the freeform KnowledgeBase
+// (which holds FAQs, application notes, dilution ratios, etc) and gives
+// the AI hard, hallucination-resistant data: SKU, unit, price, stock.
+//
+// `source` tracks where the row came from so a TiendaNube sync can
+// upsert without clobbering manual edits — when source=TIENDANUBE we
+// trust the external system, when MANUAL we don't overwrite.
+model Product {
+  id                  String        @id @default(uuid())
+  sku                 String        @unique
+  name                String
+  category            String
+  description         String?
+  // Unit of measure. Free-form so Marcos can use what's natural ("L",
+  // "kg", "m", "rollo", "paquete").
+  baseUnit            String        @default("unidad")
+  basePriceArs        Float?
+  basePriceUsd        Float?
+  // Coarse availability flag for fast filters; fine-grained quantity
+  // optional (TiendaNube fills it, manual entries usually don't).
+  inStock             Boolean       @default(true)
+  stockQuantity       Float?
+  // Per-product threshold for the low-stock alert. When the resolver
+  // sees `stockQuantity <= lowStockThreshold` it emits `product:low_stock`
+  // to ADMIN + LOGISTICA. Null falls back to the env-driven global
+  // default (PRODUCT_LOW_STOCK_DEFAULT_THRESHOLD); set per-product when a
+  // product has unusual lead-time or order cadence.
+  lowStockThreshold   Float?
+  // Last time we fired a low-stock alert for this product. Used to
+  // throttle re-fires per `PRODUCT_LOW_STOCK_COOLDOWN_HOURS`. Null = never
+  // fired.
+  lastLowStockAlertAt DateTime?
+  // JSON bag for type-specific specs: density, viscosity, color,
+  // grammage, etc. Keeps the table schema stable while letting Marcos
+  // store whatever the resin / fibre / silicone specs need.
+  attributes          Json?
+  active              Boolean       @default(true)
+  source              ProductSource @default(MANUAL)
+  // External vendor id for sync sources (TiendaNube product id).
+  externalId          String?
+  // Canonical public URL of the product on the storefront (TiendaNube
+  // permalink, or constructed at sync time from
+  // TIENDANUBE_STORE_BASE_URL + handle). The agent quotes this link to
+  // the customer alongside the price so a "do you have a link?" message
+  // is never answered with "no tengo links" again.
+  url                 String?
+  // Per-product MercadoLibre article URL (the `permalink` returned by
+  // ML's items API — e.g. https://articulo.mercadolibre.com.ar/MLA-...).
+  // Populated by the ML sync script via the OAuth-authenticated API.
+  // The agent prefers this URL over the generic ML store URL when
+  // redirecting a buyer to a specific product on the ML channel —
+  // Marcos's 2026-06-01 ask, matching Prometheo's pre-replacement
+  // behaviour of dropping the article link directly.
+  mlPermalink         String?
+  // Short alias the warehouse picker ("armador") sees on the daily
+  // logistics Excel. Marcos's current sheet uses an abbreviated title
+  // + SKU per row so the picker can scan rapidly without parsing the
+  // full marketing name ("Resina Cristal Epoxi Transparente 4l Con
+  // Filtro Uv..." vs "Resina Cristal 4L"). Auto-seeded on row create
+  // with the first 40 chars of `name` (cleaned), then editable from
+  // the products admin UI so the operator can tighten per product.
+  // Marcos 2026-06-06 ask, bundled with Bloque C (Logística).
+  armadorAlias        String?
+  // Marcos 2026-06-10: warehouse location for the picker — same idea
+  // as the "Ubicación de moldes" Google Sheet Marcos shared (column A
+  // = SKU, column B = ubicación). Populated by uploading a 2-col
+  // xlsx/csv from Settings → Logística; the daily panel surfaces
+  // "UBI: {warehouseLocation}" on every item line so the armador
+  // knows where in the galpón to grab the box from.
+  warehouseLocation   String?
+  // Last sync timestamp (only meaningful when source != MANUAL).
+  lastSyncedAt        DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  competitorWatches   MlCompetitorWatch[]
+
+  @@index([active])
+  @@index([category])
+  @@index([source])
+  @@index([externalId])
+  @@map("products")
+}
+
+enum ProductSource {
+  MANUAL
+  TIENDANUBE
+  IMPORT
 }
 
 // Product Knowledge Base
@@ -241,4 +730,454 @@ enum ConfigurationType {
   AI
   PRICING
   SYSTEM
+}
+
+// Refresh tokens — long-lived credential paired with a short-lived access
+// JWT. Rotation: every refresh issues a new token in the same `family`,
+// marks the old one as revoked, and links them via `replacedById`. If a
+// revoked token is presented again later that's a theft signal — we revoke
+// the entire family and force re-login.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  // SHA-256 of the actual refresh-token string. The plaintext is only ever
+  // returned once at issuance time; we never store it. lookups happen by
+  // hashing the incoming token and finding a row by hash.
+  tokenHash    String    @unique
+  // All rotated tokens for one device/login share a family id. Revoking the
+  // family revokes every chained token at once.
+  family       String
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @unique
+  createdAt    DateTime  @default(now())
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy  RefreshToken? @relation("RefreshChain", fields: [replacedById], references: [id])
+  predecessor RefreshToken? @relation("RefreshChain")
+
+  @@index([userId])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// Audit log — every login attempt and every privileged panel action.
+// Append-only; never updated. Used for incident review, compliance, and to
+// detect credential-stuffing patterns that slip past rate limiting.
+model AccessLog {
+  id        String   @id @default(uuid())
+  userId    String? // null when login attempt failed (no user resolved)
+  userEmail String? // captured at login attempt for failed logins
+  action    String // e.g. "auth.login.success", "auth.login.failed",
+  // "config.channel.update", "lead.delete", etc.
+  ip        String?
+  userAgent String?
+  // Free-form JSON for action-specific context (resourceId, channel name,
+  // failure reason, etc.). Stored as Prisma's Json type — searchable.
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("access_logs")
+}
+
+// Conversation-style examples — Marcos's request to feed Claude with
+// curated prometheo conversations so the agent inherits the warm,
+// natural tone the team trusts. Stored as ordered turns of (role,
+// content). Loaded into the system prompt as few-shot examples on
+// every continueConversation call.
+//
+// Volume target: 10-30 hand-picked examples, scenario-tagged so we
+// can sample by category (greeting, pricing, mayorista, postventa,
+// handoff). active=false rows stay in DB for audit but aren't
+// loaded into prompts.
+model ConversationExample {
+  id        String   @id @default(uuid())
+  scenario  String
+  title     String?
+  // Ordered conversation turns: [{ role: 'user' | 'assistant', content: '...' }].
+  turns     Json
+  active    Boolean  @default(true)
+  priority  Int      @default(100)
+  // Channel scope for the example. Marcos 2026-06-03: an ML
+  // correction includes channel-specific content (ML article URLs,
+  // perfil-de-tienda phrasing) that mis-applies on WhatsApp /
+  // Instagram / webchat. When a correction is auto-promoted from a
+  // specific conversation, this carries the source channel; only the
+  // same-channel agent path loads the example as a few-shot. NULL =
+  // cross-channel (tone/style examples that apply everywhere). The
+  // legacy hand-seeded gold examples keep `channel = NULL` so they
+  // still load universally.
+  channel   Channel?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scenario])
+  @@index([active])
+  @@index([channel])
+  @@map("conversation_examples")
+}
+
+// OAuth credentials persisted per third-party provider (MercadoLibre,
+// TiendaNube). One row per provider — replacing it on refresh. Access
+// tokens are short-lived (ML: 6h); refresh tokens stay valid until the
+// merchant uninstalls the app. The OAuthCredentialsService rotates the
+// pair before expiry so callers always get a fresh `accessToken`.
+model OAuthCredential {
+  id           String   @id @default(uuid())
+  provider     String   @unique
+  accessToken  String   @db.Text
+  refreshToken String?  @db.Text
+  externalId   String?
+  expiresAt    DateTime
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([provider])
+  @@map("oauth_credentials")
+}
+
+// Quality scoring of closed conversations. One row per scored
+// conversation. Triggered on Conversation.status → CLOSED via
+// ConversationScorerService.evaluateAndPersist; idempotent (re-scoring
+// upserts on conversationId).
+//
+// Field shapes:
+//   strengths   — JSON array of 3 short strings ("Respondió en menos
+//                 de 2 min", "Aplicó descuento mayorista correctamente")
+//   improvement — JSON { reason, originalSnippet, suggestedRewrite } —
+//                 the single improvement carries a concrete alternative
+//                 version of the operator's reply, which is the
+//                 in-the-moment training signal Marcos asked for.
+//   missedOpportunity — JSON { detected: boolean, reason: string|null }
+//
+// `severeFlag` is an enum so admin alerts can filter directly.
+model ConversationScore {
+  id                String               @id @default(uuid())
+  conversationId    String               @unique
+  conversation      Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  assignedToId      String?
+  assignedTo        User?                @relation("ConversationScoreAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  score             Int?
+  strengths         Json
+  improvement       Json
+  missedOpportunity Json
+  severeFlag        ConversationSeverity @default(NONE)
+  severeReason      String?
+  model             String?
+  rawError          String?
+  // Marcos 2026-06-04: once an admin has reviewed a flagged
+  // conversation (either by applying a correction OR by manually
+  // confirming the agent reply was fine), we stash the timestamp +
+  // user here so the row stops appearing in the "Marcadas" filter of
+  // the ML Q&A panel. Acts as a per-row "already triaged" marker —
+  // independent of severeFlag (which stays for audit / re-scoring).
+  reviewedAt        DateTime?
+  reviewedById      String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([assignedToId])
+  @@index([severeFlag])
+  @@index([reviewedAt])
+  @@index([createdAt])
+  @@map("conversation_scores")
+}
+
+enum ConversationSeverity {
+  NONE
+  WRONG_PRICE
+  IMPOSSIBLE_PROMISE
+  BAD_TREATMENT
+  OTHER
+}
+
+// Bloque C — Marcos 2026-06-06: Placas PRFV lifecycle. Today this
+// section lives at the top of his manual Excel (PLACAS PRFV
+// PENDIENTES → LISTAS/CORTADAS → DESPACHADAS/RETIRADAS). Moving it
+// into the CRM so the daily auto-Excel reflects state in real time
+// without anyone retyping the section between days. Free-text `cliente`
+// and `producto` mirror the current Excel rows (operator knows the
+// shorthand — no need to force them onto a structured product picker).
+model PrfvPlaca {
+  id             String         @id @default(uuid())
+  // Cliente — free-form per Marcos's existing Excel (often holds the
+  // operation number, channel tag, transporter and payment notes glued
+  // together: "Adrian Geuna NORTHTRAIL - WSP PAGA EFE").
+  cliente        String
+  // Producto — free-form description of the plate spec, mirroring how
+  // the picker reads it today ("Lámina 2,2 x 16 (750) PAGA EFE",
+  // "2,6 x 16mts", etc.).
+  producto       String
+  state          PrfvPlacaState @default(PENDIENTE)
+  // Optional free notes the operator wants pinned with the row.
+  notes          String?
+  // Stamped on every state transition; the daily Excel sorts within a
+  // section by this descending so the freshest movement appears first.
+  stateChangedAt DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([state])
+  @@index([stateChangedAt])
+  @@map("prfv_placas")
+}
+
+enum PrfvPlacaState {
+  PENDIENTE
+  LISTA_CORTADA
+  DESPACHADA_RETIRADA
+}
+
+// Bloque E item 3 — Marcos 2026-06-06: per-publication FAQ cache for
+// MercadoLibre. Recurring questions on the same listing ("¿es para
+// piscina?", "¿es para alimentos?") get a canned operator-curated
+// answer; the inbound handler matches against this table BEFORE
+// calling Claude. Every match = one less paid LLM call.
+//
+// Match strategy is intentionally simple: an FAQ row carries a small
+// list of keyword tokens (lowercase, accents stripped); a customer
+// question matches when ALL keywords appear in the inbound text.
+// Operators author/edit from the ML QA panel — they pick a row,
+// click "Crear FAQ", confirm the keywords + answer.
+//
+// hitCount + lastHitAt let the admin sort the panel by impact so
+// the operator can tighten the most-fired FAQs first.
+model PublicationFaq {
+  id          String    @id @default(uuid())
+  // ML item id (e.g. "MLA1963591454"). Matched verbatim against the
+  // mlItemId stamped on each inbound question.
+  itemId      String
+  // Lowercase keyword list (max ~5 tokens). All must appear in the
+  // inbound text (substring, accent-stripped) for the FAQ to fire.
+  keywords    String[]
+  // Operator-edited canned answer. Plain text, no greeting (the ML
+  // wrapper handles "Hola X / Un saludo, Lucas").
+  answer      String
+  active      Boolean   @default(true)
+  hitCount    Int       @default(0)
+  lastHitAt   DateTime?
+  createdById String?
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([itemId])
+  @@index([active])
+  @@index([hitCount])
+  @@map("publication_faqs")
+}
+
+// Bloque E item 4 — Marcos 2026-06-06: batch processing for ML pre-venta.
+// When ML_BATCH_MODE_ENABLED=true, incoming ML questions are queued
+// here instead of going straight to Claude. A cron drains the queue
+// into Anthropic's Message Batches API (50% input + output discount),
+// polls for completion, and posts the agent reply to ML when ready.
+// Buyers wait minutes longer; Marcos saves half the per-token cost.
+enum MlBatchEntryStatus {
+  PENDING
+  DISPATCHED
+  ANSWERED
+  FAILED
+  FALLBACK
+}
+
+model MlBatchQueueEntry {
+  id                  String             @id @default(uuid())
+  conversationId      String
+  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contactId           String
+  contact             Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  // ML question id — used to POST the answer once the batch resolves.
+  questionId          String             @unique
+  // Publication id (when present). Lets us re-fetch listing context
+  // at dispatch time so the system block reflects the live listing.
+  itemId              String?
+  buyerNickname       String?
+  // Plaintext customer question; lives here for batch composition.
+  // Not encrypted: it's a duplicate of what's already on Message and
+  // gets pruned the moment the batch finalises.
+  questionText        String
+  // Snapshot of the AIConversation history at enqueue time, so the
+  // batched call sees the same prior turns the sync path would have.
+  conversationContext Json
+  status              MlBatchEntryStatus @default(PENDING)
+  // The Anthropic batch id this entry was bundled into. NULL until
+  // dispatch fires. Multiple entries share the same batchId.
+  batchId             String?
+  // Unique-per-entry id sent as `custom_id` in the batch request so
+  // we can correlate the result back to the queue row.
+  batchCustomId       String             @unique
+  answer              String?
+  errorMessage        String?
+  dispatchedAt        DateTime?
+  answeredAt          DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([status])
+  @@index([batchId])
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("ml_batch_queue_entries")
+}
+
+// Bloque A item 3 — Marcos 2026-06-06: ML competitor tracking.
+// ML locked down their public listing search (HTTP 403 across the
+// board as of 2026-06), so we pivot to a watch-list model: Marcos
+// pastes specific competitor item IDs (MLAxxxxxxxxx) per Servifibras
+// product, and the service fetches /items/{id} on demand to surface
+// live price, stock, sold quantity, seller and condition. Cheap to
+// add/remove from the panel; no background sync required for v1.
+model MlCompetitorWatch {
+  id          String   @id @default(uuid())
+  // Servifibras product this competitor is being benchmarked against.
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // ML item id of the competitor listing (e.g. "MLA123456789").
+  itemId      String
+  // Optional friendly label the operator can type to remember why
+  // they added it ("competidor con FULL", "más barato").
+  label       String?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@unique([productId, itemId])
+  @@index([productId])
+  @@map("ml_competitor_watches")
+}
+
+// Bloque C — Marcos 2026-06-06: per-row "armado" state for the daily
+// logistics file. When the picker finishes assembling an order they
+// tick a checkbox in the CRM panel; we stamp the timestamp + the
+// operator that did it and the daily Excel reflects column C
+// (boolean) + column D (timestamp) directly from this table.
+//
+// rowKey shape comes from the aggregator (`ml:1:<orderId>`,
+// `ml:2:<orderId>`, `crm:<orderId>`, `tn:<orderId>`) so the same row
+// stays armado-flagged across regenerations and across days — the
+// underlying order doesn't move just because the operator re-opens
+// the panel.
+// Bloque B item 3.6 — Marcos 2026-06-08: lifecycle the daily row
+// the same way the PRFV placas page already does. PENDIENTE is the
+// implicit default (no row in the table means the picker hasn't
+// touched it). ARMADO is the legacy "tildado" state — paquete listo
+// para entregar. LISTO is "paquete armado y empaquetado, esperando
+// retiro del transporte".
+enum LogisticaArmadoState {
+  // Marcos 2026-06-11: explicit PENDIENTE so side-effect methods
+  // (setSectionOverride, setNote, setFlexCourier, etc.) can persist
+  // a row WITHOUT silently advancing the lifecycle. Before this, any
+  // admin-side action that needed to write to `logistica_armado` had
+  // to choose ARMADO or LISTO — moving a row's section was bumping
+  // it to ARMADO even when the picker hadn't touched the box, and
+  // the state-pill had no reverse path. The aggregator now derives
+  // `armado` from `state in {ARMADO,LISTO}` so existing consumers
+  // stay sane.
+  PENDIENTE
+  ARMADO
+  LISTO
+}
+
+model LogisticaArmado {
+  rowKey      String   @id
+  // YYYY-MM-DD of the daily file the row was first ticked on. Helps
+  // the Excel generator pick "ticked today" vs "ticked previously" if
+  // we want different styling later. Free-text so the aggregator can
+  // pass an ISO date directly.
+  dayDate     String
+  // Bloque B item 3.6 — current lifecycle state. Rows without a row
+  // here implicitly mean PENDIENTE; once the picker tildates the row
+  // it transitions to ARMADO; a second click (or the bulk action)
+  // advances to LISTO. The state never goes backwards except via the
+  // explicit unmark action (deletes the row).
+  state       LogisticaArmadoState @default(ARMADO)
+  // Timestamp of the first ARMADO transition. Stays put once set even
+  // if the row later transitions to LISTO — Marcos wants to track
+  // when packing finished AND when packaging completed independently.
+  armadoAt    DateTime?
+  // Timestamp of the LISTO transition (null while state=ARMADO).
+  listoAt     DateTime?
+  // Bloque B item 3.7 — Marcos 2026-06-08: per-item check. For multi-
+  // item packs the picker ticks each item as it lands in the box.
+  // Storing the keys checked off (SKU when present, else "idx:N") +
+  // the expected total lets the advance-to-LISTO guard refuse the
+  // transition until every item is ticked. Legacy rows leave both
+  // null, behaviour stays binary.
+  itemsChecked   Json?
+  itemsExpected  Int?
+  // Bloque B item 3.8 — Marcos 2026-06-08: per-row free-text note
+  // the armador can attach as a clarification ("falta confirmar
+  // color", "pedido frágil", etc.). Inline-editable in the panel,
+  // persisted by rowKey so it survives day regeneration.
+  notes          String?
+  // Marcos 2026-06-10: for FLEX rows in "Listas para despachar", which
+  // of the 3 flex carriers actually picked up the box. Persisted by
+  // rowKey so traceability stays even after the row leaves the panel.
+  // Allowed values come from FLEX_COURIERS env (comma-separated).
+  flexCourier String?
+  // Marcos 2026-06-10: when set, the picker confirmed the cancellation
+  // and removed the row from the panel. Aggregator skips rows with a
+  // non-null archivedAt — they "moved to the cancelled orders module".
+  archivedAt  DateTime?
+  // Marcos 2026-06-10: per-row manual section override. ML
+  // "no_shipping" orders cannot be auto-distinguished between
+  // "Acordá entrega" (RETIRA_CASEROS) and "Acordá envío" (MOTOS) —
+  // the order endpoint doesn't expose the distinction. When the
+  // operator decides, they click "Mover a Retira Caseros" on the
+  // row and the rowKey gets sectionOverride='RETIRA_CASEROS'. The
+  // aggregator re-buckets the row accordingly.
+  sectionOverride String?
+  // Marcos 2026-06-10: manual dispatch flag. The picker stamps this
+  // when (a) a buyer picked up at the Caseros store, or (b) a flex
+  // courier (Logistica 1/2/3) physically took the boxes — cases ML
+  // and TiendaNube can't auto-detect. Aggregator OR-s this with the
+  // source-side `isDispatched` so the row moves to the Despachadas
+  // tab as soon as the operator confirms the hand-off.
+  manuallyDispatchedAt DateTime?
+  stampedAt   DateTime @default(now())
+  stampedById String?
+  stampedBy   User?    @relation(fields: [stampedById], references: [id], onDelete: SetNull)
+
+  @@index([dayDate])
+  @@index([stampedAt])
+  @@index([state])
+  @@map("logistica_armado")
+}
+
+// Marcos 2026-06-15: tarifas de mensajería por zona. Admin-curated
+// table mapping (carrier, zone) → cost-per-package so the dispatch-
+// stats card can show "estimado a pagar al courier" alongside the
+// "cobrado al cliente" total (which comes from per-order shipping
+// cost captured by TN/ML). The estimate fills the gap when a sale
+// channel doesn't expose the seller's shipping cost (TN sin
+// retención, ML pack sin desagregar). Multiple active rows are
+// allowed in case the same carrier has zone-specific subtotals;
+// `notes` carries any human context the admin wants to attach.
+model DispatchTariff {
+  id             String   @id @default(uuid())
+  carrier        String
+  zone           String
+  costPerPackage Float
+  currency       String   @default("ARS")
+  active         Boolean  @default(true)
+  notes          String?
+  validFrom      DateTime?
+  validTo        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+  createdBy      User?    @relation("DispatchTariffCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([carrier, zone], name: "carrier_zone")
+  @@index([carrier])
+  @@index([active])
+  @@map("dispatch_tariffs")
 }

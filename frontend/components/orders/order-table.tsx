@@ -18,11 +18,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { OrderStatusBadge } from "./order-status-badge";
 import type { Order } from "@/types";
+import { UserRole } from "@/types";
+import { useAuthStore } from "@/lib/store/auth-store";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import { ordersApi } from "@/lib/api/endpoints";
+import { toast } from "sonner";
 import { safeFormatDistanceToNow } from "@/lib/date";
 import { formatMoney } from "@/lib/format";
 
@@ -51,8 +56,16 @@ const initials = (name: string | null | undefined) => {
 const gradientFor = (name: string | null | undefined) =>
   AVATAR_GRADIENTS[(name?.charCodeAt(0) ?? 0) % AVATAR_GRADIENTS.length];
 
+const ADMIN_ONLY_DELETE_TOOLTIP = "Solo Administrador puede eliminar pedidos";
+
 export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
   const router = useRouter();
+  // Backend matrix: DELETE /admin/orders/:id is ADMIN-only. All other
+  // CRUD is open to LOGISTICA/VENTAS/ATENCION at their respective
+  // scopes. Mirror that here so non-admins see Eliminar disabled
+  // rather than clicking and silently 403-ing.
+  const role = useAuthStore((s) => s.user?.role);
+  const canDelete = role === UserRole.ADMIN;
 
   if (orders.length === 0) {
     return (
@@ -69,8 +82,8 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-      <Table>
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+      <Table className="min-w-[820px]">
         <TableHeader>
           <TableRow className="border-b border-slate-200/70 bg-slate-50/50 hover:bg-slate-50/50">
             <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -194,15 +207,45 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                       </span>
                       Editar
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          const url = await ordersApi.getPdfBlobUrl(order.id);
+                          window.open(url, '_blank', 'noopener');
+                        } catch (err: any) {
+                          toast.error(err?.response?.data?.error || 'No se pudo generar el PDF');
+                        }
+                      }}
+                      data-testid={`order-row-${order.id}-pdf`}
+                      className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-purple-50 focus:text-purple-700"
+                    >
+                      <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-purple-500 to-fuchsia-400 text-white">
+                        <PictureAsPdfIcon sx={{ fontSize: 14 }} />
+                      </span>
+                      Descargar PDF
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
                     <DropdownMenuItem
-                      onClick={(e) => {
+                      onClick={canDelete ? (e) => {
                         e.stopPropagation();
                         onDelete(order);
-                      }}
-                      className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-red-50 focus:text-red-700"
+                      } : undefined}
+                      disabled={!canDelete}
+                      title={canDelete ? undefined : ADMIN_ONLY_DELETE_TOOLTIP}
+                      className={
+                        "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
+                        (canDelete
+                          ? "cursor-pointer text-slate-700 focus:bg-red-50 focus:text-red-700"
+                          : "cursor-not-allowed text-slate-400 opacity-60")
+                      }
                     >
-                      <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+                      <span className={
+                        "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
+                        (canDelete
+                          ? "bg-gradient-to-br from-red-500 to-rose-500"
+                          : "bg-slate-300")
+                      }>
                         <DeleteIcon sx={{ fontSize: 14 }} />
                       </span>
                       Eliminar

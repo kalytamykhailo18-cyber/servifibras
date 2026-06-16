@@ -52,12 +52,12 @@ export default function ProfilePage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* PAGE HEADER */}
       <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(59_130_246/0.45)]">
-          <PersonIcon sx={{ fontSize: 22 }} />
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(59_130_246/0.45)] sm:h-11 sm:w-11">
+          <PersonIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
         </span>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Mi Perfil</h1>
-          <p className="text-sm text-muted-foreground">Información de tu cuenta</p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">Mi Perfil</h1>
+          <p className="hidden text-sm text-muted-foreground sm:block">Información de tu cuenta</p>
         </div>
       </div>
 
@@ -81,7 +81,7 @@ export default function ProfilePage() {
 
         {/* Avatar — absolutely positioned so it always sits half-in / half-out of the banner */}
         <span
-          className={`absolute left-6 top-32 grid h-24 w-24 shrink-0 -translate-y-1/2 place-items-center rounded-2xl bg-gradient-to-br ${gradient} text-3xl font-bold tracking-tight text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_16px_32px_-8px_rgb(15_23_42/0.3)] ring-4 ring-white`}
+          className={`absolute left-6 top-32 grid h-24 w-24 shrink-0 -translate-y-1/2 place-items-center rounded-2xl bg-gradient-to-br ${gradient} text-xl font-bold tracking-tight sm:text-3xl text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_16px_32px_-8px_rgb(15_23_42/0.3)] ring-4 ring-white`}
           aria-hidden
         >
           {initials(user.name)}
@@ -90,7 +90,7 @@ export default function ProfilePage() {
         {/* Body — left-padded to clear the avatar */}
         <div className="flex flex-col gap-4 px-6 pb-6 pt-16 sm:flex-row sm:items-end sm:justify-between sm:pl-36 sm:pt-5">
           <div className="min-w-0">
-            <h2 className="truncate text-2xl font-bold tracking-tight text-slate-900">
+            <h2 className="truncate text-lg font-bold tracking-tight sm:text-2xl text-slate-900">
               {user.name}
             </h2>
             <p className="truncate text-sm text-slate-500">@{user.username}</p>

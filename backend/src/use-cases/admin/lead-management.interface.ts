@@ -1,4 +1,5 @@
 import { LeadStatus, Channel } from '@prisma/client';
+import { RequestScope } from './conversation-management.interface';
 
 export { LeadStatus, Channel };
 
@@ -9,6 +10,7 @@ export interface LeadListFilter {
   contactId?: string;
   limit?: number;
   offset?: number;
+  scope?: RequestScope;
 }
 
 export interface LeadDetails {
@@ -31,6 +33,11 @@ export interface LeadDetails {
   notes: string | null;
   wonAmount: number | null;
   lostReason: string | null;
+  // Originating conversation if this lead was auto-generated from a
+  // chat (mayorista detection). Null for manually-created leads or
+  // Meta-Ads sourced leads with no chat thread. Used by the panel to
+  // jump straight into the conversation.
+  sourceConversationId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

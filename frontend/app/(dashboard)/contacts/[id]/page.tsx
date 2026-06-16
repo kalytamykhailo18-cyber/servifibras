@@ -5,9 +5,16 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
 import { api } from "@/lib/api/endpoints";
-import type { ContactWithRelations } from "@/types";
-import { CONTACT_TYPE_LABELS, CHANNEL_LABELS, CONVERSATION_STATUS_LABELS } from "@/types";
+import type { ContactFormData, ContactWithRelations } from "@/types";
+import {
+  CONTACT_TYPE_LABELS, CHANNEL_LABELS, CONVERSATION_STATUS_LABELS,
+  CUSTOMER_TYPE_LABELS, FUNNEL_STAGE_LABELS, CustomerType, FunnelStage,
+} from "@/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
+import { toast } from "sonner";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
 import EditIcon from '@mui/icons-material/Edit';
@@ -27,6 +34,23 @@ export default function ContactDetailPage() {
   const [contact, setContact] = useState<ContactWithRelations | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleEditSubmit = async (data: ContactFormData) => {
+    if (!contact) return;
+    setIsSubmitting(true);
+    try {
+      await api.contacts.update(contact.id, data);
+      toast.success("Contacto actualizado correctamente");
+      await fetchContact();
+    } catch (err: any) {
+      toast.error(err.message || "Error al actualizar contacto");
+      throw err;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // ========================================================================
   // FETCH CONTACT
@@ -60,7 +84,7 @@ export default function ContactDetailPage() {
           <Skeleton className="h-9 w-24 rounded-full" />
           <Skeleton className="h-10 w-44 rounded-full" />
         </div>
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
           <div className="space-y-4">
             <Skeleton className="h-72 rounded-2xl" />
             <Skeleton className="h-56 rounded-2xl" />
@@ -112,11 +136,11 @@ export default function ContactDetailPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* TOP BAR */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => router.push("/contacts")}
-          className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
+          className="group inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
         >
           <ArrowBackIcon
             sx={{ fontSize: 16 }}
@@ -127,15 +151,19 @@ export default function ContactDetailPage() {
 
         <button
           type="button"
-          className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 hover:shadow-[0_8px_20px_-6px_rgb(245_158_11/0.25)] active:translate-y-0 active:scale-[0.97]"
+          onClick={() => setIsEditOpen(true)}
+          data-testid="contact-edit-btn"
+          aria-label="Editar contacto"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 hover:shadow-[0_8px_20px_-6px_rgb(245_158_11/0.25)] active:translate-y-0 active:scale-[0.97] sm:px-4"
         >
-          <EditIcon sx={{ fontSize: 16 }} />
-          Editar Contacto
+          <EditIcon sx={{ fontSize: 16 }} className="text-amber-600" />
+          <span className="hidden sm:inline">Editar Contacto</span>
+          <span className="sm:hidden">Editar</span>
         </button>
       </div>
 
       {/* MAIN CONTENT GRID */}
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
         {/* SIDEBAR - Contact Info */}
         <div className="space-y-4">
           {/* CONTACT INFORMATION */}
@@ -195,6 +223,68 @@ export default function ContactDetailPage() {
                   </span>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* 2D CLASSIFICATION */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <h3 className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <LocalOfferOutlinedIcon sx={{ fontSize: 14 }} />
+              Clasificación
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-500">Tipo de cliente</label>
+                <Select
+                  value={contact.customerType ?? ""}
+                  onValueChange={async (v) => {
+                    if (!v) return;
+                    try {
+                      await api.contacts.update(contact.id, { customerType: v as CustomerType } as any);
+                      setContact({ ...contact, customerType: v as CustomerType });
+                    } catch (err: any) {
+                      toast.error(err?.message || "No se pudo actualizar");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Sin clasificar">
+                      {(v: any) => (v ? CUSTOMER_TYPE_LABELS[v as CustomerType] : "Sin clasificar")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.values(CustomerType).map((t) => (
+                      <SelectItem key={t} value={t}>{CUSTOMER_TYPE_LABELS[t]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-500">Etapa del funnel</label>
+                <Select
+                  value={contact.funnelStage ?? ""}
+                  onValueChange={async (v) => {
+                    if (!v) return;
+                    try {
+                      await api.contacts.update(contact.id, { funnelStage: v as FunnelStage } as any);
+                      setContact({ ...contact, funnelStage: v as FunnelStage });
+                    } catch (err: any) {
+                      toast.error(err?.message || "No se pudo actualizar");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Sin etapa">
+                      {(v: any) => (v ? FUNNEL_STAGE_LABELS[v as FunnelStage] : "Sin etapa")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.values(FunnelStage).map((s) => (
+                      <SelectItem key={s} value={s}>{FUNNEL_STAGE_LABELS[s]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
@@ -402,6 +492,14 @@ export default function ContactDetailPage() {
           </Tabs>
         </div>
       </div>
+
+      <ContactFormDialog
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        contact={contact}
+        onSubmit={handleEditSubmit}
+        isLoading={isSubmitting}
+      />
     </div>
   );
 }

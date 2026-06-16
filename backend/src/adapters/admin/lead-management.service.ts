@@ -8,12 +8,14 @@ import {
   UpdateLeadData,
   LeadPipelineStats,
 } from '../../use-cases/admin/lead-management.interface';
+import { UserRole } from '../../domain/entities/auth.entity';
+import { ContactDimensionsService } from '../lead-detection/contact-dimensions.service';
 
 @Injectable()
 export class LeadManagementService implements ILeadManagementService {
   private prisma: PrismaClient;
 
-  constructor() {
+  constructor(private readonly contactDimensions: ContactDimensionsService) {
     this.prisma = new PrismaClient();
   }
 
@@ -37,6 +39,17 @@ export class LeadManagementService implements ILeadManagementService {
     if (assignedToUserId) where.assignedTo = assignedToUserId;
     if (source) where.source = source;
     if (contactId) where.contactId = contactId;
+
+    // Role-based scoping. Admin sees all. VENTAS sees their assigned leads
+    // plus unassigned (newly detected mayoristas before auto-routing).
+    if (filter.scope && filter.scope.role !== UserRole.ADMIN) {
+      const me = filter.scope.userId;
+      where.OR = [
+        ...(where.OR ?? []),
+        { assignedTo: me },
+        { assignedTo: null },
+      ];
+    }
 
     const [leads, total] = await Promise.all([
       this.prisma.lead.findMany({
@@ -73,7 +86,10 @@ export class LeadManagementService implements ILeadManagementService {
     };
   }
 
-  async getLeadById(leadId: string): Promise<LeadDetails | null> {
+  async getLeadById(
+    leadId: string,
+    scope?: { userId: string; role: UserRole },
+  ): Promise<LeadDetails | null> {
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
       include: {
@@ -94,6 +110,36 @@ export class LeadManagementService implements ILeadManagementService {
         },
       },
     });
+
+    if (!lead) return null;
+
+    // Per-record scope: VENTAS sees their assigned leads + unassigned ones
+    // (the mayorista queue). ADMIN sees everything. Mirror the list-level
+    // rule so a deep-link to a lead Franco doesn't own returns 404, not
+    // a leak.
+    if (scope && scope.role !== UserRole.ADMIN) {
+      const owns = lead.assignedTo === scope.userId;
+      const unassigned = lead.assignedTo === null;
+      if (!(owns || unassigned)) {
+        return null;
+      }
+    }
+
+    // Legacy backfill — leads created before the `sourceConversationId`
+    // column existed don't carry it. Best-effort resolve: latest
+    // conversation on the same channel for this contact. This lets
+    // Marcos's "Ir a la conversación" deep-link work on every lead, not
+    // just ones created after the migration.
+    if (!lead.sourceConversationId) {
+      const fallback = await this.prisma.conversation.findFirst({
+        where: { contactId: lead.contactId, channel: lead.source },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true },
+      });
+      if (fallback) {
+        (lead as any).sourceConversationId = fallback.id;
+      }
+    }
 
     return lead as LeadDetails | null;
   }
@@ -191,16 +237,31 @@ export class LeadManagementService implements ILeadManagementService {
       updateData.lostReason = lostReason;
     }
 
-    await this.prisma.lead.update({
+    const updated = await this.prisma.lead.update({
       where: { id: leadId },
       data: updateData,
+      select: { contactId: true },
     });
+
+    // Reflect the lead's lifecycle on the contact's funnel-stage dimension.
+    // Non-blocking — funnel-stage drift never breaks the lead update path.
+    void this.contactDimensions.onLeadStatusChange(updated.contactId, status);
 
     return true;
   }
 
-  async getPipelineStatistics(): Promise<LeadPipelineStats> {
+  async getPipelineStatistics(
+    scope?: { userId: string; role: UserRole },
+  ): Promise<LeadPipelineStats> {
+    // Scope the query to the caller's slice. Mirrors the list-level rule:
+    // ADMIN sees all; VENTAS sees own + unassigned. Without this, Franco's
+    // pipeline page showed totals from leads he doesn't own.
+    const where: any = {};
+    if (scope && scope.role !== UserRole.ADMIN) {
+      where.OR = [{ assignedTo: scope.userId }, { assignedTo: null }];
+    }
     const allLeads = await this.prisma.lead.findMany({
+      where,
       select: {
         status: true,
         estimatedValue: true,

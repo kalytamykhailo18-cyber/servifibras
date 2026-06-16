@@ -1,0 +1,78 @@
+# PROPOSED — replaces /etc/caddy/Caddyfile to fix two problems Marcos
+# is hitting from today's redeploys:
+#
+#   1. Stale-chunk error after a deploy ("Failed to load chunk
+#      0wcg5hwkjgzrb.js"). Next.js emits new hashed chunk names on
+#      every build. If the HTML is cached anywhere — browser disk,
+#      service worker, intermediate proxy — it references chunks that
+#      no longer exist in the new build. The fix is to force HTML to
+#      `no-store` so every page load fetches the fresh HTML pointing
+#      at the fresh chunks. The `/_next/static/*` chunks themselves
+#      stay immutable so they're cheap to serve and cacheable forever.
+#
+#   2. Brief 502 window during `systemctl restart` of either service.
+#      With `lb_try_duration 12s` Caddy holds the client connection
+#      open during the restart, retries the upstream until /health
+#      responds, and the brief gap becomes a small latency bump
+#      instead of an error. Combined with main.ts's
+#      enableShutdownHooks(['SIGTERM']) — already wired — this makes
+#      deploys via ops/deploy.sh client-transparent.
+#
+# Apply with:
+#   sudo cp /home/servifibras/ops/Caddyfile.proposed-zero-downtime /etc/caddy/Caddyfile
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy   # reload, NOT restart — reload keeps existing conns
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		X-Frame-Options           "SAMEORIGIN"
+		-Server
+	}
+}
+
+(deploy_safe) {
+	lb_try_duration 12s
+	lb_try_interval 250ms
+	health_uri      /health
+	health_interval 2s
+	health_timeout  1s
+}
+
+# Marcos 2026-06-15: prevent stale-chunk errors after a frontend
+# redeploy. Hashed /_next/static/ assets stay immutable; everything
+# else (HTML pages, RSC payloads) becomes no-store so a fresh page
+# load always pulls fresh chunk references. `defer` makes Caddy run
+# this AFTER the upstream's own Cache-Control so Next's
+# `s-maxage=31536000` for static HTML gets overridden.
+(no_store_html) {
+	@dynamic not path /_next/static/*
+	header @dynamic Cache-Control "no-store, must-revalidate" {
+		defer
+	}
+}
+
+dev.servifibras.com {
+	import security_headers
+	import no_store_html
+	encode gzip zstd
+	reverse_proxy 127.0.0.1:3000 {
+		import deploy_safe
+	}
+	log {
+		output file /var/log/caddy/dev.servifibras.com.log
+	}
+}
+
+api-dev.servifibras.com {
+	import security_headers
+	encode gzip zstd
+	reverse_proxy 127.0.0.1:3001 {
+		import deploy_safe
+	}
+	log {
+		output file /var/log/caddy/api-dev.servifibras.com.log
+	}
+}

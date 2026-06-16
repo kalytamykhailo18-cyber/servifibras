@@ -16,10 +16,18 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+import { Channel } from '@prisma/client';
 import { WhatsAppService } from '../../../adapters/whatsapp/whatsapp.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
-import { WhatsAppOutgoingMessage } from '../../../domain/entities/whatsapp-message.entity';
+import { ChannelGateService } from '../../../adapters/channel-gate/channel-gate.service';
+import {
+  UploadStorageService,
+  DisallowedMimeError,
+  FileTooLargeError,
+} from '../../../adapters/uploads/upload-storage.service';
+import { WhatsAppOutgoingMessage, WhatsAppMessageType } from '../../../domain/entities/whatsapp-message.entity';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -28,6 +36,8 @@ export class WhatsAppController {
   constructor(
     private readonly whatsappService: WhatsAppService,
     private readonly conversationHandler: ConversationHandlerService,
+    private readonly channelGate: ChannelGateService,
+    private readonly uploads: UploadStorageService,
   ) {}
 
   /**
@@ -58,6 +68,7 @@ export class WhatsAppController {
    * Webhook receiver endpoint (POST)
    * Meta sends incoming messages here
    */
+  @Throttle({ default: { ttl: 60_000, limit: Number(process.env.THROTTLE_WEBHOOK_LIMIT) || 200 } })
   @Post('webhook')
   async receiveWebhook(
     @Req() req: Request,
@@ -68,14 +79,35 @@ export class WhatsAppController {
     try {
       this.logger.debug('Webhook received');
 
-      // Verify signature (security check)
+      // Signature enforcement.
+      //
+      // When WHATSAPP_APP_SECRET is configured (production), every request
+      // MUST carry a valid x-hub-signature-256 — both missing-header and
+      // forged-hash get 403. The previous implementation only rejected
+      // forged hashes when a header was present, which let an attacker
+      // bypass verification by simply omitting the header.
+      //
+      // When WHATSAPP_APP_SECRET is not set (dev / onboarding before Meta
+      // access), we allow the request through with a warning log so local
+      // testing still works. This matches the previous dev-mode behaviour.
+      const hasSecret = !!process.env.WHATSAPP_APP_SECRET;
       const rawBody = JSON.stringify(body);
-      const isValid = this.whatsappService.verifyWebhookSignature(signature, rawBody);
+      if (hasSecret) {
+        if (!signature) {
+          this.logger.warn('Missing x-hub-signature-256 header — rejecting');
+          return res.status(403).json({ error: 'Missing signature' });
+        }
+        if (!this.whatsappService.verifyWebhookSignature(signature, rawBody)) {
+          this.logger.warn('Invalid x-hub-signature-256 — rejecting');
+          return res.status(403).json({ error: 'Invalid signature' });
+        }
+      }
 
-      if (!isValid && signature) {
-        // If signature provided but invalid, reject
-        this.logger.warn('Invalid webhook signature');
-        return res.status(403).json({ error: 'Invalid signature' });
+      // Channel gate — admin can flip WhatsApp off from the panel; if so, ack
+      // 200 (so Meta doesn't retry) but skip all processing.
+      if (!(await this.channelGate.isEnabled(Channel.WHATSAPP))) {
+        this.logger.warn('WhatsApp channel disabled — dropping inbound');
+        return res.status(200).json({ status: 'channel_disabled' });
       }
 
       // Parse incoming message
@@ -114,13 +146,27 @@ export class WhatsAppController {
    */
   private async processMessageWithAI(incomingMessage: any) {
     try {
-      // Only process text messages
-      if (!incomingMessage.isTextMessage()) {
-        this.logger.debug('Non-text message, skipping AI processing');
-        return;
+      // Inbound media (voice / image / video / document) — download from
+      // Meta, store under UPLOADS_DIR, persist a CUSTOMER message with
+      // the attachment fields. Marcos 2026-06-06: before this branch,
+      // any non-text message dropped on the floor and the operator never
+      // saw the customer's voice note or photo.
+      if (incomingMessage.hasMedia && incomingMessage.hasMedia()) {
+        await this.persistInboundMedia(incomingMessage);
       }
 
-      this.logger.log(`Processing with AI: "${incomingMessage.text.substring(0, 50)}..."`);
+      // Only the text path continues into AI. A media-only inbound is
+      // already persisted above; no caption means there's nothing for
+      // the agent to answer. Caption-bearing media still go through AI
+      // below because `incomingMessage.text` is the caption.
+      if (!incomingMessage.isTextMessage()) {
+        if (!incomingMessage.text || incomingMessage.text.length === 0) {
+          this.logger.debug('Media-only inbound — persisted, AI skipped');
+          return;
+        }
+      }
+
+      this.logger.log(`Processing with AI: "${(incomingMessage.text || '').substring(0, 50)}..."`);
 
       // Handle message with AI
       const result = await this.conversationHandler.handleWhatsAppMessage(
@@ -151,6 +197,86 @@ export class WhatsAppController {
       }
     } catch (error: any) {
       this.logger.error(`Error in AI processing: ${error.message}`);
+    }
+  }
+
+  /**
+   * Download the inbound media binary from Meta, run it through
+   * UploadStorageService (mime/size validation + on-disk write under
+   * UPLOADS_DIR), and hand the StoredFile metadata to the conversation
+   * handler so a CUSTOMER message row gets created with the attachment
+   * fields populated. Errors are logged but non-fatal — the controller
+   * already 200'd to Meta; failing to persist media shouldn't crash the
+   * webhook handler. The text path can still run downstream.
+   */
+  private async persistInboundMedia(incomingMessage: any): Promise<void> {
+    try {
+      const mediaId: string | null = incomingMessage.mediaId ?? null;
+      if (!mediaId) return;
+      const downloaded = await this.whatsappService.downloadIncomingMedia(mediaId);
+      if (!downloaded) return;
+
+      // Derive a sensible filename. WA voice notes come as
+      // audio/ogg with no original name — synthesize one with the
+      // timestamp so the operator panel shows something readable.
+      const extFromMime: Record<string, string> = {
+        'image/jpeg': '.jpg',
+        'image/png':  '.png',
+        'image/webp': '.webp',
+        'audio/ogg':  '.ogg',
+        'audio/mp4':  '.m4a',
+        'audio/mpeg': '.mp3',
+        'audio/webm': '.webm',
+        'video/mp4':  '.mp4',
+        'application/pdf': '.pdf',
+      };
+      const ext = extFromMime[downloaded.mime] ?? '.bin';
+      const type = String(incomingMessage.type || 'media');
+      const ts = incomingMessage.timestamp instanceof Date
+        ? incomingMessage.timestamp
+        : new Date();
+      const stamp =
+        ts.getFullYear().toString() +
+        String(ts.getMonth() + 1).padStart(2, '0') +
+        String(ts.getDate()).padStart(2, '0') + '-' +
+        String(ts.getHours()).padStart(2, '0') +
+        String(ts.getMinutes()).padStart(2, '0');
+      const filename = `wa-${type}-${stamp}${ext}`;
+
+      let stored;
+      try {
+        stored = await this.uploads.store({
+          buffer: downloaded.buffer,
+          originalname: filename,
+          mimetype: downloaded.mime,
+          size: downloaded.buffer.length,
+        });
+      } catch (err: any) {
+        if (err instanceof FileTooLargeError || err instanceof DisallowedMimeError) {
+          this.logger.warn(`WA inbound media rejected (${err.message}) for ${incomingMessage.from}`);
+        } else {
+          throw err;
+        }
+        return;
+      }
+
+      await this.conversationHandler.persistInboundWhatsAppAttachment({
+        from: incomingMessage.from,
+        timestamp: ts,
+        caption: incomingMessage.text ?? null,
+        attachment: {
+          url: stored.url,
+          name: stored.name,
+          mime: stored.mime,
+          size: stored.size,
+          contentType: stored.contentType,
+        },
+      });
+      this.logger.log(
+        `📥 WA inbound ${type} persisted (${stored.size}B ${stored.mime}) from ${incomingMessage.from}`,
+      );
+    } catch (err: any) {
+      this.logger.error(`Failed to persist WA inbound media: ${err.message}`);
     }
   }
 

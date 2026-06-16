@@ -89,6 +89,49 @@ export interface SystemConfiguration {
   };
 }
 
+/**
+ * Bloque C — Marcos 2026-06-06: top of the daily logistics Excel
+ * holds two pinned references the warehouse keeps an eye on. We
+ * persist them once in Configuration so the daily file picks them up
+ * automatically without anyone retyping them into the sheet.
+ *
+ *   linksFavoritos  — shortcut rows ({label, url}) to Drive resources
+ *                     (ubicación de moldes, calculador, seguimiento de
+ *                     tareas, mayoristas, errores, etc.)
+ *   notasOperativas — free-form text block that prints under the links
+ *                     for whatever the operator wants visible at the
+ *                     top of the file on a given day.
+ */
+export interface LogisticaConfiguration {
+  linksFavoritos: Array<{ label: string; url: string }>;
+  notasOperativas: string;
+  /** Marcos 2026-06-10: ordered list of the flex couriers that
+   *  rotate through Servifibras's flex orders. Editable from the
+   *  admin settings panel so Marcos can rename / replace them
+   *  without a redeploy (services come and go). Default falls back
+   *  to FLEX_COURIERS env when unset. */
+  flexCouriers?: string[];
+  /** Marcos 2026-06-10: per-family pickup cutoff hours (0-23 in
+   *  America/Argentina/Buenos_Aires). After this hour, the
+   *  carrier of that family has already picked up for the day —
+   *  new orders arriving after the cutoff are for tomorrow.
+   *  The daily panel renders a divider banner inside each section
+   *  splitting "Para mañana" (above) from "Pueden salir hoy"
+   *  (below). null disables the cutoff for that family. ML can
+   *  change colecta cutoffs without warning, so this is editable
+   *  from Settings → Logística. */
+  cutoffHours?: {
+    /** Applies to COLECTA_1 + COLECTA_2 (ML colecta retiros). */
+    colecta?: number | null;
+    /** Applies to FLEX_1 + FLEX_2. */
+    flex?: number | null;
+    /** Local fleet (MOTOS section + RETIRA_CASEROS keeps its own). */
+    motos?: number | null;
+    /** Interior cargo (MICROS section). null = no cutoff. */
+    micros?: number | null;
+  };
+}
+
 export interface IConfigurationService {
   /**
    * List all configurations with filters
@@ -162,9 +205,20 @@ export interface IConfigurationService {
   getSystemConfiguration(): Promise<SystemConfiguration | null>;
 
   /**
+   * Bloque C — Marcos 2026-06-06: Logística favorite Drive links +
+   * notas operativas pinned at the top of the daily Excel.
+   */
+  getLogisticaConfiguration(): Promise<LogisticaConfiguration | null>;
+
+  /**
    * Update system configuration
    */
   updateSystemConfiguration(config: Partial<SystemConfiguration>): Promise<boolean>;
+
+  /**
+   * Bloque C — Marcos 2026-06-06: update Logística favorite links / notas.
+   */
+  updateLogisticaConfiguration(config: Partial<LogisticaConfiguration>): Promise<boolean>;
 
   /**
    * Toggle configuration active status

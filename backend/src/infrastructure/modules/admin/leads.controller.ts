@@ -8,30 +8,77 @@ import {
   Body,
   Query,
   UseGuards,
+  Request,
+  NotFoundException,
 } from '@nestjs/common';
 import { LeadManagementService } from '../../../adapters/admin/lead-management.service';
+import { WeeklyLeadsReportService } from '../../../adapters/admin/weekly-leads-report.service';
 import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { LeadStatus } from '@prisma/client';
+import { AuditLogService } from '../../../adapters/audit/audit-log.service';
 
 @Controller('admin/leads')
 @UseGuards(AuthGuard, RolesGuard)
 export class LeadsController {
-  constructor(private readonly leadManagement: LeadManagementService) {}
+  constructor(
+    private readonly leadManagement: LeadManagementService,
+    private readonly audit: AuditLogService,
+    private readonly weeklyReport: WeeklyLeadsReportService,
+  ) {}
+
+  /**
+   * POST /admin/leads/report/run
+   *
+   * ADMIN-only manual trigger for the weekly leads report. Returns the
+   * assembled Spanish text + the structured data even when the WhatsApp
+   * recipient isn't configured, so Marcos can preview it from the panel.
+   */
+  @Post('report/run')
+  @Roles(UserRole.ADMIN)
+  async runWeeklyReport(@Request() req: any) {
+    const result = await this.weeklyReport.run();
+    const ctx = this.auditCtx(req);
+    await this.audit.log({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: 'leads.weekly_report.run',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: {
+        delivered: result.delivered,
+        recipient: result.recipient,
+        windowDays: result.data.windowDays,
+        totalCreated: result.data.totalCreated,
+      },
+    });
+    return { success: true, data: result };
+  }
+
+  /** Helper — pull ip + UA off the request for audit-log entries. */
+  private auditCtx(req: any): { ip: string | null; userAgent: string | null } {
+    const ip = (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req?.ip || null;
+    const userAgent = (req?.headers?.['user-agent'] as string) || null;
+    return { ip, userAgent };
+  }
 
   // Get pipeline statistics (must be before :id route)
   @Get('stats/pipeline')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION)
-  async getPipelineStatistics() {
-    const data = await this.leadManagement.getPipelineStatistics();
+  @Roles(UserRole.ADMIN, UserRole.VENTAS)
+  async getPipelineStatistics(@Request() req: any) {
+    const data = await this.leadManagement.getPipelineStatistics({
+      userId: req.user.id,
+      role: req.user.role,
+    });
     return { success: true, data };
   }
 
   // List leads with filters
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS)
   async listLeads(
+    @Request() req: any,
     @Query('status') status?: LeadStatus,
     @Query('assignedTo') assignedTo?: string,
     @Query('source') source?: string,
@@ -46,6 +93,7 @@ export class LeadsController {
       contactId,
       limit: limit ? parseInt(limit) : undefined,
       offset: offset ? parseInt(offset) : undefined,
+      scope: { userId: req.user.id, role: req.user.role },
     });
 
     return { success: true, ...result };
@@ -53,12 +101,15 @@ export class LeadsController {
 
   // Get lead by ID
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION)
-  async getLeadById(@Param('id') id: string) {
-    const data = await this.leadManagement.getLeadById(id);
+  @Roles(UserRole.ADMIN, UserRole.VENTAS)
+  async getLeadById(@Param('id') id: string, @Request() req: any) {
+    const data = await this.leadManagement.getLeadById(id, {
+      userId: req.user.id,
+      role: req.user.role,
+    });
 
     if (!data) {
-      return { success: false, error: 'Lead not found' };
+      throw new NotFoundException('Oportunidad no encontrada');
     }
 
     return { success: true, data };
@@ -66,7 +117,7 @@ export class LeadsController {
 
   // Create new lead
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS)
   async createLead(@Body() body: any) {
     const data = await this.leadManagement.createLead(body);
     return { success: true, data };
@@ -79,7 +130,7 @@ export class LeadsController {
     const data = await this.leadManagement.updateLead(id, body);
 
     if (!data) {
-      return { success: false, error: 'Lead not found' };
+      throw new NotFoundException('Oportunidad no encontrada');
     }
 
     return { success: true, data };
@@ -88,8 +139,19 @@ export class LeadsController {
   // Delete lead
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async deleteLead(@Param('id') id: string) {
+  async deleteLead(@Param('id') id: string, @Request() req: any) {
     const success = await this.leadManagement.deleteLead(id);
+    if (success) {
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'lead.delete',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { leadId: id },
+      });
+    }
     return { success };
   }
 

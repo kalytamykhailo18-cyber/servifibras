@@ -6,6 +6,7 @@
 import { Module } from '@nestjs/common';
 import { WhatsAppService } from '../../../adapters/whatsapp/whatsapp.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
+import { UploadStorageService } from '../../../adapters/uploads/upload-storage.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { AIModule } from '../ai/ai.module';
 
@@ -15,6 +16,7 @@ import { AIModule } from '../ai/ai.module';
   providers: [
     WhatsAppService,
     ConversationHandlerService,
+    UploadStorageService,
   ],
   exports: [WhatsAppService, ConversationHandlerService],
 })

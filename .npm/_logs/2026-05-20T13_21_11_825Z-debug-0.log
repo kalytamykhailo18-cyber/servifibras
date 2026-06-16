@@ -1,0 +1,25 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@11.13.0
+2 info using node@v24.15.0
+3 silly config load:file:/usr/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/servifibras/frontend/.npmrc
+5 silly config load:file:/home/servifibras/.npmrc
+6 silly config load:file:/usr/etc/npmrc
+7 verbose title npm start
+8 verbose argv "start"
+9 verbose logfile logs-max:10 dir:/home/servifibras/.npm/_logs/2026-05-20T13_21_11_825Z-
+10 verbose logfile /home/servifibras/.npm/_logs/2026-05-20T13_21_11_825Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 http fetch GET 200 https://registry.npmjs.org/npm 223ms
+14 verbose cwd /home/servifibras/frontend
+15 verbose os Linux 6.8.0-71-generic
+16 verbose node v24.15.0
+17 verbose npm  v11.13.0
+18 notice
+18 notice New minor version of npm available! 11.13.0 -> 11.14.1
+18 notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+18 notice To update run: npm install -g npm@11.14.1
+18 notice  { force: true, Symbol(proc-log.meta): true }
+19 verbose exit 143
+20 verbose code 143

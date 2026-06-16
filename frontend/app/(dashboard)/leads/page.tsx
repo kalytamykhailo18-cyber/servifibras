@@ -6,7 +6,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PipelineBoard } from "@/components/leads/pipeline-board";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
 import { api } from "@/lib/api/endpoints";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+import { useClientPagination } from "@/lib/hooks/use-client-pagination";
+import { Pagination } from "@/components/ui/pagination";
+import { UserRole } from "@/types";
 import type { Lead, LeadStatus } from "@/types";
+
+const LEADS_ROLES = [UserRole.ADMIN, UserRole.VENTAS];
 import AddIcon from '@mui/icons-material/Add';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -27,12 +33,14 @@ import {
 
 export default function LeadsPage() {
   const router = useRouter();
+  const { isAllowed } = useRoleGuard(LEADS_ROLES);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
+  const pg = useClientPagination(leads, { storageKey: "leads", defaultPageSize: 25 });
 
   // ========================================================================
   // FETCH LEADS
@@ -43,7 +51,7 @@ export default function LeadsPage() {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await api.leads.list({ limit: 1000 });
+      const response = await api.leads.list();
       setLeads(response.data);
     } catch (err: any) {
       setError(err.message || "Error al cargar oportunidades");
@@ -56,7 +64,7 @@ export default function LeadsPage() {
   // Silent refresh — no skeleton flash, used after edits/deletes/drag-drop
   const refreshLeads = async () => {
     try {
-      const response = await api.leads.list({ limit: 1000 });
+      const response = await api.leads.list();
       setLeads(response.data);
     } catch (err: any) {
       toast.error(err.message || "Error al recargar oportunidades");
@@ -69,8 +77,11 @@ export default function LeadsPage() {
   };
 
   useEffect(() => {
-    loadLeads();
-  }, []);
+    if (isAllowed) loadLeads();
+  }, [isAllowed]);
+
+  // Role guard is redirecting — render nothing to avoid a flash of the page.
+  if (!isAllowed) return null;
 
   // ========================================================================
   // HANDLERS
@@ -151,7 +162,7 @@ export default function LeadsPage() {
               <TrendingUpIcon sx={{ fontSize: 22 }} />
             </span>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">
                 Pipeline de Ventas
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -164,7 +175,7 @@ export default function LeadsPage() {
             onClick={loadLeads}
             className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97]"
           >
-            <RefreshIcon sx={{ fontSize: 16 }} />
+            <RefreshIcon sx={{ fontSize: 16 }} className="text-blue-600" />
             Reintentar
           </button>
         </div>
@@ -184,16 +195,16 @@ export default function LeadsPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* PAGE HEADER */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-orange-500 to-red-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(249_115_22/0.45)]">
-            <TrendingUpIcon sx={{ fontSize: 22 }} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-orange-500 to-red-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(249_115_22/0.45)] sm:h-11 sm:w-11">
+            <TrendingUpIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
           </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">
               Pipeline de Ventas
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Gestiona las oportunidades de venta arrastrando entre columnas
             </p>
           </div>
@@ -203,45 +214,71 @@ export default function LeadsPage() {
           <button
             type="button"
             onClick={() => router.push("/leads/stats")}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97]"
+            aria-label="Estadísticas"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97] sm:px-4"
           >
-            <BarChartIcon sx={{ fontSize: 16 }} />
-            Estadísticas
+            <BarChartIcon sx={{ fontSize: 16 }} className="text-pink-600" />
+            <span className="hidden sm:inline">Estadísticas</span>
           </button>
 
           <button
             type="button"
             onClick={refreshLeads}
             disabled={isLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            aria-label="Actualizar"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
           >
             <RefreshIcon
               sx={{ fontSize: 16 }}
-              className={isLoading ? "animate-spin" : ""}
+              className={(isLoading ? "animate-spin " : "") + "text-blue-600"}
             />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsFormOpen(true)}
-            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-orange-600 to-red-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(249_115_22/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(249_115_22/0.65)] active:translate-y-0 active:scale-[0.97]"
+            aria-label="Nueva oportunidad"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-orange-600 to-red-500 px-3 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(249_115_22/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(249_115_22/0.65)] active:translate-y-0 active:scale-[0.97] sm:px-5"
           >
             <AddIcon sx={{ fontSize: 18 }} />
-            Nueva Oportunidad
+            <span className="hidden sm:inline">Nueva Oportunidad</span>
+            <span className="sm:hidden">Nueva</span>
           </button>
         </div>
       </div>
 
+      <Pagination
+        position="top"
+        page={pg.page}
+        totalPages={pg.totalPages}
+        totalItems={pg.totalItems}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+
       {/* PIPELINE BOARD */}
       <PipelineBoard
-        leads={leads}
+        leads={pg.slice}
         onLeadsChange={refreshLeads}
         onLeadStatusChanged={handleLeadStatusChanged}
         onViewLead={handleViewLead}
         onEditLead={handleEditLead}
         onDeleteLead={handleDeleteLead}
       />
+
+      <div className="mt-3">
+        <Pagination
+          position="bottom"
+          page={pg.page}
+          totalPages={pg.totalPages}
+          totalItems={pg.totalItems}
+          pageSize={pg.pageSize}
+          onPageChange={pg.setPage}
+          onPageSizeChange={pg.setPageSize}
+        />
+      </div>
 
       {/* CREATE/EDIT DIALOG */}
       <LeadFormDialog

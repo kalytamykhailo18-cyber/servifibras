@@ -7,14 +7,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IProductPriceService } from '../../use-cases/pricing/pricing.interface';
 import { Product } from '../../domain/entities/pricing.entity';
+import { TiendaNubeAuthResolver } from '../oauth/tiendanube-auth.resolver';
 
 @Injectable()
 export class ProductPriceService implements IProductPriceService {
   private readonly logger = new Logger(ProductPriceService.name);
   private readonly apiUrl: string;
-  private readonly storeId: string;
-  private readonly accessToken: string;
-  private readonly isConfigured: boolean;
 
   // Mock products for testing (until TiendaNube API is configured)
   private readonly mockProducts: Product[] = [
@@ -32,45 +30,26 @@ export class ProductPriceService implements IProductPriceService {
     new Product('SIL-A30-5KG', 'Silicona Shore A30 5kg', 140),
   ];
 
-  constructor() {
-    // ✅ RULE 1: All config from .env, never hardcoded
+  constructor(private readonly auth: TiendaNubeAuthResolver) {
     this.apiUrl = process.env.TIENDANUBE_API_URL || 'https://api.tiendanube.com/v1';
-    this.storeId = process.env.TIENDANUBE_STORE_ID || '';
-    this.accessToken = process.env.TIENDANUBE_ACCESS_TOKEN || '';
-
-    this.isConfigured = !!(
-      this.storeId &&
-      this.accessToken &&
-      this.storeId !== 'your-store-id-here' &&
-      this.accessToken !== 'your-access-token-here'
+    this.logger.log(
+      `TiendaNube pricing service initialized (mock fallback ready, ${this.mockProducts.length} products)`,
     );
-
-    if (!this.isConfigured) {
-      this.logger.warn('⚠️  TiendaNube API not configured. Using mock product data.');
-      this.logger.warn('   Add TIENDANUBE_STORE_ID and TIENDANUBE_ACCESS_TOKEN to .env');
-      this.logger.log(`   Mock products available: ${this.mockProducts.length}`);
-    } else {
-      this.logger.log(`✅ TiendaNube API configured: Store ${this.storeId}`);
-    }
   }
 
   async getProductPrice(sku: string): Promise<Product | null> {
-    // If API configured, fetch from TiendaNube
-    if (this.isConfigured) {
-      return this.fetchFromTiendaNube(sku);
+    const auth = await this.auth.resolve();
+    if (auth) {
+      return this.fetchFromTiendaNube(sku, auth);
     }
-
-    // Otherwise use mock data
     return this.getProductFromMock(sku);
   }
 
   async searchProducts(query: string): Promise<Product[]> {
-    // If API configured, search TiendaNube
-    if (this.isConfigured) {
-      return this.searchTiendaNube(query);
+    const auth = await this.auth.resolve();
+    if (auth) {
+      return this.searchTiendaNube(query, auth);
     }
-
-    // Otherwise search mock data
     return this.searchMockProducts(query);
   }
 
@@ -94,14 +73,16 @@ export class ProductPriceService implements IProductPriceService {
   }
 
   // REAL API METHODS (for when TiendaNube is configured)
-  private async fetchFromTiendaNube(sku: string): Promise<Product | null> {
+  private async fetchFromTiendaNube(
+    sku: string,
+    auth: { storeId: string; accessToken: string },
+  ): Promise<Product | null> {
     try {
-      // TiendaNube API endpoint: GET /products/{id} or /products?sku={sku}
-      const url = `${this.apiUrl}/${this.storeId}/products?sku=${sku}`;
+      const url = `${this.apiUrl}/${auth.storeId}/products?sku=${sku}`;
 
       const response = await fetch(url, {
         headers: {
-          'Authentication': `bearer ${this.accessToken}`,
+          Authentication: `bearer ${auth.accessToken}`,
           'User-Agent': 'Servifibras AI Platform',
         },
       });
@@ -136,13 +117,16 @@ export class ProductPriceService implements IProductPriceService {
     }
   }
 
-  private async searchTiendaNube(query: string): Promise<Product[]> {
+  private async searchTiendaNube(
+    query: string,
+    auth: { storeId: string; accessToken: string },
+  ): Promise<Product[]> {
     try {
-      const url = `${this.apiUrl}/${this.storeId}/products?q=${encodeURIComponent(query)}`;
+      const url = `${this.apiUrl}/${auth.storeId}/products?q=${encodeURIComponent(query)}`;
 
       const response = await fetch(url, {
         headers: {
-          'Authentication': `bearer ${this.accessToken}`,
+          Authentication: `bearer ${auth.accessToken}`,
           'User-Agent': 'Servifibras AI Platform',
         },
       });

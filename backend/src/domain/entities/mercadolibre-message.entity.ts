@@ -6,6 +6,8 @@
 export enum MercadoLibreMessageType {
   QUESTION = 'question', // Question on product listing
   MESSAGE = 'message',   // Direct message
+  REVIEW = 'review',     // Buyer feedback on order — comes via topic="feedback" or "orders_feedback"
+  CLAIM = 'claim',       // Buyer-opened claim — comes via topic="claims"
 }
 
 export enum MercadoLibreStatus {
@@ -29,6 +31,14 @@ export class MercadoLibreIncomingMessage {
     public readonly itemId: string | null, // Product ID for questions
     public readonly status: MercadoLibreStatus,
     public readonly dateCreated: Date,
+    // Bloque B item 1 — Marcos 2026-06-06: the OAuthCredential
+    // `provider` key for the cuenta this inbound landed through
+    // ("mercadolibre" = cuenta 1, "mercadolibre_cuenta2" = cuenta 2).
+    // Null when the resolver couldn't match the webhook user_id
+    // (unconnected cuenta, stale credential). The conversation
+    // handler stamps it on the persisted Conversation so analytics
+    // can split metrics per store.
+    public readonly mlAccountKey: string | null = null,
   ) {}
 
   isQuestion(): boolean {

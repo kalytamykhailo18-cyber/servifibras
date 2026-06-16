@@ -14,6 +14,7 @@ import {
   AIConfiguration,
   PricingConfiguration,
   SystemConfiguration,
+  LogisticaConfiguration,
   ConfigurationType,
 } from '../../use-cases/admin/configuration.interface';
 
@@ -371,6 +372,56 @@ export class ConfigurationService implements IConfigurationService {
       return true;
     } catch (error: any) {
       this.logger.error(`Error updating system configuration: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Logística configuration — Marcos 2026-06-06 (Bloque C). The daily
+   * Excel auto-gen pulls its top "fixed header" from this row: a list
+   * of Drive shortcut links the warehouse keeps pinned (ubicación de
+   * moldes, calculadora, seguimiento de tareas, mayoristas, errores)
+   * plus a free-form "notas operativas" block. Both edit from the
+   * admin Settings → Logística tab.
+   *
+   * Shape:
+   *   {
+   *     linksFavoritos: [{ label: string, url: string }, ...]
+   *     notasOperativas: string
+   *   }
+   */
+  async getLogisticaConfiguration(): Promise<LogisticaConfiguration | null> {
+    try {
+      const config = await this.getConfigurationByKey('logistica_settings');
+      if (!config) return null;
+      return config.value as LogisticaConfiguration;
+    } catch (error: any) {
+      this.logger.error(`Error getting logistica configuration: ${error.message}`);
+      return null;
+    }
+  }
+
+  async updateLogisticaConfiguration(config: Partial<LogisticaConfiguration>): Promise<boolean> {
+    try {
+      const existing = await this.getConfigurationByKey('logistica_settings');
+      if (existing) {
+        const newValue = { ...(existing.value as any), ...config };
+        await this.prisma.configuration.update({
+          where: { key: 'logistica_settings' },
+          data: { value: newValue },
+        });
+      } else {
+        await this.createConfiguration({
+          type: ConfigurationType.SYSTEM,
+          key: 'logistica_settings',
+          value: config,
+          description: 'Logistica — favorite Drive links + operative notes shown on the daily Excel header',
+        });
+      }
+      this.logger.log('✅ Logistica configuration updated');
+      return true;
+    } catch (error: any) {
+      this.logger.error(`Error updating logistica configuration: ${error.message}`);
       return false;
     }
   }

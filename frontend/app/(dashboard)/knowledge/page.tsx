@@ -16,9 +16,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { KnowledgeFormDialog } from "@/components/knowledge/knowledge-form-dialog";
 import { KnowledgeTable } from "@/components/knowledge/knowledge-table";
+import { Pagination } from "@/components/ui/pagination";
 import { api } from "@/lib/api/endpoints";
 import type { KnowledgeBase, KnowledgeFormData, KnowledgeFilters, GetKnowledgeParams } from "@/types";
-import { PRODUCT_CATEGORIES } from "@/types";
+import { PRODUCT_CATEGORIES, UserRole } from "@/types";
+import { useAuthStore } from "@/lib/store/auth-store";
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
@@ -28,6 +30,12 @@ import SearchIcon from '@mui/icons-material/Search';
 import { toast } from "sonner";
 
 export default function KnowledgePage() {
+  // Reads on the KB are open to every role; writes are ADMIN-only on the
+  // backend (RolesGuard returns 403 to non-admins). Mirror that here so
+  // operators see the affordance disabled rather than clicking and getting
+  // a silent 403 in the browser console.
+  const role = useAuthStore((s) => s.user?.role);
+  const canWrite = role === UserRole.ADMIN;
   const [items, setItems] = useState<KnowledgeBase[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -223,14 +231,14 @@ export default function KnowledgePage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* PAGE HEADER */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)]">
-            <MenuBookIcon sx={{ fontSize: 22 }} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)] sm:h-11 sm:w-11">
+            <MenuBookIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
           </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Base de Conocimiento</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">Base de Conocimiento</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Gestiona el contenido utilizado por la IA para responder consultas
             </p>
           </div>
@@ -241,29 +249,39 @@ export default function KnowledgePage() {
             type="button"
             onClick={handleRefresh}
             disabled={isLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            aria-label="Actualizar"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
           >
             <RefreshIcon
               sx={{ fontSize: 16 }}
-              className={isLoading ? "animate-spin" : ""}
+              className={(isLoading ? "animate-spin " : "") + "text-blue-600"}
             />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
 
           <button
             type="button"
-            onClick={handleCreateClick}
-            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97]"
+            onClick={canWrite ? handleCreateClick : undefined}
+            disabled={!canWrite}
+            aria-label="Nuevo artículo"
+            title={canWrite ? undefined : "Solo Administrador puede crear artículos"}
+            className={
+              "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-white transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:translate-y-0 active:scale-[0.97] sm:px-5 " +
+              (canWrite
+                ? "bg-gradient-to-r from-violet-600 to-purple-500 shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)]"
+                : "bg-slate-300 cursor-not-allowed opacity-60")
+            }
           >
             <AddIcon sx={{ fontSize: 18 }} />
-            Nuevo Artículo
+            <span className="hidden sm:inline">Nuevo Artículo</span>
+            <span className="sm:hidden">Nuevo</span>
           </button>
         </div>
       </div>
 
       {/* FILTERS */}
       <div className="flex flex-wrap items-center gap-2.5">
-        <div className="group relative flex-1 min-w-[220px] max-w-sm">
+        <div className="group relative w-full sm:flex-1 sm:min-w-[220px] sm:max-w-sm">
           <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors duration-200 group-focus-within:text-blue-600" />
           <Input
             placeholder="Buscar en títulos y contenido..."
@@ -274,7 +292,7 @@ export default function KnowledgePage() {
         </div>
 
         <Select value={filters.category || "ALL"} onValueChange={handleCategoryChange}>
-          <SelectTrigger className="w-[200px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[200px]">
             <SelectValue placeholder="Categoría" />
           </SelectTrigger>
           <SelectContent>
@@ -294,7 +312,7 @@ export default function KnowledgePage() {
           value={typeof filters.active === "boolean" ? String(filters.active) : "ALL"}
           onValueChange={handleActiveChange}
         >
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[150px]">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
@@ -319,6 +337,17 @@ export default function KnowledgePage() {
         </div>
       )}
 
+      {/* PAGINATION TOP */}
+      <Pagination
+        position="top"
+        page={currentPage}
+        totalPages={totalPages}
+        totalItems={totalCount}
+        pageSize={20}
+        onPageChange={handlePageChange}
+        disabled={isLoading}
+      />
+
       {/* KNOWLEDGE TABLE */}
       <KnowledgeTable
         items={items}
@@ -327,34 +356,18 @@ export default function KnowledgePage() {
         onToggleActive={handleToggleActive}
       />
 
-      {/* PAGINATION */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 pt-4">
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1 || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            ← Anterior
-          </button>
-
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
-            <span className="font-semibold text-slate-900">{currentPage}</span>
-            <span className="text-slate-400">/</span>
-            <span>{totalPages}</span>
-          </span>
-
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            Siguiente →
-          </button>
-        </div>
-      )}
+      {/* PAGINATION BOTTOM */}
+      <div className="mt-3">
+        <Pagination
+          position="bottom"
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={totalCount}
+          pageSize={20}
+          onPageChange={handlePageChange}
+          disabled={isLoading}
+        />
+      </div>
 
       {/* FORM DIALOG */}
       <KnowledgeFormDialog
@@ -363,6 +376,7 @@ export default function KnowledgePage() {
         knowledge={editingItem}
         onSubmit={handleFormSubmit}
         isLoading={isSubmitting}
+        readOnly={!canWrite}
       />
 
       {/* DELETE CONFIRMATION DIALOG */}

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuthStore, selectUser, selectUserName } from "@/lib/store/auth-store";
 import {
@@ -12,13 +13,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/Person';
+import MenuIcon from '@mui/icons-material/Menu';
 import { USER_ROLE_LABELS } from "@/types";
 
 // ============================================================================
 // HEADER COMPONENT
 // ============================================================================
 
-export function Header() {
+interface HeaderProps {
+  /** Tap handler for the mobile hamburger button. Hidden at lg+. */
+  onMenuClick?: () => void;
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
   const router = useRouter();
   const user = useAuthStore(selectUser);
   const userName = useAuthStore(selectUserName);
@@ -35,11 +42,31 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center border-b border-slate-900/[0.06] bg-card/70 px-6 backdrop-blur-xl backdrop-saturate-150">
-      {/* LEFT — mobile-only wordmark (sidebar covers this on lg+) */}
-      <h1 className="text-lg font-semibold tracking-tight text-foreground lg:hidden">
-        Servifibras
-      </h1>
+    <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-black bg-black px-4 sm:px-6 lg:px-12">
+      {/* LEFT — hamburger button on mobile (opens drawer) + brand mark.
+          Black bg per Marcos 2026-06-03: the official Servifibras logo
+          appears on a black header across the platform. */}
+      <button
+        type="button"
+        onClick={onMenuClick}
+        aria-label="Abrir menú de navegación"
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/5 text-white/85 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white active:scale-95 lg:hidden"
+      >
+        <MenuIcon sx={{ fontSize: 20 }} />
+      </button>
+      <div className="flex items-center gap-2.5 lg:hidden">
+        <Image
+          src="/servifibras-mark-inverted.png"
+          alt="Servifibras"
+          width={32}
+          height={32}
+          priority
+          className="h-8 w-8 object-contain"
+        />
+        <h1 className="text-base font-semibold tracking-[0.04em] text-white sm:text-lg">
+          SERVIFIBRAS
+        </h1>
+      </div>
 
       {/* RIGHT — user menu, pinned to the end */}
       <div className="ml-auto">
@@ -58,7 +85,7 @@ export function Header() {
           </span>
           <span
             aria-hidden
-            className="pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-500 shadow-[0_0_0_1px_rgb(16_185_129/0.4)]"
+            className="pointer-events-none absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-black bg-emerald-500 shadow-[0_0_0_1px_rgb(16_185_129/0.4)]"
           />
         </DropdownMenuTrigger>
 

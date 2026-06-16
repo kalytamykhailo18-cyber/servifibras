@@ -1,17 +1,53 @@
 "use client";
 // Version: 2.0 - Added comprehensive logging for debugging
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuthStore, selectUserRole } from "@/lib/store/auth-store";
+import { UserRole } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConversationFiltersComponent } from "@/components/conversations/conversation-filters";
 import { ConversationCard } from "@/components/conversations/conversation-card";
+import { MercadolibreQaList } from "@/components/conversations/mercadolibre-qa-list";
+import { Pagination } from "@/components/ui/pagination";
 import { api } from "@/lib/api/endpoints";
+import { useRealtimeEvent } from "@/lib/realtime/use-realtime";
 import type { ConversationWithRelations, ConversationFilters, GetConversationsParams } from "@/types";
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+
+type ConversationsTab = "all" | "mercadolibre";
+
+const ML_TAB_ROLES: UserRole[] = [
+  UserRole.ADMIN,
+  UserRole.ATENCION,
+  UserRole.VENTAS,
+];
 
 export default function ConversationsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const role = useAuthStore(selectUserRole);
+  // Only ADMIN / ATENCION / VENTAS can see the ML tab — LOGISTICA stays on
+  // the regular conversations view. The backend endpoint enforces the
+  // same gate (returns 403), so this is just to keep the UI clean.
+  const mlTabAllowed = role != null && ML_TAB_ROLES.includes(role);
+  // Marcos 2026-06-04: ML view lives as a sub-tab inside Conversaciones
+  // instead of a top-level sidebar entry. URL-driven so it persists
+  // across reloads + can be linked to.
+  const tabFromUrl = (mlTabAllowed && searchParams.get("view") === "mercadolibre" ? "mercadolibre" : "all") as ConversationsTab;
+  const [activeTab, setActiveTab] = useState<ConversationsTab>(tabFromUrl);
+
+  const switchTab = (tab: ConversationsTab) => {
+    setActiveTab(tab);
+    const sp = new URLSearchParams(searchParams.toString());
+    if (tab === "mercadolibre") sp.set("view", "mercadolibre");
+    else sp.delete("view");
+    router.replace(`/conversations${sp.toString() ? `?${sp.toString()}` : ""}`, { scroll: false });
+  };
+
   const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +66,13 @@ export default function ConversationsPage() {
   // FETCH CONVERSATIONS
   // ========================================================================
 
-  const fetchConversations = async (page: number = 1) => {
+  // `silent=true` skips the skeleton flash — used for realtime ticks and
+  // for refreshes that follow user actions (we keep the rendered list in
+  // place and just swap data when it lands).
+  const fetchConversations = async (page: number = 1, silent: boolean = false) => {
 
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
 
       const params: GetConversationsParams = {
@@ -64,9 +103,10 @@ export default function ConversationsPage() {
 
     } catch (err: any) {
       console.error('[CONVERSATIONS PAGE] Error fetching conversations:', err);
-      setError(err.message || "Error al cargar conversaciones");
+      // Silent refreshes shouldn't replace the rendered list with an error.
+      if (!silent) setError(err.message || "Error al cargar conversaciones");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -77,6 +117,27 @@ export default function ConversationsPage() {
   useEffect(() => {
     fetchConversations(1);
   }, [filters]);
+
+  // Keep the inbox fresh when the backend signals new activity. Coalesce
+  // bursts to one refresh per second so a spike of 50 messages doesn't fire
+  // 50 fetches.
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onTick = useCallback(() => {
+    if (refreshTimer.current) return;
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      fetchConversations(1, true);
+    }, 600);
+  }, [filters]);
+  useRealtimeEvent("metrics:tick", onTick);
+  useRealtimeEvent("conversation:needs_human", onTick);
+  useRealtimeEvent("conversation:transferred", onTick);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
+  }, []);
 
   // ========================================================================
   // HANDLERS
@@ -127,33 +188,76 @@ export default function ConversationsPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* HEADER */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(59_130_246/0.45)]">
-            <ChatBubbleOutlineIcon sx={{ fontSize: 22 }} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(59_130_246/0.45)] sm:h-11 sm:w-11">
+            <ChatBubbleOutlineIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
           </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Conversaciones</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl lg:text-3xl">Conversaciones</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Gestiona todas las conversaciones con clientes
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={isLoading}
-          className="group inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-        >
-          <RefreshIcon
-            sx={{ fontSize: 16 }}
-            className={isLoading ? "animate-spin" : ""}
-          />
-          Actualizar
-        </button>
+        {activeTab === "all" && (
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            aria-label="Actualizar"
+            className="group inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
+          >
+            <RefreshIcon
+              sx={{ fontSize: 16 }}
+              className={(isLoading ? "animate-spin " : "") + "text-blue-600"}
+            />
+            <span className="hidden sm:inline">Actualizar</span>
+          </button>
+        )}
       </div>
 
+      {/* TABS — main "Todas" + ML sub-view (Marcos 2026-06-04) */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => switchTab("all")}
+          data-testid="conversations-tab-all"
+          aria-pressed={activeTab === "all"}
+          className={
+            "inline-flex h-10 items-center gap-2 border-b-2 px-4 text-sm font-medium transition-colors " +
+            (activeTab === "all"
+              ? "border-blue-600 text-blue-700"
+              : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
+          }
+        >
+          <ChatBubbleOutlineIcon sx={{ fontSize: 16 }} />
+          Conversaciones
+        </button>
+        {mlTabAllowed && (
+          <button
+            type="button"
+            onClick={() => switchTab("mercadolibre")}
+            data-testid="conversations-tab-mercadolibre"
+            aria-pressed={activeTab === "mercadolibre"}
+            className={
+              "inline-flex h-10 items-center gap-2 border-b-2 px-4 text-sm font-medium transition-colors " +
+              (activeTab === "mercadolibre"
+                ? "border-yellow-600 text-yellow-700"
+                : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
+            }
+          >
+            <StorefrontIcon sx={{ fontSize: 16 }} />
+            Mercado Libre
+          </button>
+        )}
+      </div>
+
+      {activeTab === "mercadolibre" ? (
+        <MercadolibreQaList />
+      ) : (
+        <>
       {/* FILTERS */}
       <ConversationFiltersComponent
         filters={filters}
@@ -169,6 +273,17 @@ export default function ConversationsPage() {
         </div>
       )}
 
+      {/* PAGINATION TOP */}
+      <Pagination
+        position="top"
+        page={currentPage}
+        totalPages={totalPages}
+        totalItems={totalCount}
+        pageSize={20}
+        onPageChange={handlePageChange}
+        disabled={isLoading}
+      />
+
       {/* CONVERSATIONS LIST */}
       {conversations.length === 0 && !isLoading ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
@@ -182,40 +297,26 @@ export default function ConversationsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-1 gap-3">
           {conversations.map((conversation) => (
             <ConversationCard key={conversation.id} conversation={conversation} />
           ))}
         </div>
       )}
 
-      {/* PAGINATION */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 pt-4">
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1 || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            ← Anterior
-          </button>
-
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
-            <span className="font-semibold text-slate-900">{currentPage}</span>
-            <span className="text-slate-400">/</span>
-            <span>{totalPages}</span>
-          </span>
-
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            Siguiente →
-          </button>
-        </div>
+      {/* PAGINATION BOTTOM */}
+      <div className="mt-3">
+        <Pagination
+          position="bottom"
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={totalCount}
+          pageSize={20}
+          onPageChange={handlePageChange}
+          disabled={isLoading}
+        />
+      </div>
+        </>
       )}
     </div>
   );

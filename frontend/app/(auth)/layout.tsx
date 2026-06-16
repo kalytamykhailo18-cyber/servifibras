@@ -14,11 +14,19 @@ export default function AuthLayout({
   const router = useRouter();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  // Already-authenticated users landing on /login go straight to the inbox.
+  // Already-authenticated users landing on /login go straight to the
+  // inbox — but only if the access token is ALSO present. Without this
+  // guard, a stale zustand-persisted `isAuthenticated:true` (e.g. tokens
+  // were cleared by `bounceToLogin` but the persistence somehow lingered)
+  // would push the user to /conversations, which would in turn bounce
+  // them here for missing tokens — an infinite ping-pong.
   useEffect(() => {
-    if (isAuthenticated) {
-      router.push("/conversations");
+    if (!isAuthenticated) return;
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("servifibras_auth_token");
+      if (!token) return;
     }
+    router.push("/conversations");
   }, [isAuthenticated, router]);
 
   return (

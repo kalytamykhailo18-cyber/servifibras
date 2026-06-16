@@ -23,7 +23,7 @@ export function ConversationChart({ metrics }: ConversationChartProps) {
   ];
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+    <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
       <div className="mb-4">
         <h3 className="text-base font-semibold text-slate-900">Estado de Conversaciones</h3>
         <p className="text-xs text-slate-500">Distribución por estado</p>

@@ -24,13 +24,16 @@ import PeopleIcon from "@mui/icons-material/People";
 import PhoneIcon from "@mui/icons-material/Phone";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import type { Contact } from "@/types";
-import { CONTACT_TYPE_LABELS, CHANNEL_LABELS } from "@/types";
+import { CONTACT_TYPE_LABELS, CHANNEL_LABELS, UserRole } from "@/types";
+import { useAuthStore } from "@/lib/store/auth-store";
 
 interface ContactTableProps {
   contacts: Contact[];
   onEdit: (contact: Contact) => void;
   onDelete: (contact: Contact) => void;
 }
+
+const ADMIN_ONLY_DELETE_TOOLTIP = "Solo Administrador puede eliminar contactos";
 
 const AVATAR_GRADIENTS = [
   "from-blue-500 to-cyan-400",
@@ -69,6 +72,11 @@ const gradientFor = (name: string | null) =>
   AVATAR_GRADIENTS[(name?.charCodeAt(0) ?? 0) % AVATAR_GRADIENTS.length];
 
 export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) {
+  // Backend matrix: DELETE /admin/contacts/:id is ADMIN-only. Update +
+  // create are open to all four roles. Mirror that here so non-admins see
+  // Eliminar disabled with a tooltip rather than clicking and 403-ing.
+  const role = useAuthStore((s) => s.user?.role);
+  const canDelete = role === UserRole.ADMIN;
   const router = useRouter();
 
   if (contacts.length === 0) {
@@ -86,8 +94,8 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-      <Table>
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+      <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow className="border-b border-slate-200/70 bg-slate-50/50 hover:bg-slate-50/50">
             <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -138,13 +146,13 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
                   <div className="flex flex-col gap-1">
                     {contact.phone && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-slate-700">
-                        <PhoneIcon sx={{ fontSize: 14 }} className="text-slate-400" />
+                        <PhoneIcon sx={{ fontSize: 14 }} className="text-emerald-600" />
                         {contact.phone}
                       </span>
                     )}
                     {contact.email && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
-                        <EmailIcon sx={{ fontSize: 14 }} className="text-slate-400" />
+                        <EmailIcon sx={{ fontSize: 14 }} className="text-blue-600" />
                         <span className="truncate">{contact.email}</span>
                       </span>
                     )}
@@ -213,10 +221,22 @@ export function ContactTable({ contacts, onEdit, onDelete }: ContactTableProps) 
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
                       <DropdownMenuItem
-                        onClick={() => onDelete(contact)}
-                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-red-50 focus:text-red-700"
+                        onClick={canDelete ? () => onDelete(contact) : undefined}
+                        disabled={!canDelete}
+                        title={canDelete ? undefined : ADMIN_ONLY_DELETE_TOOLTIP}
+                        className={
+                          "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
+                          (canDelete
+                            ? "cursor-pointer text-slate-700 focus:bg-red-50 focus:text-red-700"
+                            : "cursor-not-allowed text-slate-400 opacity-60")
+                        }
                       >
-                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+                        <span className={
+                          "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
+                          (canDelete
+                            ? "bg-gradient-to-br from-red-500 to-rose-500"
+                            : "bg-slate-300")
+                        }>
                           <DeleteIcon sx={{ fontSize: 14 }} />
                         </span>
                         Eliminar

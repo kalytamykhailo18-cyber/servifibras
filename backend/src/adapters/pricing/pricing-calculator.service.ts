@@ -111,8 +111,11 @@ export class PricingCalculatorService implements IPricingCalculator {
     // Extract volume from product name (heuristic)
     const name = product.name.toLowerCase();
 
-    // Check if product is liquid (litros/liters)
-    const isLiquid = name.includes('litro') || name.includes('l ') || name.includes('lt');
+    // Check if product is liquid (litros/liters). Match a *number-followed-by-unit*
+    // boundary so we don't false-positive on names that just happen to contain
+    // the letter "l" (e.g. "industrial", "letra"). Patterns covered:
+    //   "5L", "5 L", "5L ", "5 litros", "5 lt", "200ltrs"
+    const isLiquid = /\b\d+\s*(l|lt|ltrs?|litros?)\b/i.test(name);
 
     if (!isLiquid) {
       // For non-liquid products, use quantity-based discounts

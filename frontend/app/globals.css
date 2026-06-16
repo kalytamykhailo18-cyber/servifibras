@@ -152,9 +152,14 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Prevent any page-level horizontal scrollbar on mobile. Inner scrollers
+       (tables, kanban columns, etc.) still scroll inside their own
+       `overflow-x-auto` containers; this only clips strays at the root. */
+    overflow-x: clip;
   }
   html {
     @apply font-sans;
+    overflow-x: clip;
   }
 }
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useRealtimeEvent } from "@/lib/realtime/use-realtime";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -12,9 +13,15 @@ import {
 } from "@/components/ui/select";
 import { OrderTable } from "@/components/orders/order-table";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
+import { PendingInvoicingList } from "@/components/orders/pending-invoicing-list";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
-import { ORDER_STATUS_LABELS } from "@/types";
+import { ORDER_STATUS_LABELS, UserRole } from "@/types";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+import { useClientPagination } from "@/lib/hooks/use-client-pagination";
+import { Pagination } from "@/components/ui/pagination";
+
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
 import AddIcon from "@mui/icons-material/Add";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -36,6 +43,7 @@ import {
 
 export default function OrdersPage() {
   const router = useRouter();
+  const { isAllowed } = useRoleGuard(ORDERS_ROLES);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +51,11 @@ export default function OrdersPage() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Marcos 2026-06-12: top-level view toggle on the page. "todos"
+  // keeps the regular order table; "pendientes-facturacion" swaps in
+  // the dedicated list.
+  const [view, setView] = useState<'todos' | 'pendientes-facturacion'>('todos');
+  const pg = useClientPagination(orders, { storageKey: "orders", defaultPageSize: 25 });
 
   const fetchOrders = async () => {
     try {
@@ -63,8 +76,17 @@ export default function OrdersPage() {
   };
 
   useEffect(() => {
-    fetchOrders();
-  }, [statusFilter]);
+    if (isAllowed) fetchOrders();
+  }, [statusFilter, isAllowed]);
+
+  // Silent refresh when a new wholesale order lands while the page is open.
+  // No toast here — RealtimeNotifications already surfaces it globally.
+  const onOrderCreated = useCallback(() => {
+    if (isAllowed) fetchOrders();
+  }, [isAllowed, statusFilter]);
+  useRealtimeEvent("order:created", onOrderCreated);
+
+  if (!isAllowed) return null;
 
   const handleEdit = (order: Order) => {
     setEditingOrder(order);
@@ -127,7 +149,7 @@ export default function OrdersPage() {
               <InventoryIcon sx={{ fontSize: 22 }} />
             </span>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">Pedidos</h1>
+              <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">Pedidos</h1>
               <p className="text-sm text-muted-foreground">
                 Gestiona los pedidos confirmados y su cumplimiento
               </p>
@@ -138,7 +160,7 @@ export default function OrdersPage() {
             onClick={fetchOrders}
             className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97]"
           >
-            <RefreshIcon sx={{ fontSize: 16 }} />
+            <RefreshIcon sx={{ fontSize: 16 }} className="text-blue-600" />
             Reintentar
           </button>
         </div>
@@ -154,14 +176,14 @@ export default function OrdersPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* PAGE HEADER */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(34_197_94/0.45)]">
-            <InventoryIcon sx={{ fontSize: 22 }} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(34_197_94/0.45)] sm:h-11 sm:w-11">
+            <InventoryIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
           </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Pedidos</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">Pedidos</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Gestiona los pedidos confirmados y su cumplimiento
             </p>
           </div>
@@ -171,40 +193,71 @@ export default function OrdersPage() {
           <button
             type="button"
             onClick={() => router.push("/orders/stats")}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97]"
+            aria-label="Estadísticas"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700 hover:shadow-[0_8px_20px_-6px_rgb(236_72_153/0.25)] active:translate-y-0 active:scale-[0.97] sm:px-4"
           >
-            <BarChartIcon sx={{ fontSize: 16 }} />
-            Estadísticas
+            <BarChartIcon sx={{ fontSize: 16 }} className="text-pink-600" />
+            <span className="hidden sm:inline">Estadísticas</span>
           </button>
 
           <button
             type="button"
             onClick={fetchOrders}
             disabled={isLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            aria-label="Actualizar"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
           >
             <RefreshIcon
               sx={{ fontSize: 16 }}
               className={isLoading ? "animate-spin" : ""}
             />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsFormOpen(true)}
-            className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(34_197_94/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(34_197_94/0.65)] active:translate-y-0 active:scale-[0.97]"
+            aria-label="Nuevo pedido"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-green-600 to-emerald-500 px-3 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(34_197_94/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(34_197_94/0.65)] active:translate-y-0 active:scale-[0.97] sm:px-5"
           >
             <AddIcon sx={{ fontSize: 18 }} />
-            Nuevo Pedido
+            <span className="hidden sm:inline">Nuevo Pedido</span>
+            <span className="sm:hidden">Nuevo</span>
           </button>
         </div>
       </div>
 
+      {/* VIEW TABS — Marcos 2026-06-12: Pendientes de facturación */}
+      <div className="flex flex-wrap items-center gap-1.5" data-testid="orders-view-tabs">
+        {([
+          { id: 'todos' as const,                    label: 'Todos los pedidos' },
+          { id: 'pendientes-facturacion' as const,   label: 'Pendientes de facturación' },
+        ]).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setView(t.id)}
+            data-testid={`orders-view-tab-${t.id}`}
+            aria-pressed={view === t.id}
+            className={
+              "inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-semibold transition-colors " +
+              (view === t.id
+                ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
+            }
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'pendientes-facturacion' ? (
+        <PendingInvoicingList />
+      ) : (<>
       {/* FILTERS */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600">
-          <FilterListIcon sx={{ fontSize: 16 }} className="text-slate-400" />
+          <FilterListIcon sx={{ fontSize: 16 }} className="text-blue-600" />
           Filtrar por estado:
         </div>
         <Select value={statusFilter} onValueChange={(value) => value && setStatusFilter(value)}>
@@ -227,7 +280,30 @@ export default function OrdersPage() {
         </span>
       </div>
 
-      <OrderTable orders={orders} onEdit={handleEdit} onDelete={handleDelete} />
+      <Pagination
+        position="top"
+        page={pg.page}
+        totalPages={pg.totalPages}
+        totalItems={pg.totalItems}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+
+      <OrderTable orders={pg.slice} onEdit={handleEdit} onDelete={handleDelete} />
+
+      <div className="mt-3">
+        <Pagination
+          position="bottom"
+          page={pg.page}
+          totalPages={pg.totalPages}
+          totalItems={pg.totalItems}
+          pageSize={pg.pageSize}
+          onPageChange={pg.setPage}
+          onPageSizeChange={pg.setPageSize}
+        />
+      </div>
+      </>)}
 
       <OrderFormDialog
         open={isFormOpen}

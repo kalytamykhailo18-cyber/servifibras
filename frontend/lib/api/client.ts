@@ -1,10 +1,29 @@
 // ============================================================================
 // SERVIFIBRAS API CLIENT
 // ============================================================================
-// Axios client with auth token management and error handling
+// Axios client with auth-token + refresh-token rotation.
+//
+// Flow on a 401 response:
+//   1. The response interceptor calls `/auth/refresh` with the stored
+//      refresh token.
+//   2. On success, the new access+refresh pair is stored and the original
+//      request is retried with the fresh access token.
+//   3. On failure (refresh missing/revoked/expired), tokens are cleared
+//      and the user is bounced to /login.
+//
+// Concurrent requests share a single in-flight refresh promise so a burst
+// of expired requests doesn't hammer `/auth/refresh`. The original request
+// is retried only once via the `_retry` flag — if a retried request 401s,
+// we give up to avoid an infinite loop.
+//
+// We ALSO refresh proactively, before the access token expires, so a 15-min
+// JWT_EXPIRES_IN never causes a visible 401 in the browser console even
+// when the user has been idle. The proactive timer is scheduled at
+// (exp - PROACTIVE_REFRESH_LEAD_MS) and re-scheduled after each successful
+// refresh. The 401-fallback path stays in place as a safety net.
 // ============================================================================
 
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosRequestConfig } from "axios";
 import type { ApiError } from "@/types";
 
 // ============================================================================
@@ -12,6 +31,12 @@ import type { ApiError } from "@/types";
 // ============================================================================
 
 const TOKEN_KEY = "servifibras_auth_token";
+const REFRESH_KEY = "servifibras_refresh_token";
+// zustand-persist key for the auth store. We reach in to clear it
+// alongside the tokens so a server-rejected session can't leave
+// `isAuthenticated: true` cached, which would trick the (auth) layout
+// into bouncing back to /conversations and create a redirect loop.
+const AUTH_STORE_KEY = "servifibras-auth";
 
 export const tokenManager = {
   get: (): string | null => {
@@ -28,7 +53,124 @@ export const tokenManager = {
     if (typeof window === "undefined") return;
     localStorage.removeItem(TOKEN_KEY);
   },
+
+  getRefresh: (): string | null => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(REFRESH_KEY);
+  },
+
+  setRefresh: (token: string): void => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(REFRESH_KEY, token);
+  },
+
+  removeRefresh: (): void => {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(REFRESH_KEY);
+  },
+
+  setPair: (accessToken: string, refreshToken: string): void => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(TOKEN_KEY, accessToken);
+    localStorage.setItem(REFRESH_KEY, refreshToken);
+    scheduleProactiveRefresh();
+  },
+
+  clearAll: (): void => {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    // Also wipe the zustand-persisted auth state so a stale
+    // `isAuthenticated: true` doesn't survive a token-clear and bounce
+    // the user back into the dashboard with no token.
+    localStorage.removeItem(AUTH_STORE_KEY);
+    cancelProactiveRefresh();
+  },
 };
+
+// ============================================================================
+// PROACTIVE TOKEN REFRESH
+// ============================================================================
+// JWT access tokens last 15 minutes (JWT_EXPIRES_IN=15m). If we wait for
+// them to actually expire, the next request will 401 — which the response
+// interceptor then catches and silently recovers from. The 401 still lands
+// in the browser console because the browser logs every failed XHR
+// regardless of what code does afterwards. The fix is to refresh BEFORE
+// expiry so the access token is always valid when used.
+//
+// Lead time: refresh 60s before the token expires. Long enough to absorb
+// clock skew + network latency, short enough that we don't refresh
+// unnecessarily often.
+
+const PROACTIVE_REFRESH_LEAD_MS = 60_000;
+let proactiveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Decode a JWT's `exp` claim (unix seconds). Returns null on any failure. */
+function decodeJwtExp(token: string): number | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // base64url → base64
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "===".slice((b64.length + 3) % 4);
+    const json = atob(padded);
+    const claims = JSON.parse(json);
+    return typeof claims.exp === "number" ? claims.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function cancelProactiveRefresh(): void {
+  if (proactiveTimer != null) {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = null;
+  }
+}
+
+/**
+ * Re-arm the proactive-refresh timer based on the current access token's
+ * `exp`. Idempotent — clears any existing timer first. No-op when the
+ * token is missing or undecodable; the response interceptor's 401 fallback
+ * still covers those cases.
+ */
+function scheduleProactiveRefresh(): void {
+  if (typeof window === "undefined") return;
+  cancelProactiveRefresh();
+
+  const token = tokenManager.get();
+  if (!token) return;
+  const exp = decodeJwtExp(token);
+  if (exp == null) return;
+
+  const msUntilRefresh = exp * 1000 - Date.now() - PROACTIVE_REFRESH_LEAD_MS;
+  if (msUntilRefresh <= 0) {
+    // Already in (or past) the lead window — refresh now.
+    void runProactiveRefresh();
+    return;
+  }
+
+  proactiveTimer = setTimeout(() => {
+    proactiveTimer = null;
+    void runProactiveRefresh();
+  }, msUntilRefresh);
+}
+
+async function runProactiveRefresh(): Promise<void> {
+  // Reuse the same in-flight promise the response interceptor uses, so a
+  // proactive refresh + a concurrent 401 don't both hit /auth/refresh.
+  if (!inflightRefresh) inflightRefresh = refreshAccessToken();
+  const newAccess = await inflightRefresh;
+  inflightRefresh = null;
+  if (newAccess) {
+    // setPair() already called scheduleProactiveRefresh() inside
+    // refreshAccessToken — so the next timer is armed automatically.
+    return;
+  }
+  // Refresh failed — token already cleared inside refreshAccessToken on
+  // failure, plus bounceToLogin runs from the response interceptor next
+  // time the user makes a real request. Nothing else to do here.
+}
 
 // ============================================================================
 // AXIOS INSTANCE
@@ -67,6 +209,53 @@ apiClient.interceptors.request.use(
 // RESPONSE INTERCEPTOR - Handle errors and 401 redirects
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// In-flight refresh promise — shared so concurrent 401s don't cause N
+// simultaneous /auth/refresh calls. The first 401 starts the refresh; every
+// subsequent 401 awaits the same promise.
+// ----------------------------------------------------------------------------
+let inflightRefresh: Promise<string | null> | null = null;
+
+// Path of the refresh endpoint — kept here so the interceptor can detect a
+// 401 originating from the refresh call itself and bail out instead of
+// looping.
+const REFRESH_PATH = "/auth/refresh";
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = tokenManager.getRefresh();
+  if (!refreshToken) return null;
+
+  // Use a bare axios.post so the request bypasses our own interceptors —
+  // a 401 from /auth/refresh must NOT recursively trigger another refresh.
+  try {
+    const res = await axios.post<{ accessToken?: string; refreshToken?: string; success?: boolean }>(
+      `${baseURL}${REFRESH_PATH}`,
+      { refreshToken },
+      { headers: { "Content-Type": "application/json" }, timeout: 30000 },
+    );
+    const data: any = res.data ?? {};
+    if (data?.success === false) return null;
+    const newAccess = data.accessToken;
+    const newRefresh = data.refreshToken;
+    if (!newAccess || !newRefresh) return null;
+    tokenManager.setPair(newAccess, newRefresh);
+    return newAccess;
+  } catch {
+    return null;
+  }
+}
+
+function bounceToLogin(reason?: 'idle_expired' | 'invalid'): void {
+  tokenManager.clearAll();
+  if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
+    // Pass the reason as a query param so the login page can render
+    // the right toast ("Sesión vencida por inactividad" vs the
+    // default). Marcos 2026-06-06, security gap #10.
+    const suffix = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    window.location.href = `/login${suffix}`;
+  }
+}
+
 apiClient.interceptors.response.use(
   (response) => {
     // Unwrap {success, data} wrapper ONLY if there are no other fields besides success and data
@@ -82,18 +271,42 @@ apiClient.interceptors.response.use(
     }
     return response;
   },
-  (error: AxiosError<ApiError>) => {
-    // Handle 401 Unauthorized - clear token and redirect to login
-    if (error.response?.status === 401) {
-      tokenManager.remove();
+  async (error: AxiosError<ApiError>) => {
+    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
 
-      // Only redirect if we're in the browser
-      if (typeof window !== "undefined") {
-        // Check if we're not already on the login page
-        if (!window.location.pathname.includes("/login")) {
-          window.location.href = "/login";
+    // Idle-session short-circuit (Bloque C — security gap #10).
+    // When the backend rejects with `code: idle_expired`, refreshing
+    // would be pointless — the next request would just trip the same
+    // idle check. Drop straight to login with the reason flag so the
+    // login page can show the right toast.
+    const errCode = (error.response?.data as any)?.code;
+    if (error.response?.status === 401 && errCode === 'idle_expired') {
+      bounceToLogin('idle_expired');
+    } else if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes(REFRESH_PATH)
+    ) {
+      // 401 → try silent refresh, retry original once. Skip for the
+      // refresh endpoint itself and for already-retried requests.
+      originalRequest._retry = true;
+      // Share a single refresh promise across concurrent 401s.
+      if (!inflightRefresh) inflightRefresh = refreshAccessToken();
+      const newAccessToken = await inflightRefresh;
+      inflightRefresh = null;
+
+      if (newAccessToken) {
+        if (originalRequest.headers) {
+          (originalRequest.headers as any).Authorization = `Bearer ${newAccessToken}`;
         }
+        return apiClient(originalRequest);
       }
+      // Refresh failed — wipe tokens and bounce to login.
+      bounceToLogin('invalid');
+    } else if (error.response?.status === 401) {
+      // Either we already retried, or the 401 came from /auth/refresh.
+      bounceToLogin('invalid');
     }
 
     // Handle network errors
@@ -132,22 +345,38 @@ export async function checkApiHealth(): Promise<boolean> {
 }
 
 /**
- * Set auth token for all future requests
+ * Set auth token for all future requests (legacy single-token path).
+ * Prefer `setAuthTokens` when both access + refresh are available.
  */
 export function setAuthToken(token: string): void {
   tokenManager.set(token);
 }
 
 /**
- * Clear auth token and logout
+ * Store both the short-lived access token and the long-lived refresh token.
+ * Call this on login + after every refresh.
  */
-export function clearAuthToken(): void {
-  tokenManager.remove();
+export function setAuthTokens(accessToken: string, refreshToken: string): void {
+  tokenManager.setPair(accessToken, refreshToken);
 }
 
 /**
- * Check if user is authenticated
+ * Clear access + refresh tokens (full logout — local state only).
+ */
+export function clearAuthToken(): void {
+  tokenManager.clearAll();
+}
+
+/**
+ * Check if user is authenticated (has an access token in local storage).
  */
 export function isAuthenticated(): boolean {
   return tokenManager.get() !== null;
+}
+
+// On module init in the browser, if a token is already in localStorage
+// (page reload, returning user), arm the proactive-refresh timer so we
+// never let it sit and expire silently.
+if (typeof window !== "undefined") {
+  scheduleProactiveRefresh();
 }

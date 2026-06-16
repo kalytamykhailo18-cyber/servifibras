@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ContactFormDialog } from "@/components/contacts/contact-form-dialog";
 import { ContactTable } from "@/components/contacts/contact-table";
+import { Pagination } from "@/components/ui/pagination";
 import { api } from "@/lib/api/endpoints";
 import type { Contact, ContactFormData, ContactFilters, GetContactsParams } from "@/types";
 import { ContactType, Channel, CONTACT_TYPE_LABELS, CHANNEL_LABELS } from "@/types";
@@ -216,14 +217,14 @@ export default function ContactsPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* PAGE HEADER */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(16_185_129/0.45)]">
-            <PeopleIcon sx={{ fontSize: 22 }} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-400 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(16_185_129/0.45)] sm:h-11 sm:w-11">
+            <PeopleIcon sx={{ fontSize: 20 }} className="sm:[font-size:22px]" />
           </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Contactos</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">Contactos</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">
               Gestiona la base de datos de clientes
             </p>
           </div>
@@ -234,30 +235,33 @@ export default function ContactsPage() {
             type="button"
             onClick={handleRefresh}
             disabled={isLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            aria-label="Actualizar"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
           >
             <RefreshIcon
               sx={{ fontSize: 16 }}
-              className={isLoading ? "animate-spin" : ""}
+              className={(isLoading ? "animate-spin " : "") + "text-blue-600"}
             />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
 
           <button
             type="button"
             onClick={handleCreateClick}
-            className="group inline-flex h-10 items-center gap-2 overflow-hidden rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(16_185_129/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(16_185_129/0.65)] active:translate-y-0 active:scale-[0.97]"
+            aria-label="Nuevo contacto"
+            className="group inline-flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 px-3 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(16_185_129/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(16_185_129/0.65)] active:translate-y-0 active:scale-[0.97] sm:px-5"
           >
             <AddIcon sx={{ fontSize: 18 }} />
-            Nuevo Contacto
+            <span className="hidden sm:inline">Nuevo Contacto</span>
+            <span className="sm:hidden">Nuevo</span>
           </button>
         </div>
       </div>
 
       {/* FILTERS */}
       <div className="flex flex-wrap items-center gap-2.5">
-        {/* Search — leading icon recolours on focus */}
-        <div className="group relative flex-1 min-w-[220px] max-w-sm">
+        {/* Search — full width on mobile, capped on sm+ */}
+        <div className="group relative w-full sm:flex-1 sm:min-w-[220px] sm:max-w-sm">
           <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors duration-200 group-focus-within:text-blue-600" />
           <Input
             placeholder="Buscar por nombre, teléfono o email..."
@@ -268,7 +272,7 @@ export default function ContactsPage() {
         </div>
 
         <Select value={String(filters.type || "ALL")} onValueChange={handleTypeChange}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[180px]">
             <SelectValue placeholder="Tipo" />
           </SelectTrigger>
           <SelectContent>
@@ -282,7 +286,7 @@ export default function ContactsPage() {
         </Select>
 
         <Select value={String(filters.channel || "ALL")} onValueChange={handleChannelChange}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[180px]">
             <SelectValue placeholder="Canal" />
           </SelectTrigger>
           <SelectContent>
@@ -295,8 +299,8 @@ export default function ContactsPage() {
           </SelectContent>
         </Select>
 
-        {/* Count chip — pinned right */}
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+        {/* Count chip — wraps to its own line on mobile, pins right on sm+ */}
+        <span className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:ml-auto sm:w-auto">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           <span className="font-semibold text-slate-900">{totalCount}</span>
           contactos
@@ -311,6 +315,17 @@ export default function ContactsPage() {
         </div>
       )}
 
+      {/* PAGINATION TOP */}
+      <Pagination
+        position="top"
+        page={currentPage}
+        totalPages={totalPages}
+        totalItems={totalCount}
+        pageSize={20}
+        onPageChange={handlePageChange}
+        disabled={isLoading}
+      />
+
       {/* CONTACTS TABLE */}
       <ContactTable
         contacts={contacts}
@@ -318,34 +333,18 @@ export default function ContactsPage() {
         onDelete={handleDeleteClick}
       />
 
-      {/* PAGINATION */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 pt-4">
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1 || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            ← Anterior
-          </button>
-
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
-            <span className="font-semibold text-slate-900">{currentPage}</span>
-            <span className="text-slate-400">/</span>
-            <span>{totalPages}</span>
-          </span>
-
-          <button
-            type="button"
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages || isLoading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-700"
-          >
-            Siguiente →
-          </button>
-        </div>
-      )}
+      {/* PAGINATION BOTTOM */}
+      <div className="mt-3">
+        <Pagination
+          position="bottom"
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={totalCount}
+          pageSize={20}
+          onPageChange={handlePageChange}
+          disabled={isLoading}
+        />
+      </div>
 
       {/* FORM DIALOG */}
       <ContactFormDialog

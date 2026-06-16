@@ -63,6 +63,23 @@ export class ExchangeRateService implements IExchangeRateService {
     }
   }
 
+  /**
+   * Snapshot of the in-memory cache for the health endpoint. Pure read —
+   * never triggers a fetch, never blocks. Returns null fields when the cache
+   * is empty (service has just started and no rate has been fetched yet).
+   */
+  getCacheInfo(): { rate: number | null; source: string | null; ageMs: number | null; cachedAt: string | null } {
+    if (!this.cachedRate) {
+      return { rate: null, source: null, ageMs: null, cachedAt: null };
+    }
+    return {
+      rate: this.cachedRate.rate,
+      source: this.cachedRate.source,
+      ageMs: Date.now() - this.cachedRate.timestamp.getTime(),
+      cachedAt: this.cachedRate.timestamp.toISOString(),
+    };
+  }
+
   async getBlueRateWithCache(maxAgeMinutes: number = 15): Promise<ExchangeRate> {
     // ✅ RULE 1: Cache duration from .env
     const cacheMinutes = parseInt(process.env.EXCHANGE_RATE_CACHE_MINUTES || '15');

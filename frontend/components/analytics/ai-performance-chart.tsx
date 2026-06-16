@@ -15,7 +15,7 @@ export function AIPerformanceChart({ metrics }: AIPerformanceChartProps) {
   const totalMessages = metrics.totalAIMessages + metrics.totalHumanMessages;
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+    <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
       {/* Header */}
       <div className="mb-5 flex items-center gap-3">
         <span className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_4px_10px_-2px_rgb(139_92_246/0.45)]">

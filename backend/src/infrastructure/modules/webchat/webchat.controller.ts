@@ -3,9 +3,12 @@
  */
 
 import { Controller, Get, Post, Body, Logger, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
+import { Channel } from '@prisma/client';
 import { WebchatService } from '../../../adapters/webchat/webchat.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
+import { ChannelGateService } from '../../../adapters/channel-gate/channel-gate.service';
 import {
   WebchatOutgoingMessage,
   WebchatMessageType,
@@ -18,14 +21,26 @@ export class WebchatController {
   constructor(
     private readonly webchatService: WebchatService,
     private readonly conversationHandler: ConversationHandlerService,
+    private readonly channelGate: ChannelGateService,
   ) {}
 
+  // Webhook bucket is more permissive than the global default — TiendaNube
+  // / Meta / ML can legitimately burst when reconnecting or during high
+  // traffic. Tunable via THROTTLE_WEBHOOK_LIMIT in .env.
+  @Throttle({ default: { ttl: 60_000, limit: Number(process.env.THROTTLE_WEBHOOK_LIMIT) || 200 } })
   @Post('webhook')
   async handleWebhook(@Body() body: any, @Res() res: Response) {
     try {
       this.logger.log(`Webhook received: ${JSON.stringify(body)}`);
 
+      // Always 200 so the platform doesn't retry-storm — but only do real
+      // work if the channel is enabled in admin config.
       res.status(200).send('OK');
+
+      if (!(await this.channelGate.isEnabled(Channel.TIENDANUBE_WEBCHAT))) {
+        this.logger.warn('Webchat channel disabled — dropping inbound');
+        return;
+      }
 
       const message = this.webchatService.parseIncomingMessage(body);
 

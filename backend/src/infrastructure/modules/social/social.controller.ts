@@ -16,9 +16,14 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+import { Channel } from '@prisma/client';
 import { SocialMediaService } from '../../../adapters/social/social-media.service';
+import { MetaAdsService } from '../../../adapters/social/meta-ads.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
+import { ChannelGateService } from '../../../adapters/channel-gate/channel-gate.service';
+import { SocialPlatform } from '../../../domain/entities/social-message.entity';
 
 @Controller('social')
 export class SocialController {
@@ -27,6 +32,8 @@ export class SocialController {
   constructor(
     private readonly socialService: SocialMediaService,
     private readonly conversationHandler: ConversationHandlerService,
+    private readonly channelGate: ChannelGateService,
+    private readonly metaAds: MetaAdsService,
   ) {}
 
   /**
@@ -56,6 +63,7 @@ export class SocialController {
    * Webhook receiver endpoint (POST)
    * Meta sends Facebook/Instagram messages here
    */
+  @Throttle({ default: { ttl: 60_000, limit: Number(process.env.THROTTLE_WEBHOOK_LIMIT) || 200 } })
   @Post('webhook')
   async receiveWebhook(
     @Req() req: Request,
@@ -66,13 +74,33 @@ export class SocialController {
     try {
       this.logger.debug('Social webhook received');
 
-      // Verify signature
+      // Signature enforcement (see WhatsAppController for the full rationale).
+      // When the app secret is configured, missing-header and forged-hash
+      // both get 403. Without a secret (dev/onboarding) we allow + warn.
+      const hasSecret = !!process.env.FACEBOOK_APP_SECRET;
       const rawBody = JSON.stringify(body);
-      const isValid = this.socialService.verifyWebhookSignature(signature, rawBody);
+      if (hasSecret) {
+        if (!signature) {
+          this.logger.warn('Missing x-hub-signature-256 header — rejecting');
+          return res.status(403).json({ error: 'Missing signature' });
+        }
+        if (!this.socialService.verifyWebhookSignature(signature, rawBody)) {
+          this.logger.warn('Invalid x-hub-signature-256 — rejecting');
+          return res.status(403).json({ error: 'Invalid signature' });
+        }
+      }
 
-      if (!isValid && signature) {
-        this.logger.warn('Invalid webhook signature');
-        return res.status(403).json({ error: 'Invalid signature' });
+      // Meta Ads — leadgen branch. The same webhook URL receives
+      // lead-form submissions (entry[].changes[].field='leadgen').
+      // Gated by META_ADS_LEADGEN_ENABLED inside the service so the
+      // call is a cheap no-op until Marcos's verification clears.
+      const leadgenEvents = this.metaAds.extractLeadgenEvents(body);
+      if (leadgenEvents.length > 0) {
+        res.status(200).json({ status: 'ok' });
+        this.metaAds.processWebhookBody(body).catch((err: any) => {
+          this.logger.error(`Meta Ads leadgen processing failed: ${err?.message}`);
+        });
+        return;
       }
 
       // Parse incoming message
@@ -86,6 +114,17 @@ export class SocialController {
       this.logger.log(
         `Message received from ${incomingMessage.platform}: ${incomingMessage.from}`,
       );
+
+      // Channel gate — checked AFTER parsing because FB and IG share one
+      // webhook and we only know which channel it is once parsed.
+      const channel =
+        incomingMessage.platform === SocialPlatform.FACEBOOK
+          ? Channel.FACEBOOK
+          : Channel.INSTAGRAM;
+      if (!(await this.channelGate.isEnabled(channel))) {
+        this.logger.warn(`${channel} channel disabled — dropping inbound`);
+        return res.status(200).json({ status: 'channel_disabled' });
+      }
 
       // Acknowledge to Meta immediately (must respond within 20 seconds)
       res.status(200).json({ status: 'ok' });

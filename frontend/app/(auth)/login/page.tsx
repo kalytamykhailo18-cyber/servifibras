@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -34,6 +36,36 @@ export default function LoginPage() {
   const { login, error: authError, clearError } = useAuthStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Hydration guard. Before React hydrates, the `<form>` has no JS
+  // submit handler attached — so a fast click would trigger the
+  // browser's default GET submission with credentials in the query
+  // string (the bug we kept seeing as a one-test-per-sweep flake).
+  // Render the submit button disabled until this flips, which (a)
+  // makes the default-submit path impossible to reach and (b) gives
+  // Playwright a natural "wait for enabled" anchor so tests don't
+  // need their own custom synchronisation.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  // Bounce reason (Bloque C — Marcos 2026-06-06, security gap #10).
+  // When the apiClient interceptor redirects here with
+  // ?reason=idle_expired we surface a toast instead of leaving the
+  // user to wonder why they got kicked. We read window.location
+  // directly inside a client-only effect — `useSearchParams` would
+  // need a Suspense boundary in Next 15 prerender, which is heavier
+  // than this one-shot read.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("reason");
+    if (reason === "idle_expired") {
+      toast.message("Sesión vencida por inactividad", {
+        description: "Iniciá sesión de nuevo para continuar.",
+      });
+    }
+  }, []);
 
   const {
     register,
@@ -75,26 +107,42 @@ export default function LoginPage() {
       </div>
 
       {/* Glass card */}
-      <div className="relative animate-fade-up rounded-3xl border border-white/60 bg-white/70 p-8 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.18),0_0_0_1px_rgb(255_255_255/0.6)_inset] backdrop-blur-2xl backdrop-saturate-150">
-        {/* Logo + title */}
+      <div className="relative animate-fade-up rounded-3xl border border-white/60 bg-white/70 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.18),0_0_0_1px_rgb(255_255_255/0.6)_inset] backdrop-blur-2xl backdrop-saturate-150 sm:p-8">
+        {/* Logo + title — official Servifibras mark */}
         <div className="mb-7 text-center">
           <div className="mb-5 inline-flex animate-fade-up [animation-delay:0.1s]">
             <span className="animate-float">
-              <span className="relative grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-400 animate-glow-pulse">
-                <span className="text-2xl font-bold tracking-tight text-white">S</span>
-                <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/40 to-transparent" />
-              </span>
+              <Image
+                src="/servifibras-mark.png"
+                alt="Servifibras"
+                width={72}
+                height={72}
+                priority
+                className="h-16 w-16 object-contain"
+              />
             </span>
           </div>
-          <h1 className="animate-fade-up text-3xl font-bold tracking-tight text-slate-900 [animation-delay:0.2s]">
-            Servifibras
+          <h1 className="animate-fade-up text-3xl font-bold tracking-[0.05em] text-slate-900 [animation-delay:0.2s]">
+            SERVIFIBRAS
           </h1>
           <p className="mt-1 animate-fade-up text-sm text-slate-500 [animation-delay:0.3s]">
             Panel de Administración
           </p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          // `action="#"` is a defence-in-depth fallback: even if a fast
+          // click somehow lands before the submit listener is wired,
+          // the default form action stays on the page instead of
+          // appending the credentials to the URL as query params.
+          action="#"
+          method="post"
+          noValidate
+          data-ready={hydrated ? "true" : "false"}
+          data-testid="login-form"
+          className="space-y-4"
+        >
           {/* Auth error banner */}
           {authError && (
             <div className="flex animate-fade-up items-start gap-2 rounded-xl border border-red-200/70 bg-red-50/80 px-3.5 py-3 text-sm text-red-700">
@@ -157,7 +205,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 tabIndex={-1}
-                className="absolute inset-y-0 right-3 flex items-center text-slate-400 transition-colors duration-200 hover:text-slate-700"
+                className="absolute right-1 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition-colors duration-200 hover:bg-slate-100 hover:text-slate-700"
                 aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
               >
                 {showPassword ? <VisibilityOffIcon sx={{ fontSize: 20 }} /> : <VisibilityIcon sx={{ fontSize: 20 }} />}
@@ -171,7 +219,11 @@ export default function LoginPage() {
           {/* Submit — gradient + continuous shimmer + lift + press */}
           <button
             type="submit"
-            disabled={isSubmitting}
+            // Disabled until React hydrates so the submit listener is
+            // guaranteed to be attached before the button accepts a
+            // click — closes the SSR-render-to-hydration race that
+            // produced the `/login?email=…&password=…` flake.
+            disabled={isSubmitting || !hydrated}
             className="group relative mt-2 flex h-12 w-full animate-fade-up items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-sm font-medium text-white shadow-[0_8px_24px_-6px_rgb(59_130_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] [animation-delay:0.6s] hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-8px_rgb(59_130_246/0.7)] active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0 disabled:hover:shadow-[0_8px_24px_-6px_rgb(59_130_246/0.5)]"
           >
             {!isSubmitting && (

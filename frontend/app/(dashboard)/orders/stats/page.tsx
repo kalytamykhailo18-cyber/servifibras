@@ -25,17 +25,22 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ORDER_STATUS_LABELS, type OrderFulfillmentStats } from "@/types";
+import { ORDER_STATUS_LABELS, UserRole, type OrderFulfillmentStats } from "@/types";
 import { formatNumber } from "@/lib/format";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
 
 const CHART_COLORS = ["#3b82f6", "#f59e0b", "#8b5cf6", "#10b981", "#ef4444"];
 
 export default function OrdersStatsPage() {
   const router = useRouter();
+  const { isAllowed } = useRoleGuard(ORDERS_ROLES);
   const [stats, setStats] = useState<OrderFulfillmentStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!isAllowed) return;
     const fetchStats = async () => {
       try {
         setIsLoading(true);
@@ -49,7 +54,9 @@ export default function OrdersStatsPage() {
     };
 
     fetchStats();
-  }, []);
+  }, [isAllowed]);
+
+  if (!isAllowed) return null;
 
   if (isLoading || !stats) {
     return (
@@ -59,12 +66,12 @@ export default function OrdersStatsPage() {
           <Skeleton className="h-8 w-72" />
           <Skeleton className="h-4 w-96" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-24 rounded-2xl" />
           ))}
@@ -109,7 +116,7 @@ export default function OrdersStatsPage() {
           <BarChartIcon sx={{ fontSize: 22 }} />
         </span>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">
             Estadísticas de Pedidos
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -119,7 +126,7 @@ export default function OrdersStatsPage() {
       </div>
 
       {/* SUMMARY METRICS */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
         <MetricsCard
           title="Total Pedidos"
           value={stats.totalOrders}
@@ -155,7 +162,7 @@ export default function OrdersStatsPage() {
       </div>
 
       {/* FULFILLMENT BREAKDOWN */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <BreakdownCard
           label="En Proceso"
           count={stats.processingOrders || 0}

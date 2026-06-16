@@ -15,8 +15,20 @@ import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { OrderTimeline } from "@/components/orders/order-timeline";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
-import { OrderStatus, ORDER_STATUS_LABELS } from "@/types";
+import { OrderStatus, ORDER_STATUS_LABELS, UserRole } from "@/types";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+import { useAuthStore } from "@/lib/store/auth-store";
+
+// Backend matrix for /admin/orders/:id:
+//   GET  → ADMIN + LOGISTICA + VENTAS  (VENTAS reads orders linked to its leads/quotes)
+//   PUT  /:id/status   → ADMIN + LOGISTICA
+//   PUT  /:id/tracking → ADMIN + LOGISTICA
+//   DELETE             → ADMIN only
+// So we open the route to VENTAS but disable status/tracking writes for them.
+const ORDERS_DETAIL_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS];
+const ORDERS_ROLES = ORDERS_DETAIL_ROLES;
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
 import EmailIcon from "@mui/icons-material/Email";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
@@ -33,16 +45,35 @@ const SECTION_LABEL = "mb-4 text-[11px] font-semibold uppercase tracking-wider t
 export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const { isAllowed } = useRoleGuard(ORDERS_ROLES);
+  const role = useAuthStore((s) => s.user?.role);
+  // VENTAS can read this page (they may have created the order from a quote)
+  // but cannot change status or tracking — those are LOGISTICA's
+  // responsibility per the backend matrix.
+  const canChangeStatus = role === UserRole.ADMIN || role === UserRole.LOGISTICA;
+  const canEditTracking = canChangeStatus;
   const orderId = params.id as string;
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState("");
 
-  const fetchOrder = async () => {
+  // Initial load — shows skeleton on first render of the page.
+  const loadOrder = async () => {
     try {
       setIsLoading(true);
       const data = await api.orders.getById(orderId);
+      // The backend returns HTTP 200 with `{ success:false, error:"Order
+      // not found" }` for missing rows (legacy contract — the rest of the
+      // codebase relies on it). The axios interceptor only auto-unwraps
+      // shapes with exactly `{success, data}`, so the error body lands in
+      // `data` as-is. Detect that and redirect instead of trying to render
+      // a non-Order object, which crashes on the first `.id.slice(...)`.
+      if (!data || !(data as any).id) {
+        toast.error((data as any)?.error || "Pedido no encontrado");
+        router.push("/orders");
+        return;
+      }
       setOrder(data);
       setTrackingNumber(data.trackingNumber || "");
       setCarrier(data.carrier || "");
@@ -54,17 +85,45 @@ export default function OrderDetailPage() {
     }
   };
 
+  // Silent refresh — used after mutations. No skeleton flash; the existing
+  // page stays mounted while we sync any server-derived fields the
+  // optimistic update may have missed (e.g. dispatchedAt, deliveredAt
+  // timestamps that the backend stamps on status transitions).
+  const refreshOrder = async () => {
+    try {
+      const data = await api.orders.getById(orderId);
+      // Same defensive guard as loadOrder — a server tick that returns
+      // success:false (e.g. order was deleted in another tab) shouldn't
+      // overwrite the in-memory order with a malformed object.
+      if (!data || !(data as any).id) return;
+      setOrder(data);
+      if (data.trackingNumber && !trackingNumber) setTrackingNumber(data.trackingNumber);
+      if (data.carrier && !carrier) setCarrier(data.carrier);
+    } catch (error: any) {
+      toast.error(error.message || "Error al recargar pedido");
+    }
+  };
+
   useEffect(() => {
-    fetchOrder();
-  }, [orderId]);
+    if (isAllowed) loadOrder();
+  }, [orderId, isAllowed]);
+
+  if (!isAllowed) return null;
 
   const handleStatusChange = async (status: OrderStatus) => {
     if (!order) return;
+    // Optimistic update so the status pill flips immediately. The silent
+    // refresh below reconciles any server-derived fields (dispatchedAt /
+    // deliveredAt timestamps the backend may stamp). On error we revert
+    // by re-reading from the server.
+    const previous = order;
+    setOrder({ ...order, status });
     try {
       await api.orders.updateStatus(order.id, { status });
       toast.success("Estado actualizado correctamente");
-      fetchOrder();
+      void refreshOrder();
     } catch (error: any) {
+      setOrder(previous);
       toast.error(error.message || "Error al actualizar estado");
     }
   };
@@ -74,11 +133,14 @@ export default function OrderDetailPage() {
       toast.error("Completa el número de tracking y transportista");
       return;
     }
+    const previous = order;
+    setOrder({ ...order, trackingNumber, carrier });
     try {
       await api.orders.updateTracking(order.id, { trackingNumber, carrier });
       toast.success("Información de tracking actualizada");
-      fetchOrder();
+      void refreshOrder();
     } catch (error: any) {
+      setOrder(previous);
       toast.error(error.message || "Error al actualizar tracking");
     }
   };
@@ -131,12 +193,22 @@ export default function OrderDetailPage() {
       {/* IDENTITY ROW */}
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
         <div className="min-w-0 flex-1">
-          <h1 className="font-mono text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-mono text-lg font-bold tracking-tight sm:text-2xl text-slate-900">
             #{order.orderNumber}
           </h1>
           <p className="text-sm text-slate-500">
             Creado el {safeFormatDate(order.createdAt, "PPP")}
           </p>
+          {order.conversationId && (
+            <a
+              href={`/conversations/${order.conversationId}`}
+              data-testid="order-conversation-backlink"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 ring-1 ring-inset ring-cyan-200 transition-colors hover:bg-cyan-100"
+            >
+              <ChatBubbleOutlineIcon sx={{ fontSize: 12 }} />
+              Ver conversación origen
+            </a>
+          )}
         </div>
         <OrderStatusBadge status={order.status} />
       </div>
@@ -243,13 +315,24 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Change Status */}
-          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-            <h3 className={SECTION_LABEL}>Cambiar Estado</h3>
+          <div
+            className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
+            title={canChangeStatus ? undefined : "Solo Administrador o Logística pueden cambiar el estado de un pedido"}
+          >
+            <h3 className={SECTION_LABEL}>
+              Cambiar Estado
+              {!canChangeStatus && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-500">
+                  Solo Logística
+                </span>
+              )}
+            </h3>
             <Select
               value={order.status}
-              onValueChange={(value) => handleStatusChange(value as OrderStatus)}
+              onValueChange={(value) => canChangeStatus && handleStatusChange(value as OrderStatus)}
+              disabled={!canChangeStatus}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" disabled={!canChangeStatus}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -263,13 +346,24 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Tracking */}
-          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+          <div
+            className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
+            title={canEditTracking ? undefined : "Solo Administrador o Logística pueden actualizar el envío"}
+          >
             <div className="mb-4 flex items-center gap-2">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 text-white">
+              <span className={
+                "grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white " +
+                (canEditTracking ? "bg-gradient-to-br from-violet-500 to-purple-500" : "bg-slate-300")
+              }>
                 <LocalShippingIcon sx={{ fontSize: 14 }} />
               </span>
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                 Información de Envío
+                {!canEditTracking && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-500">
+                    Solo Logística
+                  </span>
+                )}
               </h3>
             </div>
             <div className="space-y-3">
@@ -282,6 +376,8 @@ export default function OrderDetailPage() {
                   value={trackingNumber}
                   onChange={(e) => setTrackingNumber(e.target.value)}
                   placeholder="ABC123456789"
+                  disabled={!canEditTracking}
+                  readOnly={!canEditTracking}
                 />
               </div>
               <div>
@@ -293,13 +389,20 @@ export default function OrderDetailPage() {
                   value={carrier}
                   onChange={(e) => setCarrier(e.target.value)}
                   placeholder="DHL, FedEx, Correo Argentino..."
+                  disabled={!canEditTracking}
+                  readOnly={!canEditTracking}
                 />
               </div>
               <button
                 type="button"
-                onClick={handleTrackingUpdate}
-                disabled={!trackingNumber || !carrier}
-                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                onClick={canEditTracking ? handleTrackingUpdate : undefined}
+                disabled={!canEditTracking || !trackingNumber || !carrier}
+                className={
+                  "inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-medium text-white transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 " +
+                  (canEditTracking
+                    ? "bg-gradient-to-r from-violet-600 to-purple-500 shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)]"
+                    : "bg-slate-300")
+                }
               >
                 Actualizar Tracking
               </button>

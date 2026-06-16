@@ -5,6 +5,7 @@ export { OrderStatus };
 export interface OrderListFilter {
   status?: OrderStatus;
   contactId?: string;
+  conversationId?: string;
   orderNumber?: string;
   limit?: number;
   offset?: number;
@@ -13,6 +14,7 @@ export interface OrderListFilter {
 export interface OrderDetails {
   id: string;
   orderNumber: string;
+  conversationId: string | null;
   contact: {
     id: string;
     name: string | null;
@@ -35,10 +37,16 @@ export interface OrderDetails {
 
 export interface CreateOrderData {
   contactId: string;
+  conversationId?: string | null;
+  orderNumber?: string;
   amount: number;
   currency?: string;
   products: any;
   notes?: string;
+  // Marcos 2026-06-12: operator pre-selects which section of the
+  // daily logística panel should receive this row. One of
+  // MOTOS / MICROS / RETIRA_CASEROS / LAMINADOS_PRFV.
+  sectionOverride?: string | null;
 }
 
 export interface UpdateOrderData {

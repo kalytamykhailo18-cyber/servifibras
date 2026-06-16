@@ -3,7 +3,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Channel, ConversationStatus } from '@prisma/client';
+import { PrismaClient, Channel, ConversationStatus, UserRole } from '@prisma/client';
 import {
   IContactManagementService,
   ContactListFilter,
@@ -12,6 +12,37 @@ import {
   UpdateContactInput,
   ContactStatistics,
 } from '../../use-cases/admin/contact-management.interface';
+import { RequestScope } from '../../use-cases/admin/conversation-management.interface';
+import { getMessageCipher } from '../security/message-cipher';
+
+// Build the Prisma `where` clause for embedded conversations under a contact,
+// using the same scoping as the conversations list endpoint:
+//   ADMIN — no filter
+//   ATENCION — assigned to me OR unassigned
+//   VENTAS / LOGISTICA — assigned to me only
+function conversationScope(scope?: RequestScope) {
+  if (!scope || scope.role === UserRole.ADMIN) return {};
+  if (scope.role === UserRole.ATENCION) {
+    return { OR: [{ assignedTo: scope.userId }, { assignedTo: null }] };
+  }
+  return { assignedTo: scope.userId };
+}
+
+// Leads: ADMIN sees all; VENTAS sees own + unassigned; others can't see leads
+// at all (we return [] in the service rather than letting Prisma filter).
+function leadScope(scope?: RequestScope): { skip: boolean; where: any } {
+  if (!scope || scope.role === UserRole.ADMIN) return { skip: false, where: {} };
+  if (scope.role === UserRole.VENTAS) {
+    return { skip: false, where: { OR: [{ assignedTo: scope.userId }, { assignedTo: null }] } };
+  }
+  return { skip: true, where: {} };
+}
+
+// Orders: ADMIN/LOGISTICA see all; everyone else hidden.
+function ordersHidden(scope?: RequestScope): boolean {
+  if (!scope) return false;
+  return scope.role !== UserRole.ADMIN && scope.role !== UserRole.LOGISTICA;
+}
 
 @Injectable()
 export class ContactManagementService implements IContactManagementService {
@@ -28,10 +59,18 @@ export class ContactManagementService implements IContactManagementService {
     total: number;
   }> {
     try {
-      const where: any = {};
+      // Sandbox contacts (created by "Probar como cliente") are excluded
+      // from every operator-facing contact surface.
+      const where: any = { isSandbox: false };
 
       if (filter.channel) {
         where.channel = filter.channel;
+      }
+      if (filter.customerType) {
+        where.customerType = filter.customerType;
+      }
+      if (filter.funnelStage) {
+        where.funnelStage = filter.funnelStage;
       }
 
       if (filter.search) {
@@ -98,6 +137,8 @@ export class ContactManagementService implements IContactManagementService {
           phone: contact.phone,
           email: contact.email,
           type: contact.type,
+          customerType: contact.customerType ?? null,
+          funnelStage: contact.funnelStage ?? null,
           channel: contact.channel,
           metadata: (contact.metadata as Record<string, any>) || {},
           createdAt: contact.createdAt,
@@ -125,15 +166,33 @@ export class ContactManagementService implements IContactManagementService {
     }
   }
 
-  async getContactById(contactId: string): Promise<ContactDetails | null> {
+  async getContactById(contactId: string, scope?: RequestScope): Promise<ContactDetails | null> {
     try {
+      const lScope = leadScope(scope);
+      const hideOrders = ordersHidden(scope);
       const contact = await this.prisma.contact.findUnique({
         where: { id: contactId },
         include: {
           conversations: {
+            where: conversationScope(scope),
             orderBy: { updatedAt: 'desc' },
-            take: 1,
+            include: {
+              assigned: { select: { id: true, name: true } },
+              _count: { select: { messages: true } },
+            },
           },
+          leads: lScope.skip
+            ? false
+            : {
+                where: lScope.where,
+                orderBy: { createdAt: 'desc' },
+                include: { assigned: { select: { id: true, name: true } } },
+              },
+          orders: hideOrders
+            ? false
+            : {
+                orderBy: { createdAt: 'desc' },
+              },
           _count: {
             select: { conversations: true },
           },
@@ -151,7 +210,9 @@ export class ContactManagementService implements IContactManagementService {
         name: contact.name,
         phone: contact.phone,
         email: contact.email,
-          type: contact.type,
+        type: contact.type,
+        customerType: contact.customerType ?? null,
+        funnelStage: contact.funnelStage ?? null,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -166,6 +227,42 @@ export class ContactManagementService implements IContactManagementService {
               updatedAt: latestConversation.updatedAt,
             }
           : null,
+        conversations: (contact.conversations ?? []).map((c) => ({
+          id: c.id,
+          channel: c.channel,
+          status: c.status,
+          lastMessage: getMessageCipher().decrypt(c.lastMessage ?? ''),
+          lastMessageAt: c.lastMessageAt,
+          isUnread: c.isUnread,
+          messageCount: c._count.messages,
+          assigned: c.assigned ? { id: c.assigned.id, name: c.assigned.name } : null,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        })),
+        leads: lScope.skip
+          ? []
+          : ((contact as any).leads ?? []).map((l: any) => ({
+              id: l.id,
+              status: l.status,
+              source: l.source,
+              productInterest: l.productInterest,
+              estimatedValue: l.estimatedValue,
+              wonAmount: l.wonAmount,
+              assigned: l.assigned ? { id: l.assigned.id, name: l.assigned.name } : null,
+              createdAt: l.createdAt,
+              updatedAt: l.updatedAt,
+            })),
+        orders: hideOrders
+          ? []
+          : ((contact as any).orders ?? []).map((o: any) => ({
+              id: o.id,
+              orderNumber: o.orderNumber,
+              status: o.status,
+              amount: o.amount,
+              currency: o.currency,
+              createdAt: o.createdAt,
+              updatedAt: o.updatedAt,
+            })),
       };
     } catch (error: any) {
       this.logger.error(`Error getting contact: ${error.message}`);
@@ -199,6 +296,8 @@ export class ContactManagementService implements IContactManagementService {
         phone: contact.phone,
         email: contact.email,
           type: contact.type,
+        customerType: contact.customerType ?? null,
+        funnelStage: contact.funnelStage ?? null,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -224,6 +323,8 @@ export class ContactManagementService implements IContactManagementService {
       if (input.phone !== undefined) updateData.phone = input.phone;
       if (input.email !== undefined) updateData.email = input.email;
       if (input.metadata !== undefined) updateData.metadata = input.metadata;
+      if (input.customerType !== undefined) updateData.customerType = input.customerType;
+      if (input.funnelStage !== undefined) updateData.funnelStage = input.funnelStage;
 
       const contact = await this.prisma.contact.update({
         where: { id: contactId },
@@ -249,6 +350,8 @@ export class ContactManagementService implements IContactManagementService {
         phone: contact.phone,
         email: contact.email,
           type: contact.type,
+        customerType: contact.customerType ?? null,
+        funnelStage: contact.funnelStage ?? null,
         channel: contact.channel,
         metadata: (contact.metadata as Record<string, any>) || {},
         createdAt: contact.createdAt,
@@ -322,6 +425,7 @@ export class ContactManagementService implements IContactManagementService {
     try {
       const contacts = await this.prisma.contact.findMany({
         where: {
+          isSandbox: false,
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
             { phone: { contains: query, mode: 'insensitive' } },
@@ -350,6 +454,8 @@ export class ContactManagementService implements IContactManagementService {
           phone: contact.phone,
           email: contact.email,
           type: contact.type,
+          customerType: contact.customerType ?? null,
+          funnelStage: contact.funnelStage ?? null,
           channel: contact.channel,
           metadata: (contact.metadata as Record<string, any>) || {},
           createdAt: contact.createdAt,
@@ -381,15 +487,18 @@ export class ContactManagementService implements IContactManagementService {
 
       const [total, byChannel, withActiveConversations, createdToday, createdThisWeek, createdThisMonth] =
         await Promise.all([
-          this.prisma.contact.count(),
+          this.prisma.contact.count({ where: { isSandbox: false } }),
           this.prisma.contact.groupBy({
             by: ['channel'],
+            where: { isSandbox: false },
             _count: true,
           }),
           this.prisma.contact.count({
             where: {
+              isSandbox: false,
               conversations: {
                 some: {
+                  isSandbox: false,
                   status: {
                     in: [ConversationStatus.ACTIVE, ConversationStatus.WAITING],
                   },
@@ -398,25 +507,13 @@ export class ContactManagementService implements IContactManagementService {
             },
           }),
           this.prisma.contact.count({
-            where: {
-              createdAt: {
-                gte: startOfDay,
-              },
-            },
+            where: { isSandbox: false, createdAt: { gte: startOfDay } },
           }),
           this.prisma.contact.count({
-            where: {
-              createdAt: {
-                gte: startOfWeek,
-              },
-            },
+            where: { isSandbox: false, createdAt: { gte: startOfWeek } },
           }),
           this.prisma.contact.count({
-            where: {
-              createdAt: {
-                gte: startOfMonth,
-              },
-            },
+            where: { isSandbox: false, createdAt: { gte: startOfMonth } },
           }),
         ]);
 

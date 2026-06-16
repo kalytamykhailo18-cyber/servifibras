@@ -2,7 +2,15 @@
  * USE CASES LAYER - Conversation Management Interface
  */
 
-import { Channel, ConversationStatus } from '@prisma/client';
+import { Channel, ConversationStatus, ContentType } from '@prisma/client';
+import { UserRole } from '../../domain/entities/auth.entity';
+
+// Scope identifies the calling user; the service applies role-based row
+// filtering on top of any explicit filters.
+export interface RequestScope {
+  userId: string;
+  role: UserRole;
+}
 
 export interface ConversationListFilter {
   channel?: Channel;
@@ -11,6 +19,7 @@ export interface ConversationListFilter {
   assignedToUserId?: string;
   limit?: number;
   offset?: number;
+  scope?: RequestScope;
 }
 
 export interface ConversationDetails {
@@ -21,6 +30,7 @@ export interface ConversationDetails {
     phone: string | null;
     email: string | null;
     channel: Channel;
+    avatarUrl: string | null;
   };
   channel: Channel;
   status: ConversationStatus;
@@ -30,14 +40,29 @@ export interface ConversationDetails {
   } | null;
   lastMessage: string | null;
   messageCount: number;
+  needsHumanAttention: boolean;
+  escalatedAt: Date | null;
+  aiPaused: boolean;
+  aiPausedAt: Date | null;
+  aiPausedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
   messages: Array<{
     id: string;
     content: string;
     sender: string;
+    contentType: ContentType;
     isFromAI: boolean;
     timestamp: Date;
+    attachmentUrl: string | null;
+    attachmentName: string | null;
+    attachmentMime: string | null;
+    attachmentSize: number | null;
+    // Per-user attribution for staff replies. Null for CUSTOMER + AI
+    // messages (those identify themselves by `sender`). When present,
+    // the transcript shows the actual operator name instead of the
+    // generic role label.
+    author: { id: string; name: string } | null;
   }>;
 }
 
@@ -66,9 +91,40 @@ export interface IConversationManagementService {
   updateConversationStatus(conversationId: string, status: ConversationStatus): Promise<boolean>;
 
   /**
+   * Transfer a conversation to another user with an optional internal note.
+   * Atomic: assignment + note are persisted together. Note is staff-only.
+   * Returns the created note (if any) so the caller can wire notifications.
+   */
+  transferConversation(args: {
+    conversationId: string;
+    fromUserId: string;
+    toUserId: string;
+    note?: string;
+  }): Promise<{
+    success: boolean;
+    note: { id: string; content: string; createdAt: Date; authorId: string } | null;
+  }>;
+
+  /**
+   * List internal notes attached to a conversation.
+   */
+  listInternalNotes(conversationId: string): Promise<Array<{
+    id: string;
+    conversationId: string;
+    authorId: string;
+    authorName: string;
+    content: string;
+    createdAt: Date;
+  }>>;
+
+  /**
    * Send manual message in conversation (human takeover)
    */
-  sendManualMessage(conversationId: string, userId: string, content: string): Promise<boolean>;
+  sendManualMessage(
+    conversationId: string,
+    userId: string,
+    content: string,
+  ): Promise<ConversationDetails['messages'][number] | null>;
 
   /**
    * Get conversation statistics

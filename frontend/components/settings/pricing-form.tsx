@@ -229,7 +229,7 @@ export function PricingForm() {
               disabled={isLoading}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] disabled:opacity-60"
             >
-              <RefreshIcon sx={{ fontSize: 16 }} />
+              <RefreshIcon sx={{ fontSize: 16 }} className="text-blue-600" />
               Recargar
             </button>
           </div>

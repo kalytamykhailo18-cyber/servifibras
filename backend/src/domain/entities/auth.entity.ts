@@ -74,19 +74,33 @@ export class AuthToken {
   ) {}
 }
 
+/**
+ * Stable code that the frontend switches on to render the right Spanish
+ * message. Never leak details that help an attacker enumerate accounts —
+ * `invalid_credentials` covers both "email not found" AND "password wrong"
+ * with the same code and message.
+ */
+export type LoginFailureCode =
+  | 'invalid_credentials'   // wrong email or password (intentionally generic)
+  | 'account_deactivated'   // user exists but active=false
+  | 'account_locked'        // per-account lockout after N failed attempts (Bloque C — Marcos 2026-06-06)
+  | 'invalid_format'        // body validation failed pre-DB
+  | 'internal_error';       // unhandled exception in the login pipeline
+
 export class LoginResult {
   constructor(
     public readonly success: boolean,
     public readonly user: AuthUser | null,
     public readonly token: AuthToken | null,
     public readonly error: string | null,
+    public readonly code: LoginFailureCode | null = null,
   ) {}
 
   static success(user: AuthUser, token: AuthToken): LoginResult {
-    return new LoginResult(true, user, token, null);
+    return new LoginResult(true, user, token, null, null);
   }
 
-  static failure(error: string): LoginResult {
-    return new LoginResult(false, null, null, error);
+  static failure(error: string, code: LoginFailureCode = 'internal_error'): LoginResult {
+    return new LoginResult(false, null, null, error, code);
   }
 }

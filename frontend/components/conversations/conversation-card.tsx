@@ -4,6 +4,7 @@ import Link from "next/link";
 import { safeFormatDistanceToNow } from "@/lib/date";
 import PersonIcon from "@mui/icons-material/Person";
 import PhoneIcon from "@mui/icons-material/Phone";
+import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import type { ConversationWithRelations } from "@/types";
 import { CHANNEL_LABELS, CONVERSATION_STATUS_LABELS } from "@/types";
 
@@ -58,46 +59,76 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
     ? safeFormatDistanceToNow(conversation.lastMessageAt)
     : "Sin mensajes";
 
+  const needsHuman = !!conversation.needsHumanAttention;
+
   return (
     <Link
       href={`/conversations/${conversation.id}`}
-      className={`group relative flex gap-4 rounded-2xl border bg-white p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-8px_rgb(15_23_42/0.15)] ${
-        conversation.isUnread
+      className={`group relative flex min-w-0 gap-4 rounded-2xl border bg-white p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-8px_rgb(15_23_42/0.15)] ${
+        needsHuman
+          ? "border-rose-300/80 bg-gradient-to-br from-rose-50/60 to-white"
+          : conversation.isUnread
           ? "border-blue-300/80 bg-gradient-to-br from-blue-50/40 to-white"
           : "border-slate-200/70 hover:border-blue-200"
       }`}
     >
-      {/* Unread accent rail */}
-      {conversation.isUnread && (
+      {/* Accent rail — handoff (rose) takes priority over unread (blue) */}
+      {(needsHuman || conversation.isUnread) && (
         <span
           aria-hidden
-          className="pointer-events-none absolute left-0 top-1/2 h-12 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-blue-500 to-cyan-400"
+          className={`pointer-events-none absolute left-0 top-1/2 h-12 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b ${
+            needsHuman ? "from-rose-500 to-pink-400" : "from-blue-500 to-cyan-400"
+          }`}
         />
       )}
 
-      {/* Avatar */}
-      <span
-        className={`grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br ${gradient} text-sm font-semibold text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_4px_10px_-2px_rgb(15_23_42/0.18)]`}
-      >
-        {initials}
-      </span>
+      {/* Avatar — real photo when the platform exposes it (FB Messenger /
+          IG via Graph), deterministic initials gradient otherwise. */}
+      {conversation.contact.avatarUrl ? (
+        <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-200 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_4px_10px_-2px_rgb(15_23_42/0.18)]">
+          <img
+            src={conversation.contact.avatarUrl}
+            alt={name || "Contacto"}
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+          />
+        </span>
+      ) : (
+        <span
+          className={`grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br ${gradient} text-sm font-semibold text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_4px_10px_-2px_rgb(15_23_42/0.18)]`}
+        >
+          {initials}
+        </span>
+      )}
 
       {/* Body */}
       <div className="min-w-0 flex-1">
-        {/* Title row */}
-        <div className="mb-1 flex items-start justify-between gap-3">
+        {/* Title row — on mobile, time drops to a tiny line under the name
+            so we never overflow the narrow card width. */}
+        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-slate-900">
               {name || "Sin nombre"}
             </h3>
-            {conversation.isUnread && (
+            {(needsHuman || conversation.isUnread) && (
               <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inset-0 inline-flex animate-ping rounded-full bg-blue-500 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                <span
+                  className={`absolute inset-0 inline-flex animate-ping rounded-full opacity-75 ${
+                    needsHuman ? "bg-rose-500" : "bg-blue-500"
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    needsHuman ? "bg-rose-500" : "bg-blue-500"
+                  }`}
+                />
               </span>
             )}
           </div>
-          <span className="shrink-0 text-xs text-slate-500">{timeAgo}</span>
+          <span className="max-w-full truncate text-[11px] text-slate-500 sm:text-xs">{timeAgo}</span>
         </div>
 
         {/* Contact info */}
@@ -105,13 +136,13 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
             {conversation.contact.phone && (
               <span className="inline-flex items-center gap-1">
-                <PhoneIcon sx={{ fontSize: 12 }} />
+                <PhoneIcon sx={{ fontSize: 12 }} className="text-emerald-600" />
                 {conversation.contact.phone}
               </span>
             )}
             {conversation.assigned && (
               <span className="inline-flex items-center gap-1">
-                <PersonIcon sx={{ fontSize: 12 }} />
+                <PersonIcon sx={{ fontSize: 12 }} className="text-indigo-600" />
                 {conversation.assigned.name}
               </span>
             )}
@@ -127,6 +158,12 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
 
         {/* Badges */}
         <div className="flex flex-wrap gap-1.5">
+          {needsHuman && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700">
+              <SupportAgentIcon sx={{ fontSize: 12 }} />
+              Pendiente humano
+            </span>
+          )}
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${channelTint.pill}`}
           >

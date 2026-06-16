@@ -25,6 +25,7 @@ import type { KnowledgeBase, KnowledgeFormData } from "@/types";
 import { PRODUCT_CATEGORIES } from "@/types";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import EditIcon from "@mui/icons-material/Edit";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 
 const knowledgeSchema = z.object({
   category: z.string().min(1, "La categoría es requerida"),
@@ -40,6 +41,10 @@ interface KnowledgeFormDialogProps {
   knowledge?: KnowledgeBase | null;
   onSubmit: (data: KnowledgeFormData) => Promise<void>;
   isLoading?: boolean;
+  // Non-admin operators can read the KB (to look up product specs while
+  // replying to a customer) but never modify it — backend enforces this via
+  // RolesGuard. When readOnly, render every write affordance as locked.
+  readOnly?: boolean;
 }
 
 export function KnowledgeFormDialog({
@@ -48,8 +53,10 @@ export function KnowledgeFormDialog({
   knowledge,
   onSubmit,
   isLoading = false,
+  readOnly = false,
 }: KnowledgeFormDialogProps) {
   const isEdit = !!knowledge;
+  const locked = readOnly || isLoading;
 
   const {
     register,
@@ -101,18 +108,40 @@ export function KnowledgeFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150 sm:max-w-[600px]">
         <DialogHeader className="flex flex-row items-center gap-3 space-y-0">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)]">
-            {isEdit ? <EditIcon sx={{ fontSize: 22 }} /> : <MenuBookIcon sx={{ fontSize: 22 }} />}
+          <span className={
+            "grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25)] " +
+            (readOnly
+              ? "bg-gradient-to-br from-blue-500 to-cyan-400 shadow-[0_8px_20px_-6px_rgb(59_130_246/0.45)]"
+              : "bg-gradient-to-br from-violet-500 to-purple-500 shadow-[0_8px_20px_-6px_rgb(139_92_246/0.45)]")
+          }>
+            {readOnly ? <VisibilityIcon sx={{ fontSize: 22 }} /> : isEdit ? <EditIcon sx={{ fontSize: 22 }} /> : <MenuBookIcon sx={{ fontSize: 22 }} />}
           </span>
           <div className="min-w-0 flex-1">
-            <DialogTitle className="text-xl font-bold tracking-tight text-slate-900">
-              {isEdit ? "Editar Conocimiento" : "Nuevo Conocimiento"}
-            </DialogTitle>
-            <DialogDescription className="text-sm text-slate-500">
-              {isEdit
-                ? "Modifica la información del artículo de conocimiento"
-                : "Agrega nuevo contenido a la base de conocimiento"}
-            </DialogDescription>
+            {isEdit && knowledge ? (
+              <>
+                <div className={
+                  "text-[11px] font-semibold uppercase tracking-wider " +
+                  (readOnly ? "text-blue-600" : "text-violet-600")
+                }>
+                  {readOnly ? "Viendo" : "Editando"}
+                </div>
+                <DialogTitle className="truncate text-xl font-bold tracking-tight text-slate-900">
+                  {knowledge.title}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500">
+                  {knowledge.category}
+                </DialogDescription>
+              </>
+            ) : (
+              <>
+                <DialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+                  Nuevo Conocimiento
+                </DialogTitle>
+                <DialogDescription className="text-sm text-slate-500">
+                  Agrega nuevo contenido a la base de conocimiento
+                </DialogDescription>
+              </>
+            )}
           </div>
         </DialogHeader>
 
@@ -125,7 +154,7 @@ export function KnowledgeFormDialog({
             <Select
               value={selectedCategory}
               onValueChange={(value) => value && setValue("category", value)}
-              disabled={isLoading}
+              disabled={locked}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Selecciona la categoría" />
@@ -155,7 +184,7 @@ export function KnowledgeFormDialog({
               id="subcategory"
               placeholder="Ej: Poliéster, Epoxi, etc."
               {...register("subcategory")}
-              disabled={isLoading}
+              disabled={locked}
             />
           </div>
 
@@ -168,7 +197,7 @@ export function KnowledgeFormDialog({
               id="title"
               placeholder="Título descriptivo del artículo"
               {...register("title")}
-              disabled={isLoading}
+              disabled={locked}
             />
             {errors.title && (
               <p className="mt-1 text-xs text-red-600">{errors.title.message}</p>
@@ -185,7 +214,7 @@ export function KnowledgeFormDialog({
               placeholder="Escribe el contenido completo del artículo..."
               rows={8}
               {...register("content")}
-              disabled={isLoading}
+              disabled={locked}
               className="resize-none font-mono text-[13px] leading-relaxed"
             />
             {errors.content && (
@@ -202,7 +231,8 @@ export function KnowledgeFormDialog({
               isActive
                 ? "border-emerald-200/70 bg-emerald-50/50"
                 : "border-slate-200 bg-slate-50/50"
-            }`}
+            } ${readOnly ? "opacity-60" : ""}`}
+            title={readOnly ? "Solo Administrador puede modificar la base de conocimiento" : undefined}
           >
             <div className="min-w-0">
               <label htmlFor="active" className="block text-sm font-semibold text-slate-900">
@@ -217,8 +247,8 @@ export function KnowledgeFormDialog({
             <Switch
               id="active"
               checked={isActive}
-              onCheckedChange={(checked) => setValue("active", checked)}
-              disabled={isLoading}
+              onCheckedChange={(checked) => !readOnly && setValue("active", checked)}
+              disabled={locked}
             />
           </div>
 
@@ -230,24 +260,26 @@ export function KnowledgeFormDialog({
               disabled={isLoading}
               className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] disabled:opacity-60"
             >
-              Cancelar
+              {readOnly ? "Cerrar" : "Cancelar"}
             </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
-            >
-              {isLoading ? (
-                <>
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Guardando...
-                </>
-              ) : isEdit ? (
-                "Actualizar"
-              ) : (
-                "Crear"
-              )}
-            </button>
+            {!readOnly && (
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Guardando...
+                  </>
+                ) : isEdit ? (
+                  "Actualizar"
+                ) : (
+                  "Crear"
+                )}
+              </button>
+            )}
           </div>
         </form>
       </DialogContent>

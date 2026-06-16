@@ -12,6 +12,7 @@ import {
   Body,
   Param,
   Query,
+  Request,
   UseGuards,
   Logger,
 } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { Channel, ContactType } from '@prisma/client';
+import { AuditLogService } from '../../../adapters/audit/audit-log.service';
 
 @Controller('admin/contacts')
 @UseGuards(AuthGuard, RolesGuard)
@@ -28,7 +30,15 @@ export class ContactsController {
 
   constructor(
     private readonly contactManagement: ContactManagementService,
+    private readonly audit: AuditLogService,
   ) {}
+
+  /** Helper — pull ip + UA off the request for audit-log entries. */
+  private auditCtx(req: any): { ip: string | null; userAgent: string | null } {
+    const ip = (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req?.ip || null;
+    const userAgent = (req?.headers?.['user-agent'] as string) || null;
+    return { ip, userAgent };
+  }
 
   /**
    * Get contact statistics
@@ -84,6 +94,8 @@ export class ContactsController {
     @Query('channel') channel?: Channel,
     @Query('search') search?: string,
     @Query('hasActiveConversation') hasActiveConversation?: string,
+    @Query('customerType') customerType?: string,
+    @Query('funnelStage') funnelStage?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -94,6 +106,8 @@ export class ContactsController {
         hasActiveConversation !== undefined
           ? hasActiveConversation === 'true'
           : undefined,
+      customerType: customerType as any,
+      funnelStage: funnelStage as any,
       limit: limit ? parseInt(limit) : 50,
       offset: offset ? parseInt(offset) : 0,
     });
@@ -113,8 +127,11 @@ export class ContactsController {
    */
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
-  async getContact(@Param('id') id: string) {
-    const contact = await this.contactManagement.getContactById(id);
+  async getContact(@Param('id') id: string, @Request() req: any) {
+    const contact = await this.contactManagement.getContactById(id, {
+      userId: req.user.id,
+      role: req.user.role,
+    });
 
     if (!contact) {
       return {
@@ -134,7 +151,7 @@ export class ContactsController {
    * POST /admin/contacts
    */
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
   async createContact(
     @Body()
     body: {
@@ -175,7 +192,7 @@ export class ContactsController {
    * PUT /admin/contacts/:id
    */
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
   async updateContact(
     @Param('id') id: string,
     @Body()
@@ -184,9 +201,12 @@ export class ContactsController {
       phone?: string;
       email?: string;
       metadata?: Record<string, any>;
+      // 2D classification — admin override of the auto-detected values.
+      customerType?: string;
+      funnelStage?: string;
     },
   ) {
-    const contact = await this.contactManagement.updateContact(id, body);
+    const contact = await this.contactManagement.updateContact(id, body as any);
 
     if (contact) {
       this.logger.log(`Contact updated: ${id} by admin`);
@@ -202,11 +222,20 @@ export class ContactsController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async deleteContact(@Param('id') id: string) {
+  async deleteContact(@Param('id') id: string, @Request() req: any) {
     const success = await this.contactManagement.deleteContact(id);
 
     if (success) {
       this.logger.log(`Contact deleted: ${id} by admin`);
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'contact.delete',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { contactId: id },
+      });
       return { success: true, message: 'Contact deleted' };
     } else {
       return {
@@ -225,6 +254,7 @@ export class ContactsController {
   async mergeContacts(
     @Param('id') primaryId: string,
     @Body() body: { duplicateId: string },
+    @Request() req: any,
   ) {
     if (!body.duplicateId) {
       return {
@@ -242,6 +272,15 @@ export class ContactsController {
       this.logger.log(
         `Contacts merged: ${body.duplicateId} → ${primaryId} by admin`,
       );
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'contact.merge',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { primaryId, duplicateId: body.duplicateId },
+      });
       return { success: true, message: 'Contacts merged successfully' };
     } else {
       return { success: false, error: 'Failed to merge contacts' };

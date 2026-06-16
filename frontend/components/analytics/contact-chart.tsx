@@ -17,20 +17,23 @@ export function ContactChart({ metrics }: ContactChartProps) {
   }));
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+    <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
       <div className="mb-4">
         <h3 className="text-base font-semibold text-slate-900">Contactos por Canal</h3>
         <p className="text-xs text-slate-500">Distribución de contactos entre canales</p>
       </div>
       <ResponsiveContainer width="100%" height={300}>
-        <PieChart>
+        <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <Pie
             data={channelData}
             cx="50%"
-            cy="50%"
+            cy="45%"
             labelLine={false}
-            label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-            outerRadius={90}
+            // In-slice percent label only — outer labels were overflowing the
+            // chart bounds on narrow viewports. Channel names live in the
+            // legend below.
+            label={({ percent }) => `${((percent || 0) * 100).toFixed(0)}%`}
+            outerRadius="70%"
             dataKey="value"
           >
             {channelData.map((entry, index) => (
@@ -44,7 +47,7 @@ export function ContactChart({ metrics }: ContactChartProps) {
               boxShadow: "0 12px 28px -8px rgb(15 23 42 / 0.18)",
             }}
           />
-          <Legend />
+          <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11 }} />
         </PieChart>
       </ResponsiveContainer>
     </div>

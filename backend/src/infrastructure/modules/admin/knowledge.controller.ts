@@ -12,6 +12,7 @@ import {
   Body,
   Param,
   Query,
+  Request,
   UseGuards,
   Logger,
 } from '@nestjs/common';
@@ -19,6 +20,8 @@ import { KnowledgeManagementService } from '../../../adapters/admin/knowledge-ma
 import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
+import { AuditLogService } from '../../../adapters/audit/audit-log.service';
+import { ClaudeService } from '../../../adapters/ai/claude.service';
 
 @Controller('admin/knowledge')
 @UseGuards(AuthGuard, RolesGuard)
@@ -27,7 +30,16 @@ export class KnowledgeController {
 
   constructor(
     private readonly knowledgeManagement: KnowledgeManagementService,
+    private readonly audit: AuditLogService,
+    private readonly claude: ClaudeService,
   ) {}
+
+  /** Helper — pull ip + UA off the request for audit-log entries. */
+  private auditCtx(req: any): { ip: string | null; userAgent: string | null } {
+    const ip = (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req?.ip || null;
+    const userAgent = (req?.headers?.['user-agent'] as string) || null;
+    return { ip, userAgent };
+  }
 
   /**
    * Get knowledge base statistics
@@ -164,7 +176,7 @@ export class KnowledgeController {
    * POST /admin/knowledge
    */
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN)
   async createKnowledge(
     @Body()
     body: {
@@ -175,6 +187,7 @@ export class KnowledgeController {
       active?: boolean;
       metadata?: Record<string, any>;
     },
+    @Request() req: any,
   ) {
     if (!body.category || !body.title || !body.content) {
       return {
@@ -194,6 +207,19 @@ export class KnowledgeController {
 
     if (item) {
       this.logger.log(`Knowledge item created: ${item.id} by admin`);
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'knowledge.create',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { knowledgeId: item.id, category: body.category, title: body.title },
+      });
+      // Refresh Claude's in-memory KB so the next agent reply sees this entry
+      // without a backend restart. Fire-and-forget — never block the admin
+      // response on an AI cache reload.
+      void this.claude.reloadKnowledgeBase();
       return { success: true, data: item };
     } else {
       return { success: false, error: 'Failed to create knowledge item' };
@@ -205,7 +231,7 @@ export class KnowledgeController {
    * PUT /admin/knowledge/:id
    */
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN)
   async updateKnowledge(
     @Param('id') id: string,
     @Body()
@@ -217,11 +243,22 @@ export class KnowledgeController {
       active?: boolean;
       metadata?: Record<string, any>;
     },
+    @Request() req: any,
   ) {
     const item = await this.knowledgeManagement.updateKnowledge(id, body);
 
     if (item) {
       this.logger.log(`Knowledge item updated: ${id} by admin`);
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'knowledge.update',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { knowledgeId: id, fields: Object.keys(body) },
+      });
+      void this.claude.reloadKnowledgeBase();
       return { success: true, data: item };
     } else {
       return { success: false, error: 'Failed to update knowledge item' };
@@ -233,12 +270,22 @@ export class KnowledgeController {
    * POST /admin/knowledge/:id/toggle
    */
   @Post(':id/toggle')
-  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
-  async toggleActive(@Param('id') id: string) {
+  @Roles(UserRole.ADMIN)
+  async toggleActive(@Param('id') id: string, @Request() req: any) {
     const success = await this.knowledgeManagement.toggleActive(id);
 
     if (success) {
       this.logger.log(`Knowledge item toggled: ${id} by admin`);
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'knowledge.toggle',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { knowledgeId: id },
+      });
+      void this.claude.reloadKnowledgeBase();
       return { success: true, message: 'Active status toggled' };
     } else {
       return { success: false, error: 'Failed to toggle active status' };
@@ -251,11 +298,21 @@ export class KnowledgeController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async deleteKnowledge(@Param('id') id: string) {
+  async deleteKnowledge(@Param('id') id: string, @Request() req: any) {
     const success = await this.knowledgeManagement.deleteKnowledge(id);
 
     if (success) {
       this.logger.log(`Knowledge item deleted: ${id} by admin`);
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'knowledge.delete',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { knowledgeId: id },
+      });
+      void this.claude.reloadKnowledgeBase();
       return { success: true, message: 'Knowledge item deleted' };
     } else {
       return {

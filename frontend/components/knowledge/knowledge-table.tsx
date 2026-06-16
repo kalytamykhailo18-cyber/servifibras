@@ -21,6 +21,8 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import { useAuthStore } from "@/lib/store/auth-store";
+import { UserRole } from "@/types";
 import type { KnowledgeBase } from "@/types";
 
 interface KnowledgeTableProps {
@@ -29,6 +31,8 @@ interface KnowledgeTableProps {
   onDelete: (item: KnowledgeBase) => void;
   onToggleActive: (item: KnowledgeBase, active: boolean) => void;
 }
+
+const ADMIN_ONLY_TOOLTIP = "Solo Administrador puede modificar la base de conocimiento";
 
 const CATEGORY_TINT: Record<string, { dot: string; pill: string }> = {
   "Resinas":         { dot: "bg-blue-500",    pill: "bg-blue-50 text-blue-700 border-blue-200/70" },
@@ -47,6 +51,14 @@ export function KnowledgeTable({
   onDelete,
   onToggleActive,
 }: KnowledgeTableProps) {
+  // Reads on /knowledge are open to every role so the operator can look up
+  // articles while replying to a customer. Writes are ADMIN-only on the
+  // backend (the server enforces it via RolesGuard, returning 403 for
+  // anyone else). Mirror that here: render the write affordances as
+  // disabled for non-admins instead of letting them click and silently
+  // 403 — the server's response is authoritative, this is just UX.
+  const role = useAuthStore((s) => s.user?.role);
+  const canWrite = role === UserRole.ADMIN;
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
@@ -62,8 +74,8 @@ export function KnowledgeTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-      <Table>
+    <div className="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+      <Table className="min-w-[720px]">
         <TableHeader>
           <TableRow className="border-b border-slate-200/70 bg-slate-50/50 hover:bg-slate-50/50">
             <TableHead className="h-11 px-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -116,10 +128,14 @@ export function KnowledgeTable({
                 </TableCell>
 
                 <TableCell className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex items-center gap-2.5"
+                    title={canWrite ? undefined : ADMIN_ONLY_TOOLTIP}
+                  >
                     <Switch
                       checked={item.active}
-                      onCheckedChange={(checked) => onToggleActive(item, checked)}
+                      onCheckedChange={(checked) => canWrite && onToggleActive(item, checked)}
+                      disabled={!canWrite}
                     />
                     <span
                       className={`text-xs font-medium ${
@@ -158,20 +174,44 @@ export function KnowledgeTable({
                         Ver completo
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => onEdit(item)}
-                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-amber-50 focus:text-amber-700"
+                        onClick={canWrite ? () => onEdit(item) : undefined}
+                        disabled={!canWrite}
+                        title={canWrite ? undefined : ADMIN_ONLY_TOOLTIP}
+                        className={
+                          "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
+                          (canWrite
+                            ? "cursor-pointer text-slate-700 focus:bg-amber-50 focus:text-amber-700"
+                            : "cursor-not-allowed text-slate-400 opacity-60")
+                        }
                       >
-                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-amber-500 to-orange-400 text-white">
+                        <span className={
+                          "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
+                          (canWrite
+                            ? "bg-gradient-to-br from-amber-500 to-orange-400"
+                            : "bg-slate-300")
+                        }>
                           <EditIcon sx={{ fontSize: 14 }} />
                         </span>
                         Editar
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
                       <DropdownMenuItem
-                        onClick={() => onDelete(item)}
-                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 transition-colors duration-150 focus:bg-red-50 focus:text-red-700"
+                        onClick={canWrite ? () => onDelete(item) : undefined}
+                        disabled={!canWrite}
+                        title={canWrite ? undefined : ADMIN_ONLY_TOOLTIP}
+                        className={
+                          "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
+                          (canWrite
+                            ? "cursor-pointer text-slate-700 focus:bg-red-50 focus:text-red-700"
+                            : "cursor-not-allowed text-slate-400 opacity-60")
+                        }
                       >
-                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+                        <span className={
+                          "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
+                          (canWrite
+                            ? "bg-gradient-to-br from-red-500 to-rose-500"
+                            : "bg-slate-300")
+                        }>
                           <DeleteIcon sx={{ fontSize: 14 }} />
                         </span>
                         Eliminar

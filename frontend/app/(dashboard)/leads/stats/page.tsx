@@ -25,7 +25,10 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { CHANNEL_LABELS, LEAD_STATUS_LABELS, type LeadPipelineStats } from "@/types";
+import { CHANNEL_LABELS, LEAD_STATUS_LABELS, UserRole, type LeadPipelineStats } from "@/types";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+
+const LEADS_ROLES = [UserRole.ADMIN, UserRole.VENTAS];
 
 const CHART_COLORS = ["#3b82f6", "#8b5cf6", "#f59e0b", "#f97316", "#10b981", "#94a3b8"];
 
@@ -33,10 +36,12 @@ const SECTION_LABEL = "mb-4 text-[11px] font-semibold uppercase tracking-wider t
 
 export default function LeadsStatsPage() {
   const router = useRouter();
+  const { isAllowed } = useRoleGuard(LEADS_ROLES);
   const [stats, setStats] = useState<LeadPipelineStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!isAllowed) return;
     const fetchStats = async () => {
       try {
         setIsLoading(true);
@@ -50,7 +55,9 @@ export default function LeadsStatsPage() {
     };
 
     fetchStats();
-  }, []);
+  }, [isAllowed]);
+
+  if (!isAllowed) return null;
 
   if (isLoading || !stats) {
     return (
@@ -60,12 +67,12 @@ export default function LeadsStatsPage() {
           <Skeleton className="h-8 w-72" />
           <Skeleton className="h-4 w-96" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-28 rounded-2xl" />
           ))}
@@ -106,7 +113,7 @@ export default function LeadsStatsPage() {
           <TrendingUpIcon sx={{ fontSize: 22 }} />
         </span>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-xl font-bold tracking-tight sm:text-3xl text-slate-900">
             Estadísticas del Pipeline
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -116,7 +123,7 @@ export default function LeadsStatsPage() {
       </div>
 
       {/* SUMMARY METRICS */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
         <MetricsCard
           title="Total Oportunidades"
           value={stats.totalLeads}
@@ -152,7 +159,7 @@ export default function LeadsStatsPage() {
       </div>
 
       {/* VALUE BREAKDOWN */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
         <ValueCard
           label="Valor Total Estimado"
           amount={stats.totalEstimatedValue}

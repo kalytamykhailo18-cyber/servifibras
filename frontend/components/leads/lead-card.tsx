@@ -9,7 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CHANNEL_LABELS, type Lead } from "@/types";
+import { CHANNEL_LABELS, UserRole, type Lead } from "@/types";
+import { useAuthStore } from "@/lib/store/auth-store";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -18,6 +19,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import PersonIcon from "@mui/icons-material/Person";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import ForumIcon from "@mui/icons-material/Forum";
 import { safeFormatDistanceToNow } from "@/lib/date";
 import { formatNumber } from "@/lib/format";
 
@@ -38,6 +40,12 @@ const CHANNEL_TINT: Record<string, { dot: string; pill: string }> = {
 const fallback = { dot: "bg-slate-400", pill: "bg-slate-50 text-slate-600 border-slate-200" };
 
 export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
+  // Backend matrix: DELETE /admin/leads/:id is ADMIN-only. VENTAS can do
+  // every other lead operation but not delete. Mirror that here so a
+  // VENTAS user sees the affordance disabled rather than getting a silent
+  // 403 when they click.
+  const role = useAuthStore((s) => s.user?.role);
+  const canDelete = role === UserRole.ADMIN;
   const {
     attributes,
     listeners,
@@ -104,6 +112,21 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
               </span>
               Ver detalles
             </DropdownMenuItem>
+            {lead.sourceConversationId && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.location.assign(`/conversations/${lead.sourceConversationId}`);
+                }}
+                className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-cyan-50 focus:text-cyan-700"
+              >
+                <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-cyan-500 to-blue-400 text-white">
+                  <ForumIcon sx={{ fontSize: 14 }} />
+                </span>
+                Ir a la conversación
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => onEdit(lead)}
               className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-amber-50 focus:text-amber-700"
@@ -115,10 +138,20 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
             <DropdownMenuItem
-              onClick={() => onDelete(lead)}
-              className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-red-50 focus:text-red-700"
+              onClick={canDelete ? () => onDelete(lead) : undefined}
+              disabled={!canDelete}
+              title={canDelete ? undefined : "Solo Administrador puede eliminar oportunidades"}
+              className={
+                "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
+                (canDelete
+                  ? "cursor-pointer text-slate-700 focus:bg-red-50 focus:text-red-700"
+                  : "cursor-not-allowed text-slate-400 opacity-60")
+              }
             >
-              <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+              <span className={
+                "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
+                (canDelete ? "bg-gradient-to-br from-red-500 to-rose-500" : "bg-slate-300")
+              }>
                 <DeleteIcon sx={{ fontSize: 14 }} />
               </span>
               Eliminar
@@ -131,7 +164,7 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
       <div className="space-y-1.5">
         {lead.productInterest && (
           <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-            <InventoryIcon sx={{ fontSize: 12 }} className="text-slate-400" />
+            <InventoryIcon sx={{ fontSize: 12 }} className="text-amber-600" />
             <span className="line-clamp-1">{lead.productInterest}</span>
           </div>
         )}
@@ -145,13 +178,13 @@ export function LeadCard({ lead, onView, onEdit, onDelete }: LeadCardProps) {
 
         {lead.assignedTo && (
           <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-            <PersonIcon sx={{ fontSize: 12 }} className="text-slate-400" />
+            <PersonIcon sx={{ fontSize: 12 }} className="text-indigo-600" />
             <span>{lead.assigned?.name || "Asignado"}</span>
           </div>
         )}
 
         <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-          <CalendarTodayIcon sx={{ fontSize: 12 }} className="text-slate-400" />
+          <CalendarTodayIcon sx={{ fontSize: 12 }} className="text-violet-600" />
           <span>{safeFormatDistanceToNow(lead.createdAt)}</span>
         </div>
 

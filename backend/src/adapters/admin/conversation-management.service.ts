@@ -3,19 +3,45 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prisma/client';
+import { PrismaClient, Channel, ConversationStatus, ContentType, MessageSender } from '@prisma/client';
 import {
   IConversationManagementService,
   ConversationListFilter,
   ConversationDetails,
 } from '../../use-cases/admin/conversation-management.interface';
+import { UserRole } from '../../domain/entities/auth.entity';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { UploadStorageService } from '../uploads/upload-storage.service';
+import { FileShareService } from '../files/file-share.service';
+import { WebchatService } from '../webchat/webchat.service';
+import { SocialMediaService } from '../social/social-media.service';
+import { WebchatOutgoingMessage, WebchatMessageType } from '../../domain/entities/webchat-message.entity';
+import {
+  SocialOutgoingMessage,
+  SocialPlatform,
+  SocialMessageType,
+} from '../../domain/entities/social-message.entity';
+import { getMessageCipher } from '../security/message-cipher';
+
+/** Read a non-negative integer from .env with a fallback. */
+function num(envKey: string, fallback: number): number {
+  const v = process.env[envKey];
+  const n = v != null ? Number(v) : fallback;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
 
 @Injectable()
 export class ConversationManagementService implements IConversationManagementService {
   private readonly logger = new Logger(ConversationManagementService.name);
   private readonly prisma: PrismaClient;
 
-  constructor() {
+  constructor(
+    private readonly whatsapp: WhatsAppService,
+    private readonly uploads: UploadStorageService,
+    private readonly fileShare: FileShareService,
+    private readonly webchat: WebchatService,
+    private readonly social: SocialMediaService,
+  ) {
     this.prisma = new PrismaClient();
     this.logger.log('✅ Conversation Management service initialized');
   }
@@ -25,7 +51,10 @@ export class ConversationManagementService implements IConversationManagementSer
     total: number;
   }> {
     try {
-      const where: any = {};
+      // Sandbox conversations live in the same tables as real ones but
+      // are filtered out of every operator-facing list. The "Probar como
+      // cliente" panel reads them through a separate endpoint.
+      const where: any = { isSandbox: false };
 
       if (filter.channel) {
         where.channel = filter.channel;
@@ -39,17 +68,51 @@ export class ConversationManagementService implements IConversationManagementSer
         where.assignedTo = filter.assignedToUserId;
       }
 
+      // Role-based scoping. Admins see everything; everyone else sees only
+      // their own slice.
+      //   ATENCION (Brenda) — assigned to her OR unassigned (first-line queue)
+      //   VENTAS / LOGISTICA — only conversations assigned to them
+      // We compose role-scope and search as separate AND'd OR groups so a
+      // search query doesn't accidentally widen Brenda's view past her queue.
+      const ands: any[] = [];
+      if (filter.scope && filter.scope.role !== UserRole.ADMIN) {
+        const me = filter.scope.userId;
+        if (filter.scope.role === UserRole.ATENCION) {
+          ands.push({ OR: [{ assignedTo: me }, { assignedTo: null }] });
+        } else {
+          where.assignedTo = me;
+        }
+      }
+
       if (filter.search) {
-        where.OR = [
-          { contact: { name: { contains: filter.search, mode: 'insensitive' } } },
-          { lastMessage: { contains: filter.search, mode: 'insensitive' } },
-        ];
+        const q = filter.search;
+        // Full-text-ish search: contact name, last-message snippet, OR any
+        // message body in the conversation. The `messages.some` query lets
+        // Marcos find a thread by typing "epoxi" even if the term came up
+        // weeks ago and isn't in `lastMessage` anymore.
+        //
+        // With encryption-at-rest ON, `messages.some.content.contains`
+        // can't match ciphertext rows — the DB sees `enc:v1:<base64>...`
+        // and the search term won't appear inside that. We keep the OR
+        // for legacy plaintext rows that haven't been backfilled, then
+        // run a second post-decrypt scan further down to recover the
+        // ciphertext-row matches. lastMessage gets the same treatment.
+        ands.push({
+          OR: [
+            { contact: { name: { contains: q, mode: 'insensitive' } } },
+            { lastMessage: { contains: q, mode: 'insensitive' } },
+            { messages: { some: { content: { contains: q, mode: 'insensitive' } } } },
+          ],
+        });
+      }
+      if (ands.length > 0) {
+        where.AND = ands;
       }
 
       const limit = filter.limit || 50;
       const offset = filter.offset || 0;
 
-      const [conversations, total] = await Promise.all([
+      let [conversations, total] = await Promise.all([
         this.prisma.conversation.findMany({
           where,
           include: {
@@ -63,13 +126,110 @@ export class ConversationManagementService implements IConversationManagementSer
               select: { messages: true },
             },
           },
-          orderBy: { updatedAt: 'desc' },
+          // Flagged conversations float to the top so the responsible role
+          // can't miss them; within each tier the newest activity wins.
+          orderBy: [
+            { needsHumanAttention: 'desc' },
+            { updatedAt: 'desc' },
+          ],
           take: limit,
           skip: offset,
         }),
         this.prisma.conversation.count({ where }),
       ]);
 
+      // Post-decrypt scan to recover ciphertext-row search matches that
+      // the DB query couldn't see. Only runs when (a) encryption is
+      // turned on and (b) the operator typed a search term. We pull a
+      // bounded candidate set ordered by recency and decrypt the most
+      // recent N messages per conversation. This trades some CPU for
+      // search correctness — Marcos's brief was "find the thread by what
+      // the customer said weeks ago", which we can't honor any other way
+      // once the column is encrypted.
+      if (filter.search && getMessageCipher().isEnabled() && offset === 0) {
+        const haystackCap = num('CONVERSATION_SEARCH_DECRYPT_CANDIDATES', 500);
+        const perConvMessages = num('CONVERSATION_SEARCH_DECRYPT_DEPTH', 50);
+        const q = filter.search.toLowerCase();
+        const seen = new Set(conversations.map((c) => c.id));
+
+        // Reuse the role-scope filter (drop the search-OR group so the
+        // scan can see encrypted rows that the DB query rejected).
+        const scanWhere: any = { isSandbox: false };
+        if (filter.channel)          scanWhere.channel = filter.channel;
+        if (filter.status)           scanWhere.status = filter.status;
+        if (filter.assignedToUserId) scanWhere.assignedTo = filter.assignedToUserId;
+        if (filter.scope && filter.scope.role !== UserRole.ADMIN) {
+          if (filter.scope.role === UserRole.ATENCION) {
+            scanWhere.OR = [{ assignedTo: filter.scope.userId }, { assignedTo: null }];
+          } else {
+            scanWhere.assignedTo = filter.scope.userId;
+          }
+        }
+
+        // Candidate scan ordering: pure recency. The user-facing list
+        // floats flagged convs to the top (above), but the post-decrypt
+        // scan needs to see RECENT convs regardless of flag — once the
+        // flagged-count crosses haystackCap (~500), a needsHumanAttention
+        // DESC primary sort starves recent unflagged convs out of the
+        // candidate set and the search silently misses them. 2026-06-04:
+        // flagged count crossed 505, surfaced by encryption-search probe.
+        const candidates = await this.prisma.conversation.findMany({
+          where: scanWhere,
+          include: {
+            contact: true,
+            assigned: true,
+            messages: {
+              orderBy: { timestamp: 'desc' },
+              take: perConvMessages,
+            },
+            _count: { select: { messages: true } },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: haystackCap,
+        });
+
+        const cipher = getMessageCipher();
+        const matched: typeof conversations = [];
+        for (const cand of candidates) {
+          if (seen.has(cand.id)) continue;
+          // contact.name + lastMessage already had a shot at the DB
+          // level for plaintext; here we re-check after decrypt for
+          // ciphertext rows.
+          const name = (cand.contact?.name ?? '').toLowerCase();
+          const last = cipher.decrypt(cand.lastMessage ?? '').toLowerCase();
+          let hit = name.includes(q) || last.includes(q);
+          if (!hit) {
+            for (const m of cand.messages) {
+              if (cipher.decrypt(m.content).toLowerCase().includes(q)) {
+                hit = true;
+                break;
+              }
+            }
+          }
+          if (hit) {
+            // Trim back the messages bag to the single-message preview the
+            // outer mapper expects; we only loaded the deeper slice for
+            // scanning.
+            (cand as any).messages = cand.messages.slice(0, 1);
+            matched.push(cand as any);
+            seen.add(cand.id);
+            if (conversations.length + matched.length >= limit) break;
+          }
+        }
+        if (matched.length > 0) {
+          conversations = [...conversations, ...matched]
+            .sort((a, b) => {
+              if (a.needsHumanAttention !== b.needsHumanAttention) {
+                return a.needsHumanAttention ? -1 : 1;
+              }
+              return b.updatedAt.getTime() - a.updatedAt.getTime();
+            })
+            .slice(0, limit);
+          total += matched.length;
+        }
+      }
+
+      const cipher = getMessageCipher();
       const conversationDetails: ConversationDetails[] = conversations.map((conv) => ({
         id: conv.id,
         contact: {
@@ -78,6 +238,7 @@ export class ConversationManagementService implements IConversationManagementSer
           phone: conv.contact.phone,
           email: conv.contact.email,
           channel: conv.contact.channel,
+          avatarUrl: conv.contact.avatarUrl,
         },
         channel: conv.channel,
         status: conv.status,
@@ -87,8 +248,14 @@ export class ConversationManagementService implements IConversationManagementSer
               name: conv.assigned.name,
             }
           : null,
-        lastMessage: conv.lastMessage,
+        // lastMessage is encrypted on disk; decrypt for the inbox preview.
+        lastMessage: cipher.decrypt(conv.lastMessage ?? ''),
         messageCount: conv._count.messages,
+        needsHumanAttention: conv.needsHumanAttention,
+        escalatedAt: conv.escalatedAt,
+        aiPaused: conv.aiPaused,
+        aiPausedAt: conv.aiPausedAt,
+        aiPausedBy: conv.aiPausedBy,
         createdAt: conv.createdAt,
         updatedAt: conv.updatedAt,
         messages: [], // Messages loaded separately in getConversationById
@@ -104,7 +271,10 @@ export class ConversationManagementService implements IConversationManagementSer
     }
   }
 
-  async getConversationById(conversationId: string): Promise<ConversationDetails | null> {
+  async getConversationById(
+    conversationId: string,
+    scope?: { userId: string; role: UserRole },
+  ): Promise<ConversationDetails | null> {
     try {
       const conversation = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
@@ -113,6 +283,12 @@ export class ConversationManagementService implements IConversationManagementSer
           assigned: true,
           messages: {
             orderBy: { timestamp: 'asc' },
+            include: {
+              // Per-user attribution: who actually clicked Send. Null
+              // for CUSTOMER + AI messages — those identify themselves
+              // by the `sender` enum.
+              author: { select: { id: true, name: true } },
+            },
           },
           _count: {
             select: { messages: true },
@@ -124,6 +300,25 @@ export class ConversationManagementService implements IConversationManagementSer
         return null;
       }
 
+      // Per-record scope check. List-level scoping already filters what the
+      // user sees in their inbox; we mirror it here so a deep-link to a
+      // conversation outside that scope returns 404 instead of leaking.
+      //   ADMIN — sees all
+      //   ATENCION — own + unassigned (Brenda's first-line queue)
+      //   VENTAS / LOGISTICA — own only
+      if (scope && scope.role !== UserRole.ADMIN) {
+        const ownsRecord = conversation.assignedTo === scope.userId;
+        const unassigned = conversation.assignedTo === null;
+        const allowed =
+          scope.role === UserRole.ATENCION ? (ownsRecord || unassigned) : ownsRecord;
+        if (!allowed) {
+          this.logger.debug(
+            `Conversation ${conversationId} hidden from ${scope.role} ${scope.userId} (out of scope)`,
+          );
+          return null;
+        }
+      }
+
       return {
         id: conversation.id,
         contact: {
@@ -132,6 +327,7 @@ export class ConversationManagementService implements IConversationManagementSer
           phone: conversation.contact.phone,
           email: conversation.contact.email,
           channel: conversation.contact.channel,
+          avatarUrl: conversation.contact.avatarUrl,
         },
         channel: conversation.channel,
         status: conversation.status,
@@ -141,22 +337,89 @@ export class ConversationManagementService implements IConversationManagementSer
               name: conversation.assigned.name,
             }
           : null,
-        lastMessage: conversation.lastMessage,
+        // Decrypt the denormalized last-message preview AND every message
+        // body before returning. Cipher returns plaintext as-is for any
+        // legacy rows that pre-date encryption.
+        lastMessage: getMessageCipher().decrypt(conversation.lastMessage ?? ''),
         messageCount: conversation._count.messages,
+        needsHumanAttention: conversation.needsHumanAttention,
+        escalatedAt: conversation.escalatedAt,
+        aiPaused: conversation.aiPaused,
+        aiPausedAt: conversation.aiPausedAt,
+        aiPausedBy: conversation.aiPausedBy,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
-        messages: conversation.messages.map((msg) => ({
-          id: msg.id,
-          content: msg.content,
-          sender: msg.sender,
-          isFromAI: msg.isFromAI,
-          timestamp: msg.timestamp,
-        })),
+        messages: (() => {
+          const cipher = getMessageCipher();
+          return conversation.messages.map((msg) => ({
+            id: msg.id,
+            content: cipher.decrypt(msg.content),
+            sender: msg.sender,
+            contentType: msg.contentType,
+            isFromAI: msg.isFromAI,
+            timestamp: msg.timestamp,
+            attachmentUrl: msg.attachmentUrl,
+            attachmentName: msg.attachmentName,
+            attachmentMime: msg.attachmentMime,
+            attachmentSize: msg.attachmentSize,
+            author: msg.author ? { id: msg.author.id, name: msg.author.name } : null,
+          }));
+        })(),
       };
     } catch (error: any) {
       this.logger.error(`Error getting conversation: ${error.message}`);
       return null;
     }
+  }
+
+  /**
+   * Render a conversation as a PDF buffer suitable for legal retention,
+   * defensa-al-consumidor responses, and dispute archives.
+   *
+   * Internal notes are merged into the same timeline so the export
+   * matches what the operator saw in the panel — but with a clear
+   * "Nota interna" label so anyone reading the file understands those
+   * lines were never sent to the customer.
+   */
+  async renderPdf(conversationId: string): Promise<Buffer | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        contact: true,
+        messages: { orderBy: { timestamp: 'asc' } },
+        internalNotes: { include: { author: true }, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!conv) return null;
+    // Lazy-load so the builder file isn't pulled in for non-PDF callers.
+    const { buildConversationPdf } = await import('./conversation-pdf.builder');
+    const cipher = getMessageCipher();
+    return buildConversationPdf({
+      id: conv.id,
+      channel: String(conv.channel),
+      status: String(conv.status),
+      createdAt: conv.createdAt,
+      contact: {
+        name: conv.contact?.name ?? null,
+        phone: conv.contact?.phone ?? null,
+        email: conv.contact?.email ?? null,
+      },
+      messages: conv.messages.map((m) => ({
+        id: m.id,
+        sender: m.sender,
+        isFromAI: m.isFromAI,
+        // Decrypt before rendering into the PDF so the operator-visible
+        // export shows real content, not ciphertext.
+        content: cipher.decrypt(m.content),
+        timestamp: m.timestamp,
+      })),
+      internalNotes: conv.internalNotes.map((n) => ({
+        id: n.id,
+        authorName: n.author?.name ?? 'Sistema',
+        content: cipher.decrypt(n.content),
+        createdAt: n.createdAt,
+      })),
+    });
   }
 
   async assignConversation(conversationId: string, userId: string): Promise<boolean> {
@@ -182,12 +445,28 @@ export class ConversationManagementService implements IConversationManagementSer
     status: ConversationStatus,
   ): Promise<boolean> {
     try {
+      const before = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { status: true },
+      });
       await this.prisma.conversation.update({
         where: { id: conversationId },
         data: { status },
       });
 
       this.logger.log(`✅ Conversation ${conversationId} status updated to ${status}`);
+
+      // Fire-and-forget quality scoring on first transition to CLOSED.
+      // The scorer + pattern detector are injected lazily via the
+      // `closedHook` setter so this service stays free of the AI module
+      // dependency. Errors inside the hook are swallowed by the hook itself.
+      if (
+        status === ConversationStatus.CLOSED &&
+        before?.status !== ConversationStatus.CLOSED &&
+        this.closedHook
+      ) {
+        void this.closedHook(conversationId);
+      }
       return true;
     } catch (error: any) {
       this.logger.error(`Error updating conversation status: ${error.message}`);
@@ -195,37 +474,418 @@ export class ConversationManagementService implements IConversationManagementSer
     }
   }
 
+  /** Optional listener for "conversation closed" events. The Quality
+   *  module wires this up at boot via `setOnClosed()` so closing a
+   *  conversation triggers Claude scoring without this adapter taking
+   *  a hard dep on the AI layer. */
+  private closedHook: ((conversationId: string) => void | Promise<void>) | null = null;
+  setOnClosed(hook: (conversationId: string) => void | Promise<void>): void {
+    this.closedHook = hook;
+  }
+
+  /** Optional listener for "operator/AI reply sent" events. Wired by
+   *  the admin module (same pattern as the closed hook) so the live
+   *  quality-score panel can re-evaluate the conversation as the
+   *  operator replies, without this service hard-depending on the
+   *  scorer. */
+  private replyHook: ((conversationId: string) => void) | null = null;
+  setOnReply(hook: (conversationId: string) => void): void {
+    this.replyHook = hook;
+  }
+
+  /**
+   * Pause or resume the AI on a single conversation. When paused, the
+   * `ConversationHandlerService` will save inbound messages but won't
+   * generate AI replies — humans must respond from the panel. Used when
+   * Marcos's team spots the AI making mistakes and needs to take over.
+   *
+   * Returns the freshly-updated conversation so the caller can broadcast
+   * the new state over Socket.io to other connected operators.
+   */
+  async setAiPaused(
+    conversationId: string,
+    paused: boolean,
+    actorUserId: string,
+  ): Promise<{ id: string; aiPaused: boolean; aiPausedAt: Date | null; aiPausedBy: string | null } | null> {
+    try {
+      const updated = await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: paused
+          ? { aiPaused: true,  aiPausedAt: new Date(), aiPausedBy: actorUserId }
+          : { aiPaused: false, aiPausedAt: null,        aiPausedBy: null },
+        select: { id: true, aiPaused: true, aiPausedAt: true, aiPausedBy: true },
+      });
+      this.logger.log(
+        `${paused ? '⏸️  AI paused' : '▶️  AI resumed'} on ${conversationId} by ${actorUserId}`,
+      );
+      return updated;
+    } catch (err: any) {
+      this.logger.error(`setAiPaused failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  async transferConversation(args: {
+    conversationId: string;
+    fromUserId: string;
+    toUserId: string;
+    note?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    note: { id: string; content: string; createdAt: Date; authorId: string } | null;
+  }> {
+    const { conversationId, fromUserId, toUserId, note } = args;
+    try {
+      // Pre-flight validation. Catches the common slipups before we touch
+      // Prisma so the failure mode is one structured response, not a
+      // partially-applied transaction.
+      if (toUserId === fromUserId) {
+        return { success: false, error: 'No se puede transferir a uno mismo', note: null };
+      }
+      const target = await this.prisma.user.findUnique({
+        where: { id: toUserId },
+        select: { id: true, active: true, role: true },
+      });
+      if (!target) {
+        return { success: false, error: 'Usuario destino no encontrado', note: null };
+      }
+      if (!target.active) {
+        return { success: false, error: 'No se puede transferir a un usuario desactivado', note: null };
+      }
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: {
+            assignedTo: toUserId,
+            status: ConversationStatus.ACTIVE,
+          },
+        });
+        if (note && note.trim().length > 0) {
+          const created = await tx.internalNote.create({
+            data: {
+              conversationId,
+              authorId: fromUserId,
+              content: getMessageCipher().encrypt(note.trim()),
+            },
+          });
+          return created;
+        }
+        return null;
+      });
+
+      this.logger.log(
+        `✅ Conversation ${conversationId} transferred ${fromUserId} → ${toUserId}${result ? ' (with note)' : ''}`,
+      );
+      return {
+        success: true,
+        note: result
+          ? {
+              id: result.id,
+              // Decrypt before handing back to the controller — the caller
+              // surfaces the note in a Sonner toast for the receiving user.
+              content: getMessageCipher().decrypt(result.content),
+              createdAt: result.createdAt,
+              authorId: result.authorId,
+            }
+          : null,
+      };
+    } catch (error: any) {
+      this.logger.error(`Error transferring conversation: ${error.message}`);
+      return { success: false, note: null };
+    }
+  }
+
+  async listInternalNotes(conversationId: string) {
+    const rows = await this.prisma.internalNote.findMany({
+      where: { conversationId },
+      include: { author: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const cipher = getMessageCipher();
+    return rows.map((n) => ({
+      id: n.id,
+      conversationId: n.conversationId,
+      authorId: n.authorId,
+      authorName: n.author.name,
+      content: cipher.decrypt(n.content),
+      createdAt: n.createdAt,
+    }));
+  }
+
+  /**
+   * Save an operator-sent message that includes a file attachment. The file
+   * itself is stored by `UploadStorageService` before this is called; here
+   * we just persist the URL/mime/size on the Message row.
+   *
+   * The optional `caption` is the text portion (WhatsApp lets you caption a
+   * media message). Empty string when none.
+   *
+   * Returns the created message id, or null on failure.
+   */
+  async sendManualAttachment(args: {
+    conversationId: string;
+    userId: string;
+    caption: string;
+    attachmentUrl: string;
+    attachmentName: string;
+    attachmentMime: string;
+    attachmentSize: number;
+    contentType: ContentType;
+  }): Promise<{ id: string; timestamp: Date } | null> {
+    try {
+      const cipher = getMessageCipher();
+      const encryptedCaption = cipher.encrypt(args.caption);
+      const msg = await this.prisma.message.create({
+        data: {
+          conversationId: args.conversationId,
+          sender: MessageSender.ADMIN,
+          content: encryptedCaption,
+          contentType: args.contentType,
+          isFromAI: false,
+          attachmentUrl: args.attachmentUrl,
+          attachmentName: args.attachmentName,
+          attachmentMime: args.attachmentMime,
+          attachmentSize: args.attachmentSize,
+          // Same per-user attribution as text replies — staff
+          // attachments should also carry "who sent it" so the
+          // transcript can show the operator's actual name.
+          authorId: args.userId,
+        },
+        select: { id: true, timestamp: true },
+      });
+
+      // Same conversation-state side-effects as a manual text message:
+      // claim the conversation for this operator and clear any
+      // "needs human" flag. The denormalized lastMessage column is
+      // also encrypted so we don't leak it via the inbox preview.
+      await this.prisma.conversation.update({
+        where: { id: args.conversationId },
+        data: {
+          lastMessage: cipher.encrypt(
+            args.caption || `[${args.contentType.toLowerCase()}] ${args.attachmentName}`,
+          ),
+          assignedTo: args.userId,
+          status: ConversationStatus.ACTIVE,
+          needsHumanAttention: false,
+        },
+      });
+
+      this.logger.log(
+        `📎 Attachment sent in conversation ${args.conversationId} (${args.contentType} ${args.attachmentSize}B)`,
+      );
+
+      // Fire-and-forget delivery to the live channel. WhatsApp is the only
+      // channel where outbound media is wired today; FB/IG/ML/TiendaNube
+      // need their own send paths and are no-ops for now (the message is
+      // saved either way so the operator's UI stays consistent).
+      void this.deliverAttachmentToChannel(args).catch((err) =>
+        this.logger.error(`Channel delivery failed for ${msg.id}: ${err?.message ?? err}`),
+      );
+
+      return msg;
+    } catch (err: any) {
+      this.logger.error(`Error sending attachment: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the live channel for the conversation and forward the just-saved
+   * attachment to the customer.
+   *
+   * Per channel:
+   *   • WHATSAPP — native media via Meta Cloud API. Voice notes specifically
+   *     must hit the audio path with `voice:true` so the customer sees a
+   *     native voice-note bubble instead of a generic file attachment —
+   *     that distinction is what Marcos called out as eroding trust on
+   *     prometheo's outbound.
+   *   • TIENDANUBE_WEBCHAT / FACEBOOK / INSTAGRAM — those provider APIs
+   *     don't accept binary uploads from us today, so we mint a short-lived
+   *     HMAC-signed download link via FileShareService and send it as a
+   *     plain text message. Customer clicks the link and pulls the file
+   *     from /p/file/<token>.
+   *   • MERCADOLIBRE — ML doesn't allow proactive DMs at all (only
+   *     answers to questions); we save the message locally and skip.
+   *
+   * Errors here never propagate to the caller — the message is already
+   * persisted; the operator UI shouldn't fail because Meta is briefly down.
+   */
+  private async deliverAttachmentToChannel(args: {
+    conversationId: string;
+    attachmentUrl: string;
+    attachmentName: string;
+    attachmentMime: string;
+    contentType: ContentType;
+    caption: string;
+  }): Promise<void> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: args.conversationId },
+      select: {
+        channel: true,
+        contact: { select: { phone: true, metadata: true } },
+      },
+    });
+    if (!conv) return;
+
+    // attachmentUrl is `/admin/uploads/<relative>`; strip the prefix so
+    // resolveSafe can map it back to the absolute path under UPLOADS_DIR.
+    const PREFIX = '/admin/uploads/';
+    const relative = args.attachmentUrl.startsWith(PREFIX)
+      ? args.attachmentUrl.slice(PREFIX.length)
+      : args.attachmentUrl;
+
+    if (conv.channel === Channel.WHATSAPP) {
+      const phone = conv.contact?.phone;
+      if (!phone) {
+        this.logger.warn(`Skip outbound media: contact has no phone for conv ${args.conversationId}`);
+        return;
+      }
+      const resolved = this.uploads.resolveSafe(relative);
+      if (!resolved) {
+        this.logger.warn(`Skip outbound media: cannot resolve ${args.attachmentUrl}`);
+        return;
+      }
+      const result = await this.whatsapp.sendMedia({
+        to: phone,
+        filePath: resolved.absolute,
+        filename: args.attachmentName,
+        mime: args.attachmentMime,
+        contentType: args.contentType,
+        caption: args.caption,
+      });
+      if (!result.success) {
+        this.logger.warn(`WhatsApp media send returned failure: ${result.error}`);
+      }
+      return;
+    }
+
+    // For non-WhatsApp channels, fall back to a text message with a public
+    // signed download link. Composed body keeps the operator's caption (if
+    // any) on top, then the file label, then the URL — that's the shape
+    // customers parse fastest in TN webchat / FB DM bubbles.
+    let link;
+    try {
+      link = this.fileShare.sign(relative, args.attachmentName);
+    } catch (err: any) {
+      this.logger.error(`File-share sign failed for ${args.conversationId}: ${err.message}`);
+      return;
+    }
+    const caption = (args.caption ?? '').trim();
+    const body = caption.length > 0
+      ? `${caption}\n\n📎 ${args.attachmentName}\n${link.url}`
+      : `📎 ${args.attachmentName}\n${link.url}`;
+
+    if (conv.channel === Channel.TIENDANUBE_WEBCHAT) {
+      const r = await this.webchat.sendMessage(
+        new WebchatOutgoingMessage(args.conversationId, body, WebchatMessageType.TEXT),
+      );
+      if (!r.success) {
+        this.logger.warn(`Webchat link-send failed for ${args.conversationId}: ${r.error}`);
+      }
+      return;
+    }
+
+    if (conv.channel === Channel.FACEBOOK || conv.channel === Channel.INSTAGRAM) {
+      const md = (conv.contact?.metadata as Record<string, any>) ?? {};
+      const senderId = md.facebookSenderId ?? md.instagramSenderId ?? md.socialSenderId;
+      if (!senderId) {
+        this.logger.warn(`Skip social link-send: no senderId on contact for conv ${args.conversationId}`);
+        return;
+      }
+      const platform = conv.channel === Channel.FACEBOOK ? SocialPlatform.FACEBOOK : SocialPlatform.INSTAGRAM;
+      const r = await this.social.sendMessage(
+        new SocialOutgoingMessage(platform, SocialMessageType.DIRECT_MESSAGE, senderId, body),
+      );
+      if (!r.success) {
+        this.logger.warn(`Social link-send failed for ${args.conversationId}: ${r.error}`);
+      }
+      return;
+    }
+
+    if (conv.channel === Channel.MERCADOLIBRE) {
+      this.logger.log(`Skip outbound for ML conv ${args.conversationId}: provider doesn't support proactive DMs`);
+      return;
+    }
+  }
+
   async sendManualMessage(
     conversationId: string,
     userId: string,
     content: string,
-  ): Promise<boolean> {
+  ): Promise<{
+    id: string;
+    sender: MessageSender;
+    content: string;
+    contentType: any;
+    isFromAI: boolean;
+    timestamp: Date;
+    attachmentUrl: string | null;
+    attachmentName: string | null;
+    attachmentMime: string | null;
+    attachmentSize: number | null;
+    author: { id: string; name: string } | null;
+  } | null> {
     try {
-      // Create message from human agent (using ADMIN as generic agent sender)
-      await this.prisma.message.create({
+      // Create message from human agent. `sender` enum stays role-based
+      // for legacy code paths, but `authorId` carries the exact user so
+      // the conversation transcript can show "Marcos" vs "Brenda
+      // García" instead of collapsing every staff reply to "ADMIN".
+      const cipher = getMessageCipher();
+      const cipherText = cipher.encrypt(content);
+      const created = await this.prisma.message.create({
         data: {
           conversationId,
           sender: MessageSender.ADMIN,
-          content,
+          content: cipherText,
           isFromAI: false,
+          authorId: userId,
         },
+        include: { author: { select: { id: true, name: true } } },
       });
 
-      // Update conversation
+      // Update conversation. A human reply also clears the "needs human"
+      // flag — that's exactly the point at which the conversation is no
+      // longer parked waiting for someone.
       await this.prisma.conversation.update({
         where: { id: conversationId },
         data: {
-          lastMessage: content,
+          lastMessage: cipherText,
           assignedTo: userId,
           status: ConversationStatus.ACTIVE,
+          needsHumanAttention: false,
         },
       });
 
       this.logger.log(`✅ Manual message sent in conversation ${conversationId}`);
-      return true;
+      if (this.replyHook) {
+        try {
+          this.replyHook(conversationId);
+        } catch {
+          // hook errors must not break the reply path
+        }
+      }
+      // Return the saved message in the same shape the conversation
+      // projection uses, so the frontend can drop it in place of the
+      // optimistic temp-row instead of refetching the whole thread (the
+      // refetch caused a visible flash + scroll jump on send).
+      return {
+        id: created.id,
+        sender: created.sender,
+        content,
+        contentType: created.contentType,
+        isFromAI: created.isFromAI,
+        timestamp: created.timestamp,
+        attachmentUrl: created.attachmentUrl,
+        attachmentName: created.attachmentName,
+        attachmentMime: created.attachmentMime,
+        attachmentSize: created.attachmentSize,
+        author: created.author ? { id: created.author.id, name: created.author.name } : null,
+      };
     } catch (error: any) {
       this.logger.error(`Error sending manual message: ${error.message}`);
-      return false;
+      return null;
     }
   }
 
@@ -237,17 +897,20 @@ export class ConversationManagementService implements IConversationManagementSer
   }> {
     try {
       const [total, byChannel, byStatus, activeToday] = await Promise.all([
-        this.prisma.conversation.count(),
+        this.prisma.conversation.count({ where: { isSandbox: false } }),
         this.prisma.conversation.groupBy({
           by: ['channel'],
+          where: { isSandbox: false },
           _count: true,
         }),
         this.prisma.conversation.groupBy({
           by: ['status'],
+          where: { isSandbox: false },
           _count: true,
         }),
         this.prisma.conversation.count({
           where: {
+            isSandbox: false,
             updatedAt: {
               gte: new Date(new Date().setHours(0, 0, 0, 0)),
             },

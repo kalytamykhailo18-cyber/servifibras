@@ -11,34 +11,21 @@ import {
   WebchatSendResult,
   WebchatMessageType,
 } from '../../domain/entities/webchat-message.entity';
+import { TiendaNubeAuthResolver } from '../oauth/tiendanube-auth.resolver';
 
 @Injectable()
 export class WebchatService implements IWebchatService {
   private readonly logger = new Logger(WebchatService.name);
   private readonly apiUrl: string;
-  private readonly storeId: string | null;
-  private readonly accessToken: string | null;
-  private readonly isConfigured: boolean;
 
-  constructor() {
+  constructor(private readonly auth: TiendaNubeAuthResolver) {
     this.apiUrl = process.env.TIENDANUBE_API_URL || 'https://api.tiendanube.com/v1';
-    this.storeId = process.env.TIENDANUBE_STORE_ID || null;
-    this.accessToken = process.env.TIENDANUBE_ACCESS_TOKEN || null;
-
-    this.isConfigured = !!(this.storeId && this.accessToken);
-
-    if (!this.isConfigured) {
-      this.logger.warn('⚠️  TiendaNube Webchat not configured. Service will start but cannot send/receive messages.');
-      this.logger.warn('   Add credentials to .env:');
-      this.logger.warn('   - TIENDANUBE_STORE_ID');
-      this.logger.warn('   - TIENDANUBE_ACCESS_TOKEN');
-    } else {
-      this.logger.log('✅ TiendaNube Webchat service initialized');
-    }
+    this.logger.log('TiendaNube Webchat service initialized');
   }
 
   async sendMessage(message: WebchatOutgoingMessage): Promise<WebchatSendResult> {
-    if (!this.isConfigured) {
+    const auth = await this.auth.resolve();
+    if (!auth) {
       return WebchatSendResult.failure('TiendaNube Webchat not configured');
     }
 
@@ -47,16 +34,14 @@ export class WebchatService implements IWebchatService {
     }
 
     try {
-      // Send message via TiendaNube API
-      // POST /stores/{store_id}/conversations/{conversation_id}/messages
-      const url = `${this.apiUrl}/${this.storeId}/conversations/${message.conversationId}/messages`;
+      const url = `${this.apiUrl}/${auth.storeId}/conversations/${message.conversationId}/messages`;
 
       this.logger.debug(`Sending message to conversation ${message.conversationId}`);
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authentication': `bearer ${this.accessToken}`,
+          Authentication: `bearer ${auth.accessToken}`,
           'Content-Type': 'application/json',
           'User-Agent': 'Servifibras AI Platform',
         },
@@ -137,18 +122,18 @@ export class WebchatService implements IWebchatService {
   }
 
   async healthCheck(): Promise<boolean> {
-    if (!this.isConfigured) {
+    const auth = await this.auth.resolve();
+    if (!auth) {
       return false;
     }
 
     try {
-      // Test API connection by fetching store info
-      const url = `${this.apiUrl}/${this.storeId}/store`;
+      const url = `${this.apiUrl}/${auth.storeId}/store`;
 
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'Authentication': `bearer ${this.accessToken}`,
+          Authentication: `bearer ${auth.accessToken}`,
           'User-Agent': 'Servifibras AI Platform',
         },
       });

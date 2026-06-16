@@ -13,55 +13,30 @@ import {
   SocialPlatform,
   SocialMessageType,
 } from '../../domain/entities/social-message.entity';
+import { MetaAuthResolver } from '../oauth/meta-auth.resolver';
 
 @Injectable()
 export class SocialMediaService implements ISocialMediaService {
   private readonly logger = new Logger(SocialMediaService.name);
-  private readonly facebookAccessToken: string;
-  private readonly facebookPageId: string;
-  private readonly instagramAccountId: string;
   private readonly webhookVerifyToken: string;
   private readonly appSecret: string;
   private readonly apiUrl: string;
-  private readonly isConfigured: boolean;
 
-  constructor() {
-    // ✅ RULE 1: All config from .env
-    this.facebookAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || '';
-    this.facebookPageId = process.env.FACEBOOK_PAGE_ID || '';
-    this.instagramAccountId = process.env.INSTAGRAM_ACCOUNT_ID || '';
+  constructor(private readonly auth: MetaAuthResolver) {
     this.webhookVerifyToken = process.env.SOCIAL_WEBHOOK_VERIFY_TOKEN || '';
-    this.appSecret = process.env.FACEBOOK_APP_SECRET || '';
+    // App secret is read from META_APP_SECRET (the new OAuth-era key)
+    // with a fallback to FACEBOOK_APP_SECRET for the env-only legacy
+    // path. Either one configured = signature verification active.
+    this.appSecret = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || '';
     this.apiUrl = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v18.0';
-
-    this.isConfigured =
-      this.facebookAccessToken.length > 0 &&
-      (this.facebookPageId.length > 0 || this.instagramAccountId.length > 0) &&
-      this.webhookVerifyToken.length > 0;
-
-    if (!this.isConfigured) {
-      this.logger.warn(
-        '⚠️  Facebook/Instagram not configured. Service will start but cannot send/receive messages.',
-      );
-      this.logger.warn('   Add credentials to .env:');
-      this.logger.warn('   - FACEBOOK_PAGE_ACCESS_TOKEN');
-      this.logger.warn('   - FACEBOOK_PAGE_ID');
-      this.logger.warn('   - INSTAGRAM_ACCOUNT_ID');
-      this.logger.warn('   - SOCIAL_WEBHOOK_VERIFY_TOKEN');
-      this.logger.warn('   - FACEBOOK_APP_SECRET');
-    } else {
-      this.logger.log('✅ Social Media Service initialized');
-      if (this.facebookPageId) {
-        this.logger.log(`   Facebook Page ID: ${this.facebookPageId}`);
-      }
-      if (this.instagramAccountId) {
-        this.logger.log(`   Instagram Account ID: ${this.instagramAccountId}`);
-      }
-    }
+    this.logger.log(
+      `Social Media Service initialized (verify-token ${this.webhookVerifyToken ? 'present' : 'absent'}, app-secret ${this.appSecret ? 'present' : 'absent'})`,
+    );
   }
 
   async sendMessage(message: SocialOutgoingMessage): Promise<SocialSendResult> {
-    if (!this.isConfigured) {
+    const auth = await this.auth.resolve();
+    if (!auth) {
       return SocialSendResult.failure('Social media not configured');
     }
 
@@ -77,37 +52,30 @@ export class SocialMediaService implements ISocialMediaService {
   }
 
   async replyToComment(commentId: string, text: string): Promise<SocialSendResult> {
-    if (!this.isConfigured) {
+    const auth = await this.auth.resolve();
+    if (!auth) {
       return SocialSendResult.failure('Social media not configured');
     }
 
     try {
-      // Reply to comment using Graph API
       const url = `${this.apiUrl}/${commentId}/comments`;
-
       this.logger.debug(`Replying to comment ${commentId}`);
-
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.facebookAccessToken}`,
+          Authorization: `Bearer ${auth.pageAccessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          message: text,
-        }),
+        body: JSON.stringify({ message: text }),
       });
 
       const data = await response.json();
-
       if (!response.ok) {
         this.logger.error(`Failed to reply to comment: ${JSON.stringify(data)}`);
         return SocialSendResult.failure(data.error?.message || 'Failed to reply');
       }
-
-      const replyId = data.id;
-      this.logger.log(`✅ Comment reply sent: ${replyId}`);
-      return SocialSendResult.success(replyId);
+      this.logger.log(`✅ Comment reply sent: ${data.id}`);
+      return SocialSendResult.success(data.id);
     } catch (error: any) {
       this.logger.error(`Error replying to comment: ${error.message}`);
       return SocialSendResult.failure(error.message);
@@ -115,22 +83,20 @@ export class SocialMediaService implements ISocialMediaService {
   }
 
   async sendDirectMessage(userId: string, text: string): Promise<SocialSendResult> {
-    if (!this.isConfigured) {
+    const auth = await this.auth.resolve();
+    if (!auth) {
       return SocialSendResult.failure('Social media not configured');
     }
 
     try {
-      // Send DM via Graph API
-      // Note: For Instagram, use Instagram account ID; for Facebook, use page ID
-      const senderId = this.instagramAccountId || this.facebookPageId;
+      // For Instagram DMs use the IG business account id; for Messenger use the page id
+      const senderId = auth.instagramAccountId || auth.pageId;
       const url = `${this.apiUrl}/${senderId}/messages`;
-
       this.logger.debug(`Sending DM to user ${userId}`);
-
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.facebookAccessToken}`,
+          Authorization: `Bearer ${auth.pageAccessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -140,18 +106,49 @@ export class SocialMediaService implements ISocialMediaService {
       });
 
       const data = await response.json();
-
       if (!response.ok) {
         this.logger.error(`Failed to send DM: ${JSON.stringify(data)}`);
         return SocialSendResult.failure(data.error?.message || 'Failed to send');
       }
-
-      const messageId = data.message_id;
-      this.logger.log(`✅ DM sent: ${messageId}`);
-      return SocialSendResult.success(messageId);
+      this.logger.log(`✅ DM sent: ${data.message_id}`);
+      return SocialSendResult.success(data.message_id);
     } catch (error: any) {
       this.logger.error(`Error sending DM: ${error.message}`);
       return SocialSendResult.failure(error.message);
+    }
+  }
+
+  // Best-effort fetch of a user's display name + avatar from Graph API.
+  // Works for FB Messenger PSIDs and IG-scoped IDs (the `profile_pic`
+  // field is publicly available with the page token's scope). Returns
+  // null on any failure so the caller can keep going with the initials
+  // fallback — avatar is decoration, not a hard requirement.
+  async fetchUserProfile(
+    userId: string,
+  ): Promise<{ name?: string; avatarUrl?: string } | null> {
+    const auth = await this.auth.resolve();
+    if (!auth) {
+      return null;
+    }
+    try {
+      const url = `${this.apiUrl}/${userId}?fields=name,profile_pic`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${auth.pageAccessToken}` },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        this.logger.debug(
+          `Profile fetch for ${userId} returned ${response.status}: ${data.error?.message || 'unknown'}`,
+        );
+        return null;
+      }
+      return {
+        name: typeof data.name === 'string' ? data.name : undefined,
+        avatarUrl: typeof data.profile_pic === 'string' ? data.profile_pic : undefined,
+      };
+    } catch (error: any) {
+      this.logger.debug(`Profile fetch error for ${userId}: ${error.message}`);
+      return null;
     }
   }
 
@@ -278,21 +275,16 @@ export class SocialMediaService implements ISocialMediaService {
   }
 
   async healthCheck(): Promise<boolean> {
-    if (!this.isConfigured) {
-      return false;
-    }
+    const auth = await this.auth.resolve();
+    if (!auth) return false;
 
     try {
-      // Verify token by getting page/account info
-      const pageId = this.facebookPageId || this.instagramAccountId;
+      const pageId = auth.pageId || auth.instagramAccountId || '';
+      if (!pageId) return false;
       const url = `${this.apiUrl}/${pageId}`;
-
       const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${this.facebookAccessToken}`,
-        },
+        headers: { Authorization: `Bearer ${auth.pageAccessToken}` },
       });
-
       return response.ok;
     } catch (error: any) {
       this.logger.error(`Health check failed: ${error.message}`);

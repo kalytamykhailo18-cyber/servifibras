@@ -62,17 +62,18 @@ export function ConversationFiltersComponent({
         <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors duration-200 group-focus-within:text-blue-600" />
         <input
           type="text"
-          placeholder="Buscar por contacto, teléfono o mensaje..."
+          placeholder="Buscar contacto o mensaje…"
+          aria-label="Buscar por contacto o por algo que se haya hablado"
           value={filters.search || ""}
           onChange={(e) => handleSearchChange(e.target.value)}
           className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
         />
       </div>
 
-      {/* Filters row */}
+      {/* Filters row — selects share row width on mobile, fixed-width on sm+ */}
       <div className="flex flex-wrap items-center gap-2.5">
         <Select value={String(filters.status || "ALL")} onValueChange={handleStatusChange}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[180px]">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
@@ -86,7 +87,7 @@ export function ConversationFiltersComponent({
         </Select>
 
         <Select value={String(filters.channel || "ALL")} onValueChange={handleChannelChange}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="min-w-0 flex-1 sm:flex-none sm:w-[180px]">
             <SelectValue placeholder="Canal" />
           </SelectTrigger>
           <SelectContent>
@@ -106,12 +107,13 @@ export function ConversationFiltersComponent({
             className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-rose-200/70 bg-rose-50/70 px-3.5 text-sm font-medium text-rose-600 transition-all duration-200 hover:border-rose-300 hover:bg-rose-100/80 active:scale-[0.97]"
           >
             <CloseIcon sx={{ fontSize: 16 }} />
-            Limpiar filtros
+            <span className="hidden sm:inline">Limpiar filtros</span>
+            <span className="sm:hidden">Limpiar</span>
           </button>
         )}
 
-        {/* Count chip — pinned right */}
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+        {/* Count chip — wraps to its own line on mobile, pins right on sm+ */}
+        <span className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:ml-auto sm:w-auto">
           <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
           <span className="font-semibold text-slate-900">{totalCount}</span>
           conversaciones

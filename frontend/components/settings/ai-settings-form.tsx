@@ -1,330 +1,274 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api/endpoints";
+// Configuración → IA tab.
+//
+// History: the original form was a scaffolding artefact (model dropdown
+// pre-filled with "gpt-4", temperature / max-tokens / auto-response
+// toggle, escalation keywords). Those fields were stored in DB but
+// never consumed — the live agent runs on Claude with values pulled
+// from `.env`. Marcos flagged the confusion on 2026-05-14 ("este panel
+// no está reflejando la realidad"); the form was rewritten to do the
+// only thing that actually drives agent behaviour from this page: edit
+// the Lucas system prompt.
+//
+// Mechanism: GET /admin/configuration/lucas-prompt returns the live
+// snapshot (content + source 'db'|'file'|'none' + updatedAt). PUT
+// persists to the Configuration table; ClaudeService hot-reloads so
+// the next reply uses the new prompt. POST .../reset drops the DB
+// override and falls back to the on-disk default
+// (LUCAS_PROMPT_PATH). No server restart, no AnyDesk.
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import SaveIcon from "@mui/icons-material/Save";
+import { api } from "@/lib/api/endpoints";
+import { safeFormatDate } from "@/lib/date";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
+import SaveIcon from "@mui/icons-material/Save";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import RefreshIcon from "@mui/icons-material/Refresh";
 
-const aiSettingsSchema = z.object({
-  model: z.string().min(1, "Modelo es requerido"),
-  temperature: z.number().min(0).max(2),
-  maxTokens: z.number().min(1).max(4000),
-  systemPrompt: z.string().min(1, "Prompt del sistema es requerido"),
-  autoResponseEnabled: z.boolean(),
-  confidenceThreshold: z.number().min(0).max(1),
-  escalationKeywords: z.string(),
-});
+type Source = "db" | "file" | "none";
 
-type AISettingsData = z.infer<typeof aiSettingsSchema>;
+interface Snapshot {
+  content: string | null;
+  source: Source;
+  updatedAt: string | null;
+  length: number;
+}
 
+const SECTION_HEADER =
+  "mb-6 flex items-center gap-3";
 const FIELD_LABEL = "text-xs font-medium uppercase tracking-wide text-slate-500";
 
 export function AISettingsForm() {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [draft, setDraft] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  const form = useForm<AISettingsData>({
-    resolver: zodResolver(aiSettingsSchema),
-    defaultValues: {
-      model: "gpt-4",
-      temperature: 0.7,
-      maxTokens: 2000,
-      systemPrompt: "",
-      autoResponseEnabled: true,
-      confidenceThreshold: 0.8,
-      escalationKeywords: "",
-    },
-  });
-
-  const fetchAIConfig = async () => {
+  const load = useCallback(async () => {
     try {
       setIsLoading(true);
-      const config = await api.config.getAI();
-      form.reset({
-        model: config.model || "gpt-4",
-        temperature: config.temperature || 0.7,
-        maxTokens: config.maxTokens || 2000,
-        systemPrompt: config.systemPrompt || "",
-        autoResponseEnabled: config.autoResponseEnabled !== false,
-        confidenceThreshold: config.confidenceThreshold || 0.8,
-        escalationKeywords: config.escalationKeywords?.join(", ") || "",
-      });
-    } catch (error: any) {
-      toast.error(error.message || "Error al cargar configuración");
+      const snap = await api.config.getLucasPrompt();
+      setSnapshot(snap);
+      setDraft(snap.content ?? "");
+    } catch (err: any) {
+      toast.error(err?.message || "No se pudo cargar el prompt");
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchAIConfig();
   }, []);
 
-  const onSubmit = async (data: AISettingsData) => {
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const dirty = useMemo(() => {
+    return (snapshot?.content ?? "") !== draft;
+  }, [snapshot, draft]);
+
+  const handleSave = useCallback(async () => {
+    if (!dirty) return;
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      toast.error("El prompt no puede quedar vacío");
+      return;
+    }
+    setIsSaving(true);
     try {
-      setIsSaving(true);
-
-      const keywords = data.escalationKeywords
-        .split(",")
-        .map((k) => k.trim())
-        .filter((k) => k.length > 0);
-
-      await api.config.updateAI({
-        model: data.model,
-        temperature: data.temperature,
-        maxTokens: data.maxTokens,
-        systemPrompt: data.systemPrompt,
-        autoResponseEnabled: data.autoResponseEnabled,
-        confidenceThreshold: data.confidenceThreshold,
-        escalationKeywords: keywords,
-      });
-
-      toast.success("Configuración de IA actualizada correctamente");
-    } catch (error: any) {
-      toast.error(error.message || "Error al actualizar configuración");
+      const next = await api.config.updateLucasPrompt(trimmed);
+      setSnapshot(next);
+      setDraft(next.content ?? "");
+      toast.success("Prompt guardado. El agente usa la versión nueva desde el próximo mensaje.");
+    } catch (err: any) {
+      toast.error(err?.message || "No se pudo guardar el prompt");
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [dirty, draft]);
+
+  const handleReset = useCallback(async () => {
+    setIsResetting(true);
+    try {
+      const next = await api.config.resetLucasPrompt();
+      setSnapshot(next);
+      setDraft(next.content ?? "");
+      setResetOpen(false);
+      toast.success("Prompt restablecido al original del servidor.");
+    } catch (err: any) {
+      toast.error(err?.message || "No se pudo restablecer el prompt");
+    } finally {
+      setIsResetting(false);
+    }
+  }, []);
 
   if (isLoading) {
     return (
       <div className="rounded-2xl border border-slate-200/70 bg-white p-6 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-        <div className="mb-5 flex items-center gap-3">
+        <div className={SECTION_HEADER}>
           <Skeleton className="h-11 w-11 rounded-xl" />
           <div className="space-y-2">
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-72" />
           </div>
         </div>
-        <div className="space-y-4">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
+        <Skeleton className="h-72 rounded-xl" />
       </div>
     );
   }
 
+  const sourceLabel: Record<Source, string> = {
+    db: "Personalizado (editado desde el panel)",
+    file: "Original del servidor",
+    none: "Sin prompt cargado (fallback genérico)",
+  };
+  const sourceTint: Record<Source, string> = {
+    db: "bg-emerald-100 text-emerald-700",
+    file: "bg-slate-100 text-slate-600",
+    none: "bg-amber-100 text-amber-700",
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200/70 bg-white p-6 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-      {/* Section header */}
-      <div className="mb-6 flex items-center gap-3">
+      <div className={SECTION_HEADER}>
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(139_92_246/0.45)]">
           <SmartToyIcon sx={{ fontSize: 22 }} />
         </span>
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">Configuración de IA</h2>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-slate-900">Prompt del agente Lucas</h2>
           <p className="text-xs text-slate-500">
-            Configura el comportamiento del asistente virtual y el modelo de IA
+            Define quién es Lucas, cómo responde y qué puede hacer. Cualquier cambio guardado acá impacta
+            inmediatamente en la próxima respuesta del agente — sin reinicios.
           </p>
         </div>
       </div>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-          <FormField
-            control={form.control}
-            name="model"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className={FIELD_LABEL}>Modelo de IA</FormLabel>
-                <FormControl>
-                  <Input placeholder="gpt-4" {...field} />
-                </FormControl>
-                <FormDescription className="text-[11px] text-slate-500">
-                  Modelo de lenguaje a utilizar (ej: gpt-4, gpt-3.5-turbo)
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+      {/* Status row — source + length + last-edit */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${sourceTint[snapshot?.source ?? "none"]}`}
+          data-testid="lucas-prompt-source"
+        >
+          {sourceLabel[snapshot?.source ?? "none"]}
+        </span>
+        <span className="text-slate-400">·</span>
+        <span data-testid="lucas-prompt-length">
+          {(snapshot?.length ?? 0).toLocaleString("es-AR")} caracteres
+        </span>
+        {snapshot?.updatedAt && (
+          <>
+            <span className="text-slate-400">·</span>
+            <span>
+              Última edición: {safeFormatDate(snapshot.updatedAt, "dd/MM/yyyy HH:mm")}
+            </span>
+          </>
+        )}
+      </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <FormField
-              control={form.control}
-              name="temperature"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className={FIELD_LABEL}>Temperatura (0-2)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="2"
-                      {...field}
-                      onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormDescription className="text-[11px] text-slate-500">
-                    Creatividad de las respuestas
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+      <label htmlFor="lucas-prompt-editor" className={FIELD_LABEL}>
+        Contenido del prompt
+      </label>
+      <textarea
+        id="lucas-prompt-editor"
+        data-testid="lucas-prompt-editor"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        spellCheck={false}
+        rows={20}
+        className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-slate-900 focus:border-violet-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-100"
+        placeholder="Sos Lucas, el asistente de ServiFibras…"
+      />
+      <p className="mt-1.5 text-[11px] text-slate-500">
+        Markdown, headers y emojis decorativos los limpia automáticamente el sistema antes de enviar al cliente.
+        El máximo permitido es 200 KB.
+      </p>
 
-            <FormField
-              control={form.control}
-              name="maxTokens"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className={FIELD_LABEL}>Max Tokens</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="4000"
-                      {...field}
-                      onChange={(e) => field.onChange(parseInt(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormDescription className="text-[11px] text-slate-500">
-                    Longitud máxima de respuesta
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || isSaving}
+          data-testid="lucas-prompt-save"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)]"
+        >
+          {isSaving ? (
+            <>
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Guardando…
+            </>
+          ) : (
+            <>
+              <SaveIcon sx={{ fontSize: 16 }} />
+              Guardar cambios
+            </>
+          )}
+        </button>
 
-          <FormField
-            control={form.control}
-            name="systemPrompt"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className={FIELD_LABEL}>Prompt del Sistema</FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={6}
-                    className="resize-none font-mono text-[13px] leading-relaxed"
-                    placeholder="Eres un asistente virtual especializado en..."
-                    {...field}
-                  />
-                </FormControl>
-                <FormDescription className="text-[11px] text-slate-500">
-                  Instrucciones base para el comportamiento de la IA
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        <button
+          type="button"
+          onClick={() => setDraft(snapshot?.content ?? "")}
+          disabled={!dirty || isSaving}
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Descartar cambios
+        </button>
 
-          <FormField
-            control={form.control}
-            name="autoResponseEnabled"
-            render={({ field }) => (
-              <FormItem
-                className={`flex flex-row items-center justify-between gap-3 rounded-xl border p-4 transition-colors duration-200 space-y-0 ${
-                  field.value
-                    ? "border-emerald-200/70 bg-emerald-50/50"
-                    : "border-slate-200 bg-slate-50/50"
-                }`}
-              >
-                <div className="min-w-0">
-                  <FormLabel className="block text-sm font-semibold text-slate-900">
-                    Respuesta Automática
-                  </FormLabel>
-                  <FormDescription className="text-xs text-slate-600">
-                    {field.value
-                      ? "Activa — la IA responderá automáticamente a los mensajes."
-                      : "Desactivada — todos los mensajes requieren intervención humana."}
-                  </FormDescription>
-                </div>
-                <FormControl>
-                  <Switch checked={field.value} onCheckedChange={field.onChange} />
-                </FormControl>
-              </FormItem>
-            )}
-          />
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50"
+        >
+          <RefreshIcon sx={{ fontSize: 16 }} className="text-blue-600" />
+          Recargar
+        </button>
 
-          <FormField
-            control={form.control}
-            name="confidenceThreshold"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className={FIELD_LABEL}>Umbral de Confianza (0-1)</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="1"
-                    {...field}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                  />
-                </FormControl>
-                <FormDescription className="text-[11px] text-slate-500">
-                  Nivel mínimo de confianza para responder automáticamente
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        {snapshot?.source === "db" && (
+          <button
+            type="button"
+            onClick={() => setResetOpen(true)}
+            data-testid="lucas-prompt-reset"
+            className="ml-auto inline-flex h-10 items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-medium text-amber-800 transition-all duration-200 hover:border-amber-300 hover:bg-amber-100"
+          >
+            <RestartAltIcon sx={{ fontSize: 16 }} />
+            Restablecer al original
+          </button>
+        )}
+      </div>
 
-          <FormField
-            control={form.control}
-            name="escalationKeywords"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className={FIELD_LABEL}>Palabras Clave de Escalación</FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={3}
-                    className="resize-none"
-                    placeholder="urgente, problema, error, reclamo (separados por comas)"
-                    {...field}
-                  />
-                </FormControl>
-                <FormDescription className="text-[11px] text-slate-500">
-                  Palabras que activan la derivación a un humano
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(139_92_246/0.5)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(139_92_246/0.65)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Restablecer el prompt original?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vas a descartar la versión personalizada y volver al prompt que viene por defecto en el servidor.
+              Los cambios guardados se pierden — si querés conservarlos, copialos a un lado antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReset}
+              disabled={isResetting}
+              data-testid="lucas-prompt-reset-confirm"
             >
-              {isSaving ? (
-                <>
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <SaveIcon sx={{ fontSize: 16 }} />
-                  Guardar Cambios
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={fetchAIConfig}
-              disabled={isLoading}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] disabled:opacity-60"
-            >
-              <RefreshIcon sx={{ fontSize: 16 }} />
-              Recargar
-            </button>
-          </div>
-        </form>
-      </Form>
+              {isResetting ? "Restableciendo…" : "Restablecer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

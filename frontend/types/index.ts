@@ -24,6 +24,44 @@ export enum ContactType {
   INDUSTRIAL = "INDUSTRIAL",     // Industrial
 }
 
+// Marcos's 2-dimension classification — replaces the flat ContactType for
+// new code. The legacy ContactType enum is kept while consumers migrate.
+export enum CustomerType {
+  ARTESANO = "ARTESANO",
+  EMPRENDEDOR = "EMPRENDEDOR",
+  MAYORISTA = "MAYORISTA",
+  INDUSTRIAL = "INDUSTRIAL",
+  PRFV_LAMINADOS = "PRFV_LAMINADOS",
+  PROVEEDOR = "PROVEEDOR",
+}
+
+export enum FunnelStage {
+  CONSULTA = "CONSULTA",
+  COTIZADO = "COTIZADO",
+  NO_CONCRETO = "NO_CONCRETO",
+  COMPRADOR = "COMPRADOR",
+  FRECUENTE = "FRECUENTE",
+  REACTIVAR = "REACTIVAR",
+}
+
+export const CUSTOMER_TYPE_LABELS: Record<CustomerType, string> = {
+  [CustomerType.ARTESANO]: "Artesano / Hobbysta",
+  [CustomerType.EMPRENDEDOR]: "Emprendedor",
+  [CustomerType.MAYORISTA]: "Mayorista",
+  [CustomerType.INDUSTRIAL]: "Industrial",
+  [CustomerType.PRFV_LAMINADOS]: "PRFV / Laminados",
+  [CustomerType.PROVEEDOR]: "Proveedor",
+};
+
+export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
+  [FunnelStage.CONSULTA]: "Consulta",
+  [FunnelStage.COTIZADO]: "Cotizado",
+  [FunnelStage.NO_CONCRETO]: "No concretó",
+  [FunnelStage.COMPRADOR]: "Comprador",
+  [FunnelStage.FRECUENTE]: "Cliente frecuente",
+  [FunnelStage.REACTIVAR]: "Reactivar",
+};
+
 export enum Channel {
   WHATSAPP = "WHATSAPP",
   FACEBOOK = "FACEBOOK",
@@ -102,8 +140,16 @@ export interface Contact {
   phone: string | null;
   email: string | null;
   type: ContactType;
+  // 2D classification (Marcos's redesign) — either field may be null
+  // until the contact has been classified.
+  customerType?: CustomerType | null;
+  funnelStage?: FunnelStage | null;
   channel: Channel | null;
   metadata: Record<string, any> | null;
+  // Optional avatar pulled from the platform on first contact (Graph API
+  // for FB Messenger + IG). WhatsApp / ML / webchat fall back to the
+  // initials gradient. Server returns null when not available.
+  avatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,6 +163,17 @@ export interface Conversation {
   lastMessage: string | null;
   lastMessageAt: string | null;
   isUnread: boolean;
+  // True while the conversation is parked waiting for a human (AI handed
+  // off, or customer explicitly asked for a person). Cleared when any staff
+  // member sends a reply through the panel.
+  needsHumanAttention?: boolean;
+  escalatedAt?: string | null;
+  // Per-conversation AI kill-switch toggled from the conversation header.
+  // When true the inbound pipeline still saves customer messages but the
+  // AI does not reply — operators handle it manually.
+  aiPaused?: boolean;
+  aiPausedAt?: string | null;
+  aiPausedBy?: string | null;
   metadata: Record<string, any> | null;
   createdAt: string;
   updatedAt: string;
@@ -131,6 +188,18 @@ export interface Message {
   isFromAI: boolean;
   metadata: Record<string, any> | null;
   timestamp: string;
+  // Optional file attachment metadata. URL is the auth-gated download path
+  // (e.g. "/admin/uploads/2026/05/abcdef.png"); the binary lives behind
+  // AuthGuard on the backend so it's only fetched with a valid token.
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentMime?: string | null;
+  attachmentSize?: number | null;
+  // Per-user attribution for staff replies. Null for CUSTOMER + AI
+  // messages (those identify themselves by the `sender` enum). When
+  // present, the bubble shows the operator's actual name instead of
+  // the generic role label.
+  author?: { id: string; name: string } | null;
 }
 
 export interface Lead {
@@ -144,6 +213,11 @@ export interface Lead {
   notes: string | null;
   wonAmount: number | null;
   lostReason: string | null;
+  // Source conversation, when this lead was auto-detected from a chat
+  // thread. The server backfills it from contact+channel for legacy
+  // rows so this is reliable for routing the "Ir a la conversación"
+  // deep-link.
+  sourceConversationId?: string | null;
   createdAt: string;
   updatedAt: string;
   // Optional relations (when fetched with includes)
@@ -155,6 +229,7 @@ export interface Order {
   id: string;
   orderNumber: string;
   contactId: string;
+  conversationId: string | null;
   amount: number;
   currency: string;
   products: OrderProduct[];
@@ -238,8 +313,22 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
+  // Backwards-compat — short-lived access token. Same value as accessToken.
   token: string;
+  // Short-lived JWT — used as the bearer on every API request.
+  accessToken: string;
+  accessTokenExpiresIn: number; // seconds
+  // Long-lived rotation token — exchanged for a new pair via /auth/refresh.
+  refreshToken: string;
+  refreshTokenExpiresAt: string;
   user: User;
+}
+
+export interface RefreshResponse {
+  accessToken: string;
+  accessTokenExpiresIn: number;
+  refreshToken: string;
+  refreshTokenExpiresAt: string;
 }
 
 export interface AuthUser {
@@ -490,10 +579,15 @@ export interface GetOrdersResponse {
 
 export interface CreateOrderRequest {
   contactId: string;
+  conversationId?: string | null;
+  orderNumber?: string;
   amount: number;
   currency?: string;
   products: OrderProduct[];
   notes?: string;
+  // Marcos 2026-06-12: operator pre-selects which section of the
+  // daily logística panel should receive the row.
+  sectionOverride?: 'MOTOS' | 'MICROS' | 'RETIRA_CASEROS' | 'LAMINADOS_PRFV' | null;
 }
 
 export interface UpdateOrderRequest {

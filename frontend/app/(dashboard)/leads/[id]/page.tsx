@@ -12,9 +12,10 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api/endpoints";
+import { api, type Quote } from "@/lib/api/endpoints";
 import type { Lead, User } from "@/types";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ForumIcon from "@mui/icons-material/Forum";
 import CancelIcon from "@mui/icons-material/Cancel";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EmailIcon from "@mui/icons-material/Email";
@@ -22,10 +23,15 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import NotesIcon from "@mui/icons-material/Notes";
 import PersonIcon from "@mui/icons-material/Person";
 import PhoneIcon from "@mui/icons-material/Phone";
+import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import { toast } from "sonner";
 import { safeFormatDate, safeFormatDistanceToNow } from "@/lib/date";
 import { formatNumber } from "@/lib/format";
-import { LeadStatus, CHANNEL_LABELS, LEAD_STATUS_LABELS } from "@/types";
+import { LeadStatus, CHANNEL_LABELS, LEAD_STATUS_LABELS, UserRole } from "@/types";
+import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+
+const LEADS_ROLES = [UserRole.ADMIN, UserRole.VENTAS];
 
 const STATUS_TINT: Record<string, { dot: string; pill: string }> = {
   NEW:         { dot: "bg-blue-500",    pill: "bg-blue-50 text-blue-700 border-blue-200/70" },
@@ -42,12 +48,14 @@ const SECTION_LABEL = "mb-4 text-[11px] font-semibold uppercase tracking-wider t
 export default function LeadDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const { isAllowed } = useRoleGuard(LEADS_ROLES);
   const leadId = params.id as string;
   const [lead, setLead] = useState<Lead | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [wonAmount, setWonAmount] = useState<number>(0);
   const [lostReason, setLostReason] = useState<string>("");
+  const [quotes, setQuotes] = useState<Quote[]>([]);
 
   const fetchLead = async () => {
     try {
@@ -73,10 +81,49 @@ export default function LeadDetailPage() {
     }
   };
 
+  const fetchQuotes = async () => {
+    try {
+      const list = await api.quotes.list({ leadId });
+      setQuotes(list);
+    } catch {
+      // Soft-fail: lead detail still works without the quotes panel.
+    }
+  };
+
   useEffect(() => {
+    if (!isAllowed) return;
     fetchLead();
     fetchUsers();
-  }, [leadId]);
+    fetchQuotes();
+  }, [leadId, isAllowed]);
+
+  const openQuotePdf = async (id: string) => {
+    try {
+      const url = await api.quotes.getPdfBlobUrl(id);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Error al abrir PDF");
+    }
+  };
+
+  // Pre-fills the /quotes composer with this lead's contact data via
+  // sessionStorage. The quotes page reads + clears it on mount.
+  const startQuote = () => {
+    if (!lead) return;
+    try {
+      sessionStorage.setItem('quote.prefill', JSON.stringify({
+        leadId: lead.id,
+        contactId: lead.contactId,
+        buyerName: lead.contact?.name ?? '',
+        buyerTaxId: '',
+        productInterest: lead.productInterest ?? '',
+        estimatedValue: lead.estimatedValue ?? null,
+      }));
+    } catch { /* sessionStorage unavailable — page still works */ }
+    router.push('/quotes');
+  };
+
+  if (!isAllowed) return null;
 
   const handleAssign = async (userId: string | null) => {
     if (!lead || !userId) return;
@@ -144,19 +191,36 @@ export default function LeadDetailPage() {
       {/* IDENTITY ROW */}
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="truncate text-lg font-bold tracking-tight sm:text-2xl text-slate-900">
             {lead.contact?.name || lead.contact?.phone || "Oportunidad"}
           </h1>
           <p className="text-sm text-slate-500">
             Creada {safeFormatDistanceToNow(lead.createdAt)}
           </p>
         </div>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusTint.pill}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${statusTint.dot}`} />
-          {LEAD_STATUS_LABELS[lead.status]}
-        </span>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* Deep-link to the source conversation — Marcos's #4 ask.
+              Visible only when we have a conversation to link to
+              (auto-detected leads always do; manual Meta-Ads leads
+              don't). */}
+          {lead.sourceConversationId && (
+            <button
+              type="button"
+              onClick={() => router.push(`/conversations/${lead.sourceConversationId}`)}
+              title="Ir a la conversación de origen"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 px-3 text-xs font-medium text-white shadow-[0_8px_20px_-6px_rgb(59_130_246/0.5)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-6px_rgb(59_130_246/0.65)] active:translate-y-0 active:scale-[0.97] sm:px-4"
+            >
+              <ForumIcon sx={{ fontSize: 14 }} />
+              Ir a la conversación
+            </button>
+          )}
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${statusTint.pill}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${statusTint.dot}`} />
+            {LEAD_STATUS_LABELS[lead.status]}
+          </span>
+        </div>
       </div>
 
       {/* MAIN GRID */}
@@ -225,6 +289,49 @@ export default function LeadDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Quotes — list of presupuestos generated against this lead. */}
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className={SECTION_LABEL + " mb-0"}>Presupuestos</h3>
+              <button
+                type="button"
+                onClick={startQuote}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-600 to-yellow-500 px-3 text-[11px] font-medium text-white shadow-[0_4px_12px_-2px_rgb(217_119_6/0.5)] hover:from-amber-700 hover:to-yellow-600"
+              >
+                <RequestQuoteIcon sx={{ fontSize: 14 }} />
+                Generar presupuesto
+              </button>
+            </div>
+            {quotes.length === 0 ? (
+              <p className="text-xs italic text-slate-500">Sin presupuestos. Click en "Generar presupuesto" para crear uno con los datos del contacto.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {quotes.map((q) => (
+                  <li key={q.id} className="flex items-center gap-3 py-2">
+                    <span className="font-mono text-[10px] font-semibold text-slate-900">{q.quoteNumber}</span>
+                    <span className="text-[11px] text-slate-500">
+                      {new Date(q.issueDate).toLocaleDateString("es-AR")}
+                    </span>
+                    <span className="ml-auto text-[11px] tabular-nums text-slate-700">
+                      ${formatNumber(q.totalAmount)} {q.currency}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+                      {q.status}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openQuotePdf(q.id)}
+                      aria-label="Abrir PDF"
+                      className="grid h-7 w-7 place-items-center rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <PictureAsPdfIcon sx={{ fontSize: 14 }} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* Won card */}
