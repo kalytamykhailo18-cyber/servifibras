@@ -641,9 +641,45 @@ export class AnalyticsService implements IAnalyticsService {
    *     we keep the TN label as-is.
    *   - Anything else falls through unchanged.
    */
+  /**
+   * Marcos 2026-06-16: the TN shipping-method label (e.g. "GBA 1 GRATIS
+   * (15hs a 21hs)", "CABA GRATUITO", "Tarifa Nacional Gran Tamaño")
+   * carries the ZONE the package is going to — but not the carrier
+   * (the operator picks that in the panel). We extract the zone here
+   * so the per-zone breakdown + tariff lookup can use Marcos's
+   * canonical names (CABA, GBA 1, GBA 2, GBA 3, Nacional, Nacional GT,
+   * Interior). Returns null when the label doesn't carry a zone hint.
+   */
+  private deriveZoneFromShippingLabel(raw: string | null | undefined): string | null {
+    const lc = (raw ?? '').trim().toLowerCase();
+    if (!lc) return null;
+    if (/\bgba\s*1\b/.test(lc)) return 'GBA 1';
+    if (/\bgba\s*2\b/.test(lc)) return 'GBA 2';
+    if (/\bgba\s*3\b/.test(lc)) return 'GBA 3';
+    if (/\bcaba\b/.test(lc)) return 'CABA';
+    if (/tarifa\s+nacional\s+gran\s*tama/.test(lc)) return 'Nacional Gran Tamaño';
+    if (/tarifa\s+nacional/.test(lc)) return 'Nacional';
+    if (/despacho\s+a?\s*terminal/.test(lc) || /\bmicro\b/.test(lc)) return 'Interior (micro)';
+    return null;
+  }
+
+  /**
+   * Argentine province → canonical zone. Capital Federal collapses to
+   * CABA so a TN order whose only zone hint is the province field
+   * still matches Marcos's tariff rows. Buenos Aires province stays
+   * un-derived because it splits across GBA 1/2/3 and the operator
+   * has to pick — we don't guess.
+   */
+  private provinceToZone(province: string | null | undefined): string | null {
+    const lc = (province ?? '').trim().toLowerCase();
+    if (!lc) return null;
+    if (/^(capital federal|caba|c\.a\.b\.a\.?)$/.test(lc)) return 'CABA';
+    return null;
+  }
+
   private normaliseCarrier(raw: string | null | undefined): string {
     const v = (raw ?? '').trim();
-    if (!v) return 'Sin identificar';
+    if (!v) return 'Sin asignar';
     const lc = v.toLowerCase();
     // Andreani family.
     if (/^andreani\b|env[ií]o nube/.test(lc)) return 'Andreani';
@@ -655,9 +691,20 @@ export class AnalyticsService implements IAnalyticsService {
     if (/^m2\b|mensaje?r[ií]a m2/.test(lc)) return 'M2';
     // Baires moto-fleet — covers "Baires", "Mensajería Baires", etc.
     if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
-    // Otherwise the TN/ML label wins — gives Marcos visibility on
-    // whatever new carrier shows up that we haven't taught yet.
-    return v;
+    // OCA — real Argentine courier; surfaced verbatim in TN labels.
+    if (/^oca\b/.test(lc)) return 'OCA';
+    // Mercado Libre — set explicitly by the ML branch in
+    // getDispatchStats, pass through.
+    if (/^mercado libre\b/.test(lc)) return 'Mercado Libre';
+    // Marcos 2026-06-16: anything else is a TN shipping-method label
+    // (e.g. "CABA GRATUITO (15hs a 21hs)", "GBA 1 GRATIS", "Tarifa
+    // Nacional C…", "DESPACHO A TERMINAL DE MICRO…"). These are
+    // descriptors of the shipping window/zone — the operator picks
+    // the actual mensajería later via the per-row courier dropdown
+    // on the Listas tab. Until they do, we fold them into one
+    // "Sin asignar" bucket instead of polluting the card with one
+    // row per shipping method.
+    return 'Sin asignar';
   }
 
   /**
@@ -771,7 +818,7 @@ export class AnalyticsService implements IAnalyticsService {
       orders: Array<any>;
     };
     const groups = new Map<string, Bucket>();
-    function bumpGroup(carrier: string, row: any) {
+    const bumpGroup = (carrier: string, row: any) => {
       const b = groups.get(carrier) ?? {
         count: 0,
         totalShippingCost: 0,
@@ -781,15 +828,27 @@ export class AnalyticsService implements IAnalyticsService {
       b.count++;
       const c = typeof row.shippingCost === 'number' ? row.shippingCost : 0;
       b.totalShippingCost += c;
-      const zoneLabel: string = (typeof row.shippingZone === 'string' && row.shippingZone.length > 0)
-        ? row.shippingZone : 'Sin zona';
+      // Marcos 2026-06-16: prefer the zone hint embedded in the TN
+      // shipping-method label (carries CABA / GBA 1/2/3 / Nacional)
+      // over the raw shippingZone (which is just the province). Falls
+      // back to a province → zone alias (Capital Federal → CABA),
+      // then to the raw province, then to "Sin zona". `rawCarrier`
+      // is stripped from the row before it lands in the API response.
+      const rawCarrierHint = (row as any).rawCarrier ?? null;
+      delete (row as any).rawCarrier;
+      const derivedZone =
+        this.deriveZoneFromShippingLabel(rawCarrierHint) ??
+        this.provinceToZone(row.shippingZone) ??
+        (typeof row.shippingZone === 'string' && row.shippingZone.length > 0 ? row.shippingZone : null);
+      const zoneLabel: string = derivedZone ?? 'Sin zona';
+      row.shippingZone = zoneLabel;
       const z = b.byZone.get(zoneLabel) ?? { count: 0, totalShippingCost: 0 };
       z.count++;
       z.totalShippingCost += c;
       b.byZone.set(zoneLabel, z);
       if (b.orders.length < 200) b.orders.push(row);
       groups.set(carrier, b);
-    }
+    };
     for (const s of stamps) {
       if (!s.manuallyDispatchedAt) continue;
       let rawCarrier: string | null = null;
@@ -837,6 +896,7 @@ export class AnalyticsService implements IAnalyticsService {
         currency,
         shippingCost,
         shippingZone,
+        rawCarrier,
       });
     }
     // Marcos 2026-06-15: load the tariff table once and index by
@@ -845,7 +905,12 @@ export class AnalyticsService implements IAnalyticsService {
     // than an inflated total.
     const allTariffs = await this.tariffs.listActive().catch(() => []);
     const tariffIndex = new Map<string, { costPerPackage: number; currency: string }>();
-    for (const t of allTariffs) tariffIndex.set(`${t.carrier}::${t.zone}`, { costPerPackage: t.costPerPackage, currency: t.currency });
+    // Marcos 2026-06-16: tariff lookup is case-insensitive on both
+    // carrier and zone so "JYJ" loaded by hand still matches the
+    // aggregator's normalised "JyJ", and "Caba" / "CABA" / "caba"
+    // all hit the same row.
+    const tariffKey = (carrier: string, zone: string) => `${carrier.trim().toLowerCase()}::${zone.trim().toLowerCase()}`;
+    for (const t of allTariffs) tariffIndex.set(tariffKey(t.carrier, t.zone), { costPerPackage: t.costPerPackage, currency: t.currency });
 
     let globalRowsWithoutTariff = 0;
     const byCarrier = Array.from(groups.entries())
@@ -854,7 +919,7 @@ export class AnalyticsService implements IAnalyticsService {
         let carrierRowsWithoutTariff = 0;
         const zones = Array.from(b.byZone.entries())
           .map(([zone, z]) => {
-            const tariff = tariffIndex.get(`${carrier}::${zone}`) ?? null;
+            const tariff = tariffIndex.get(tariffKey(carrier, zone)) ?? null;
             const estimatedCost = tariff ? tariff.costPerPackage * z.count : null;
             if (tariff == null) {
               carrierRowsWithoutTariff += z.count;

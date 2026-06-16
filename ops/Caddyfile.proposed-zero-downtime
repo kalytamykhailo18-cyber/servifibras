@@ -33,12 +33,23 @@
 	}
 }
 
-(deploy_safe) {
+# Backend has a real /health endpoint — active probe + retry-on-fail.
+(deploy_safe_backend) {
 	lb_try_duration 12s
 	lb_try_interval 250ms
 	health_uri      /health
 	health_interval 2s
 	health_timeout  1s
+}
+
+# Frontend (Next.js) has no /health — only the retry behaviour. The
+# brief restart-window 502 still becomes a small latency bump because
+# Caddy retries the upstream until it accepts the connection, but
+# without an active health probe we'd otherwise mark it unhealthy
+# and 503 every request.
+(deploy_safe_frontend) {
+	lb_try_duration 12s
+	lb_try_interval 250ms
 }
 
 # Marcos 2026-06-15: prevent stale-chunk errors after a frontend
@@ -59,7 +70,7 @@ dev.servifibras.com {
 	import no_store_html
 	encode gzip zstd
 	reverse_proxy 127.0.0.1:3000 {
-		import deploy_safe
+		import deploy_safe_frontend
 	}
 	log {
 		output file /var/log/caddy/dev.servifibras.com.log
@@ -70,7 +81,7 @@ api-dev.servifibras.com {
 	import security_headers
 	encode gzip zstd
 	reverse_proxy 127.0.0.1:3001 {
-		import deploy_safe
+		import deploy_safe_backend
 	}
 	log {
 		output file /var/log/caddy/api-dev.servifibras.com.log
