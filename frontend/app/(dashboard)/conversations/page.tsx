@@ -48,6 +48,25 @@ export default function ConversationsPage() {
     router.replace(`/conversations${sp.toString() ? `?${sp.toString()}` : ""}`, { scroll: false });
   };
 
+  // Marcos 2026-06-17: small red badge next to the Mercado Libre tab
+  // showing the count of pending drafts (questions + messages +
+  // claims). Polls every 30s — light query, just a length. Falls
+  // silent on errors so a transient hiccup doesn't break the page.
+  const [mlPendingCount, setMlPendingCount] = useState<number>(0);
+  useEffect(() => {
+    if (!mlTabAllowed) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const drafts = await api.mercadolibre.pendingDrafts(200);
+        if (!cancelled) setMlPendingCount(Array.isArray(drafts) ? drafts.length : 0);
+      } catch { /* non-fatal */ }
+    };
+    void tick();
+    const h = setInterval(tick, 30_000);
+    return () => { cancelled = true; clearInterval(h); };
+  }, [mlTabAllowed]);
+
   const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +269,15 @@ export default function ConversationsPage() {
           >
             <StorefrontIcon sx={{ fontSize: 16 }} />
             Mercado Libre
+            {mlPendingCount > 0 && (
+              <span
+                data-testid="conversations-tab-mercadolibre-count"
+                title={`${mlPendingCount} pendiente${mlPendingCount === 1 ? '' : 's'} de revisión`}
+                className="ml-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-bold tabular-nums text-white"
+              >
+                {mlPendingCount}
+              </span>
+            )}
           </button>
         )}
       </div>
