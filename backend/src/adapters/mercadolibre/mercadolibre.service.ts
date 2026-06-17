@@ -564,6 +564,61 @@ export class MercadoLibreService implements IMercadoLibreService {
         );
       }
 
+      // Marcos 2026-06-17: ML migrated the post-venta event stream
+      // from the legacy topic-per-event names (`messages`, `claims`)
+      // to a unified `post_purchase` topic that uses the `resource`
+      // path + `actions` array to disambiguate. Detect both shapes
+      // so the agent still picks up claims + post-venta DMs on the
+      // new event names.
+      if (topic === 'post_purchase') {
+        const actions: string[] = Array.isArray(webhookPayload.actions)
+          ? webhookPayload.actions.map(String)
+          : [];
+        // Claim — resource looks like /post-purchase/v1/claims/{id}
+        const claimMatch = /\/claims\/([^/]+)/.exec(resource);
+        if (claimMatch || actions.includes('claims')) {
+          const claimId = claimMatch?.[1] ?? resourceId;
+          this.logger.log(`📩 MercadoLibre claim notification (post_purchase): ${claimId}`);
+          return new MercadoLibreIncomingMessage(
+            claimId,
+            MercadoLibreMessageType.CLAIM,
+            'unknown',
+            webhookPayload.user_id || 'unknown',
+            '',
+            null,
+            MercadoLibreStatus.UNANSWERED,
+            new Date(),
+          );
+        }
+        // Post-venta DM — resource looks like /messages/packs/{packId}/...
+        const packMatch = /\/messages\/packs\/([^/]+)/.exec(resource);
+        if (packMatch || actions.includes('messages')) {
+          const packId = packMatch?.[1] ?? resourceId;
+          this.logger.log(`📩 MercadoLibre post-venta message notification (post_purchase): pack ${packId}`);
+          return new MercadoLibreIncomingMessage(
+            packId,
+            MercadoLibreMessageType.MESSAGE,
+            'unknown',
+            webhookPayload.user_id || 'unknown',
+            '',
+            null,
+            MercadoLibreStatus.UNANSWERED,
+            new Date(),
+          );
+        }
+        this.logger.debug(`post_purchase webhook with unrecognised resource/actions: ${resource} ${JSON.stringify(actions)}`);
+        return null;
+      }
+
+      // Marcos 2026-06-17: ML pings us for every new order (orders_v2
+      // topic). We already pull orders via a 5-min cron, so the
+      // webhook ping is redundant — drop it silently instead of
+      // logging "not supported" on every order.
+      if (topic === 'orders_v2' || topic === 'orders') {
+        this.logger.debug(`Order notification ignored (cron handles it): ${resourceId}`);
+        return null;
+      }
+
       this.logger.debug(`Webhook topic not supported: ${topic}`);
       return null;
     } catch (error: any) {
