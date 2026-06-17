@@ -2150,13 +2150,31 @@ export const mercadolibreApi = {
    * ML_QA_REVIEW_MODE=true on the backend, AI answers stay as drafts
    * until the operator releases them).
    */
+  openClaims: async (limit?: number): Promise<Array<{
+    conversationId: string;
+    messageId: string;
+    contactId: string;
+    contactName: string | null;
+    content: string;
+    mlAccountKey: string | null;
+    mlResourceId: string | null;
+    createdAt: string;
+  }>> => {
+    const url = `/admin/mercadolibre/qa/open-claims${limit ? `?limit=${limit}` : ''}`;
+    const r = await apiClient.get<any>(url);
+    return r.data?.data ?? r.data ?? [];
+  },
   pendingDrafts: async (limit?: number): Promise<Array<{
     messageId: string;
     conversationId: string;
     contactName: string | null;
     contactId: string;
     mlQuestionId: string | null;
+    mlPackId: string | null;
     mlAccountKey: string | null;
+    // Marcos 2026-06-17: draft source — splits the QA panel into
+    // Preguntas (kind='question') and Mensajes (kind='message').
+    kind: 'question' | 'message';
     content: string;
     createdAt: string;
     // Marcos 2026-06-12: publication + question surfaced so the

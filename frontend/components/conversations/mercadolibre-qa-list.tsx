@@ -89,7 +89,10 @@ type PendingDraft = {
   contactName: string | null;
   contactId: string;
   mlQuestionId: string | null;
+  mlPackId: string | null;
   mlAccountKey: string | null;
+  // Marcos 2026-06-17: 'question' = ML Q&A, 'message' = post-venta DM.
+  kind: 'question' | 'message';
   content: string;
   createdAt: string;
   // Marcos 2026-06-12: publication + question context surfaced in the
@@ -99,6 +102,19 @@ type PendingDraft = {
   itemId: string | null;
   itemTitle: string | null;
   itemPermalink: string | null;
+};
+
+// Marcos 2026-06-17: open reclamos. Claims escalate to human handoff
+// without an AI draft — surfaced from a separate endpoint.
+type OpenClaim = {
+  conversationId: string;
+  messageId: string;
+  contactId: string;
+  contactName: string | null;
+  content: string;
+  mlAccountKey: string | null;
+  mlResourceId: string | null;
+  createdAt: string;
 };
 
 export function MercadolibreQaList() {
@@ -114,6 +130,12 @@ export function MercadolibreQaList() {
   // ML_QA_REVIEW_MODE=true server-side — the operator edits / sends
   // each draft to ML before the buyer sees the answer.
   const [drafts, setDrafts] = useState<PendingDraft[]>([]);
+  // Marcos 2026-06-17: open reclamos surfaced in the Reclamos sub-tab.
+  const [openClaims, setOpenClaims] = useState<OpenClaim[]>([]);
+  // Sub-tab inside the ML QA panel. Defaults to Preguntas — switches
+  // to whichever section has content on first load so the operator
+  // sees something useful immediately even when Preguntas is empty.
+  const [mlSubTab, setMlSubTab] = useState<'questions' | 'messages' | 'claims'>('questions');
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
@@ -146,10 +168,15 @@ export function MercadolibreQaList() {
 
   const loadDrafts = useCallback(async () => {
     try {
-      const list = await api.mercadolibre.pendingDrafts(100);
+      const [list, claims] = await Promise.all([
+        api.mercadolibre.pendingDrafts(100),
+        api.mercadolibre.openClaims(100).catch(() => [] as OpenClaim[]),
+      ]);
       setDrafts(list);
+      setOpenClaims(claims);
     } catch {
       setDrafts([]);
+      setOpenClaims([]);
     }
   }, []);
 
@@ -366,8 +393,110 @@ export function MercadolibreQaList() {
       {/* Marcos 2026-06-11: pending review drafts (review mode on
           the backend). Each card shows the buyer-side question and
           the agent's draft, editable; Enviar a ML libera la
-          respuesta. Hidden when no drafts to keep the panel quiet. */}
-      {drafts.length > 0 && (
+          respuesta. Hidden when no drafts/messages/claims pending.
+          Marcos 2026-06-17: three sub-tabs (Preguntas / Mensajes /
+          Reclamos) because each operates on a different ML surface
+          and the operator wants the counts split out. */}
+      {(() => {
+        const questions = drafts.filter((d) => d.kind === 'question');
+        const messages = drafts.filter((d) => d.kind === 'message');
+        const claims = openClaims;
+        const totalPending = questions.length + messages.length + claims.length;
+        if (totalPending === 0) return null;
+        const visibleDrafts = mlSubTab === 'questions'
+          ? questions
+          : mlSubTab === 'messages'
+            ? messages
+            : [];
+        const headerCount = mlSubTab === 'questions'
+          ? questions.length
+          : mlSubTab === 'messages'
+            ? messages.length
+            : claims.length;
+        const headerLabel = mlSubTab === 'questions'
+          ? (headerCount === 1 ? 'pregunta pendiente de revisión' : 'preguntas pendientes de revisión')
+          : mlSubTab === 'messages'
+            ? (headerCount === 1 ? 'mensaje pendiente de revisión' : 'mensajes pendientes de revisión')
+            : (headerCount === 1 ? 'reclamo abierto' : 'reclamos abiertos');
+        return (
+      <>
+      <div className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-3">
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-amber-200 bg-white/60 p-1" data-testid="ml-qa-subtabs">
+          {([
+            { id: 'questions' as const, label: 'Preguntas', count: questions.length, activeBg: 'bg-amber-500 text-white' },
+            { id: 'messages'  as const, label: 'Mensajes',  count: messages.length,  activeBg: 'bg-blue-600 text-white' },
+            { id: 'claims'    as const, label: 'Reclamos',  count: claims.length,    activeBg: 'bg-rose-600 text-white' },
+          ]).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setMlSubTab(t.id)}
+              data-testid={`ml-qa-subtab-${t.id}`}
+              className={
+                'flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ' +
+                (mlSubTab === t.id ? t.activeBg : 'text-slate-600 hover:text-slate-900')
+              }
+            >
+              {t.label}
+              {t.count > 0 && (
+                <span
+                  data-testid={`ml-qa-subtab-${t.id}-count`}
+                  className={
+                    'inline-flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ' +
+                    (mlSubTab === t.id ? 'bg-white/25 text-white' : 'bg-rose-600 text-white')
+                  }
+                >
+                  {t.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mlSubTab === 'claims' ? (
+        <div className="rounded-2xl border border-rose-200/80 bg-rose-50/60 p-4 space-y-3" data-testid="ml-pending-claims">
+          {claims.length === 0 ? (
+            <p className="text-center text-xs text-rose-700/80">No hay reclamos abiertos en este momento.</p>
+          ) : (
+            <ul className="space-y-2">
+              {claims.map((c) => (
+                <li
+                  key={c.messageId}
+                  className="rounded-xl border border-rose-200 bg-white p-3"
+                  data-testid={`ml-pending-claim-${c.messageId}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-rose-900">
+                      {c.contactName || 'Comprador'}
+                      {c.mlResourceId && (
+                        <span className="ml-2 font-mono text-[11px] font-normal text-rose-700">
+                          #{c.mlResourceId.split('/').pop()}
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/conversations/${c.conversationId}`)}
+                      data-testid={`ml-pending-claim-open-${c.messageId}`}
+                      className="rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-700"
+                    >
+                      Abrir conversación
+                    </button>
+                  </div>
+                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-rose-900/80">{c.content}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+      </>
+        );
+      })()}
+      {/* Original drafts block — now only rendered when the active
+          sub-tab is questions or messages, since claims have their
+          own surface above. */}
+      {drafts.length > 0 && mlSubTab !== 'claims' && (
         <div
           data-testid="ml-pending-drafts"
           className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-4 space-y-3"
@@ -383,7 +512,14 @@ export function MercadolibreQaList() {
               {draftsCollapsed
                 ? <ChevronRightIcon sx={{ fontSize: 18 }} className="text-amber-700" />
                 : <ExpandMoreIcon sx={{ fontSize: 18 }} className="text-amber-700" />}
-              {drafts.length} {drafts.length === 1 ? 'borrador pendiente de revisión' : 'borradores pendientes de revisión'}
+              {(() => {
+                const subDrafts = drafts.filter((d) => d.kind === (mlSubTab === 'messages' ? 'message' : 'question'));
+                const n = subDrafts.length;
+                const label = mlSubTab === 'messages'
+                  ? (n === 1 ? 'mensaje pendiente de revisión' : 'mensajes pendientes de revisión')
+                  : (n === 1 ? 'pregunta pendiente de revisión' : 'preguntas pendientes de revisión');
+                return `${n} ${label}`;
+              })()}
             </button>
             <div className="flex flex-wrap items-center gap-2">
               {/* AI auto-reply toggle — admin sees it once the
@@ -459,7 +595,7 @@ export function MercadolibreQaList() {
           )}
           {!draftsCollapsed && (
           <ul className="space-y-3">
-            {drafts.map((d) => {
+            {drafts.filter((d) => d.kind === (mlSubTab === 'messages' ? 'message' : 'question')).map((d) => {
               const text = draftEdits[d.messageId] ?? d.content;
               const busy = draftBusy[d.messageId] ?? null;
               return (

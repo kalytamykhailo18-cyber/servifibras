@@ -626,7 +626,13 @@ export class MercadolibreQaService {
       contactName: string | null;
       contactId: string;
       mlQuestionId: string | null;
+      mlPackId: string | null;
       mlAccountKey: string | null;
+      // Marcos 2026-06-17: draft kind for the segmentation UI.
+      // 'question' = ML pre-venta Q&A; 'message' = post-venta DM.
+      // Claims escalate without a draft so they don't appear here —
+      // /admin/mercadolibre/qa/open-claims surfaces those.
+      kind: 'question' | 'message';
       content: string;
       createdAt: Date;
       questionText: string | null;
@@ -653,13 +659,25 @@ export class MercadolibreQaService {
       const itemPermalink = itemId
         ? `https://articulo.mercadolibre.com.ar/${itemId.replace(/^([A-Z]{3})(\d+)$/, '$1-$2')}-_JM`
         : null;
+      const mlQuestionId = typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null;
+      const mlPackId = typeof meta.mlPackId === 'string' ? meta.mlPackId : null;
+      const rawKind = typeof meta.mlDraftKind === 'string' ? meta.mlDraftKind : null;
+      // Fallback when the metadata predates the kind tag: question by
+      // default; pack-id presence implies post-venta message.
+      const kind: 'question' | 'message' =
+        rawKind === 'message' ? 'message'
+        : rawKind === 'question' ? 'question'
+        : mlPackId ? 'message'
+        : 'question';
       result.push({
         messageId: m.id,
         conversationId: m.conversationId,
         contactName: m.conversation?.contact?.name ?? null,
         contactId: m.conversation?.contactId ?? '',
-        mlQuestionId: typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null,
+        mlQuestionId,
+        mlPackId,
         mlAccountKey: typeof meta.mlAccountKey === 'string' ? meta.mlAccountKey : null,
+        kind,
         content: cipher.decrypt(m.content),
         createdAt: m.timestamp,
         questionText: question ? cipher.decrypt(question.content) : null,
@@ -669,6 +687,67 @@ export class MercadolibreQaService {
       });
     }
     return result;
+  }
+
+  /**
+   * Marcos 2026-06-17: list open reclamos (escalated to human handoff
+   * via the post_purchase webhook). Claims don't get an AI draft —
+   * the claim handler saves the customer message with kind='ml_claim'
+   * and escalates. The QA panel's Reclamos section queries this
+   * endpoint to surface them next to questions + messages.
+   */
+  async listOpenClaims(limit = 50): Promise<Array<{
+    conversationId: string;
+    messageId: string;
+    contactId: string;
+    contactName: string | null;
+    content: string;
+    mlAccountKey: string | null;
+    mlResourceId: string | null;
+    createdAt: Date;
+  }>> {
+    const rows = await this.prisma.message.findMany({
+      where: {
+        isFromAI: false,
+        metadata: { path: ['kind'], equals: 'ml_claim' } as any,
+        conversation: {
+          channel: Channel.MERCADOLIBRE,
+          // Only show claims whose conversation still needs a human.
+          // Once the operator clears the handoff flag the claim drops
+          // off the panel.
+          needsHumanAttention: true,
+        },
+      },
+      orderBy: { timestamp: 'desc' },
+      take: Math.max(1, Math.min(200, limit)),
+      select: {
+        id: true,
+        content: true,
+        timestamp: true,
+        metadata: true,
+        conversationId: true,
+        conversation: {
+          select: {
+            contactId: true,
+            contact: { select: { name: true } },
+          },
+        },
+      },
+    });
+    const cipher = getMessageCipher();
+    return rows.map((m) => {
+      const meta = (m.metadata as Record<string, unknown> | null) ?? {};
+      return {
+        conversationId: m.conversationId,
+        messageId: m.id,
+        contactId: m.conversation?.contactId ?? '',
+        contactName: m.conversation?.contact?.name ?? null,
+        content: cipher.decrypt(m.content),
+        mlAccountKey: typeof meta.mlAccountKey === 'string' ? meta.mlAccountKey : null,
+        mlResourceId: typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null,
+        createdAt: m.timestamp,
+      };
+    });
   }
 
   /**

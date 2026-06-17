@@ -52,9 +52,14 @@ export class MercadoLibreController {
   }
 
   private async markLatestDraftPending(
-    questionId: string,
+    resourceId: string,
     mlBuyerId: string,
     mlAccountKey: string | null,
+    // Marcos 2026-06-17: tag the draft with its source kind so the
+    // QA panel can split into Preguntas / Mensajes / Reclamos. The
+    // existing `mlQuestionId` field stays so the release flow can
+    // still find the ML question id when releasing a question.
+    kind: 'question' | 'message' = 'question',
   ): Promise<void> {
     const contact = await this.prisma.contact.findFirst({
       where: {
@@ -82,7 +87,15 @@ export class MercadoLibreController {
         metadata: {
           ...prev,
           pendingReview: true,
-          mlQuestionId: questionId,
+          // For questions the resourceId IS the ML question id; for
+          // post-venta messages it's the ML pack id. We stamp both
+          // shapes so the release flow keeps working for questions
+          // and the QA panel can route the message draft to the
+          // right pack on send.
+          ...(kind === 'question'
+            ? { mlQuestionId: resourceId }
+            : { mlPackId: resourceId }),
+          mlDraftKind: kind,
           mlAccountKey: mlAccountKey ?? null,
           markedPendingAt: new Date().toISOString(),
         } as any,
@@ -315,6 +328,18 @@ export class MercadoLibreController {
       // until he greenlights the autoresponder. Flip to true to let
       // the AI close the loop.
       if ((process.env.ML_POST_VENTA_AUTO_REPLY ?? 'false').toLowerCase() !== 'true') {
+        // Marcos 2026-06-17: stamp pendingReview + kind='message' so
+        // the QA panel's Mensajes section picks it up alongside the
+        // Preguntas section. Without this the post-venta drafts
+        // never reached the operator queue.
+        await this.markLatestDraftPending(
+          packId,
+          message.fromId,
+          account,
+          'message',
+        ).catch((err: any) =>
+          this.logger.warn(`mark-pending failed for pack ${packId}: ${err?.message ?? err}`),
+        );
         this.logger.log(
           `📝 Post-venta AI draft ready for pack ${packId} — auto-reply disabled, operator must send manually`,
         );

@@ -87,6 +87,18 @@ export class MercadolibreQaController {
   }
 
   /**
+   * Marcos 2026-06-17: list open reclamos for the QA panel's Reclamos
+   * section. Claims escalate to human handoff without an AI draft, so
+   * they're not in pending-drafts — this endpoint surfaces them.
+   */
+  @Get('qa/open-claims')
+  async openClaims(@Query('limit') limit?: string) {
+    const limitNum = limit != null ? Number(limit) : 50;
+    const data = await this.svc.listOpenClaims(Number.isFinite(limitNum) ? limitNum : 50);
+    return { success: true, data };
+  }
+
+  /**
    * Marcos 2026-06-11: release a pending draft to MercadoLibre.
    * Body: { text?: string } — if omitted, the saved AI text is sent
    * verbatim; if provided, the operator's edited version is sent and
