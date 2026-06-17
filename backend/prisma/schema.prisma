@@ -60,6 +60,14 @@ enum UserRole {
   ATENCION
   VENTAS
   LOGISTICA
+  // Marcos 2026-06-17: encargado = supervisor / team lead.
+  // Sees the full Atención area (conversations, contacts, leads,
+  // pedidos, quotes, ML QA), the full Logística area, restricted
+  // métricas (own + team attention only — NO sales / NO revenue),
+  // and a subset of Sistema (catálogo, sandbox, base de
+  // conocimiento). NO users / NO audit / NO integraciones / NO
+  // configuración general.
+  ENCARGADO
 }
 
 // Customer Information

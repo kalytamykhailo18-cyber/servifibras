@@ -21,6 +21,10 @@ const ROLE_TO_SENDER: Record<UserRole, MessageSender> = {
   [UserRole.ATENCION]: MessageSender.BRENDA,
   [UserRole.VENTAS]: MessageSender.FRANCO,
   [UserRole.LOGISTICA]: MessageSender.ALDO,
+  // Marcos 2026-06-17: ENCARGADO supervises atención + logística.
+  // Falls back to the ADMIN sender label for outbound bubbles
+  // because there's no dedicated seed user yet.
+  [UserRole.ENCARGADO]: MessageSender.ADMIN,
 };
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';

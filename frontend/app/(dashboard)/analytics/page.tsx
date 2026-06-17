@@ -39,12 +39,16 @@ type AnalyticsTab =
   | "ia"
   | "generales";
 
-const TABS: Array<{ id: AnalyticsTab; label: string; icon: any; adminOnly: boolean }> = [
-  { id: "agentes",         label: "Atención agentes", icon: SupportAgentIcon, adminOnly: false },
-  { id: "calidad-mia",     label: "Calidad tuya",     icon: GradeIcon,        adminOnly: false },
-  { id: "calidad-equipo",  label: "Calidad equipo",   icon: GroupsIcon,       adminOnly: true  },
-  { id: "ia",              label: "Uso de IA",        icon: SmartToyIcon,     adminOnly: true  },
-  { id: "generales",       label: "Métricas generales", icon: BarChartIcon,   adminOnly: true  },
+// Marcos 2026-06-17: ENCARGADO sees the same attention tabs an
+// operator sees, PLUS the team-quality tab so they can supervise
+// the team's score. NO Uso de IA / NO Métricas generales —
+// those stay admin-only.
+const TABS: Array<{ id: AnalyticsTab; label: string; icon: any; adminOnly: boolean; encargadoOk?: boolean }> = [
+  { id: "agentes",         label: "Atención agentes", icon: SupportAgentIcon, adminOnly: false, encargadoOk: true },
+  { id: "calidad-mia",     label: "Calidad tuya",     icon: GradeIcon,        adminOnly: false, encargadoOk: true },
+  { id: "calidad-equipo",  label: "Calidad equipo",   icon: GroupsIcon,       adminOnly: true,  encargadoOk: true },
+  { id: "ia",              label: "Uso de IA",        icon: SmartToyIcon,     adminOnly: true,  encargadoOk: false },
+  { id: "generales",       label: "Métricas generales", icon: BarChartIcon,   adminOnly: true,  encargadoOk: false },
 ];
 
 const SECTION_LABEL = "mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
@@ -56,11 +60,17 @@ export default function AnalyticsPage() {
   // role-metrics card + their personal quality score and nothing else
   // that mixes scopes.
   const isAdmin = role === UserRole.ADMIN;
+  const isEncargado = role === UserRole.ENCARGADO;
   // Marcos 2026-06-04 ask: lay the page out as top tabs (matching the
   // Conversaciones page) instead of a long scroll. Each tab gates its
   // own slice — admins see all five, non-admins see only the two that
-  // make sense for them.
-  const visibleTabs = TABS.filter((t) => isAdmin || !t.adminOnly);
+  // make sense for them. Marcos 2026-06-17: ENCARGADO supervisors get
+  // the attention tabs + team-quality but not Uso de IA / generales.
+  const visibleTabs = TABS.filter((t) => {
+    if (isAdmin) return true;
+    if (isEncargado) return t.encargadoOk === true;
+    return !t.adminOnly;
+  });
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("agentes");
   // Snap back to a visible tab if the role gates the current one out
   // (e.g. demotion mid-session).
@@ -285,7 +295,7 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {activeTab === "calidad-equipo" && isAdmin && (
+      {activeTab === "calidad-equipo" && (isAdmin || isEncargado) && (
         <div className="space-y-6">
           <QualityTeamOverlay />
         </div>

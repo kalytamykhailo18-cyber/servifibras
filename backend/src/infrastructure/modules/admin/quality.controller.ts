@@ -175,7 +175,11 @@ export class QualityController {
   }
 
   @Get('team')
-  @Roles(UserRole.ADMIN)
+  // Marcos 2026-06-17: ENCARGADO supervises the team and needs the
+  // team-quality aggregates. NOT inherited via ATENCION/LOGISTICA
+  // since this endpoint is admin-only by default — granted
+  // explicitly here.
+  @Roles(UserRole.ADMIN, UserRole.ENCARGADO)
   async getTeam(@Query('period') period: string | undefined) {
     const days = parsePeriodDays(period, 7);
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);

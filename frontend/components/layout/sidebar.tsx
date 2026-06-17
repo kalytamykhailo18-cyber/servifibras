@@ -24,7 +24,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-const ALL_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA];
+const ALL_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
 // Marcos 2026-06-11: collapsible categories. Order matters — categories
 // render in the order declared here. Items inside each category render
@@ -73,7 +73,7 @@ const navigationItems = [
     // Marcos 2026-06-11: lifted into Atención so the attention desk
     // can see + load orders alongside chats. Logística still has its
     // own dedicated "Armado" section under Logística.
-    roles: [UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ATENCION],
+    roles: [UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ATENCION, UserRole.ENCARGADO],
     category: 'atencion' as Category,
   },
   {
@@ -89,7 +89,7 @@ const navigationItems = [
     activeBg: "bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 shadow-[0_8px_20px_-6px_rgb(217_119_6/0.55)]",
     wash: "bg-gradient-to-r from-amber-500/10 via-yellow-400/10 to-transparent",
     rail: "bg-gradient-to-b from-amber-500 to-yellow-400",
-    roles: [UserRole.ADMIN, UserRole.VENTAS],
+    roles: [UserRole.ADMIN, UserRole.VENTAS, UserRole.ENCARGADO],
     category: 'atencion' as Category,
   },
   {
@@ -113,7 +113,7 @@ const navigationItems = [
     activeBg: "bg-gradient-to-r from-orange-600 via-amber-500 to-orange-600 shadow-[0_8px_20px_-6px_rgb(249_115_22/0.55)]",
     wash: "bg-gradient-to-r from-orange-500/10 via-amber-400/10 to-transparent",
     rail: "bg-gradient-to-b from-orange-500 to-amber-400",
-    roles: [UserRole.ADMIN, UserRole.LOGISTICA],
+    roles: [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO],
     category: 'logistica' as Category,
   },
   {
@@ -127,7 +127,7 @@ const navigationItems = [
     activeBg: "bg-gradient-to-r from-amber-600 via-orange-500 to-amber-600 shadow-[0_8px_20px_-6px_rgb(245_158_11/0.55)]",
     wash: "bg-gradient-to-r from-amber-500/10 via-orange-400/10 to-transparent",
     rail: "bg-gradient-to-b from-amber-500 to-orange-400",
-    roles: [UserRole.ADMIN, UserRole.LOGISTICA],
+    roles: [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO],
     category: 'logistica' as Category,
   },
   {
@@ -253,8 +253,21 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const role = useAuthStore(selectUserRole);
 
+  // Marcos 2026-06-17: ENCARGADO inherits ATENCION + LOGISTICA
+  // visibility automatically — same rule as useRoleGuard + the
+  // backend RolesGuard. An item allowed for either role is also
+  // visible to ENCARGADO without having to list it explicitly.
   const visibleItems = role
-    ? navigationItems.filter((item) => item.roles.includes(role))
+    ? navigationItems.filter((item) => {
+        if (item.roles.includes(role)) return true;
+        if (
+          role === UserRole.ENCARGADO
+          && (item.roles.includes(UserRole.ATENCION) || item.roles.includes(UserRole.LOGISTICA))
+        ) {
+          return true;
+        }
+        return false;
+      })
     : [];
 
   // Group visible items by category, preserving (a) the CATEGORIES

@@ -15,6 +15,7 @@ export enum UserRole {
   ATENCION = "ATENCION",     // Brenda - customer service
   VENTAS = "VENTAS",         // Franco - sales
   LOGISTICA = "LOGISTICA",   // Aldo - logistics
+  ENCARGADO = "ENCARGADO",   // Marcos 2026-06-17 — supervisor / team lead
 }
 
 export enum ContactType {
@@ -829,6 +830,7 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.ATENCION]: "Atención al Cliente",
   [UserRole.VENTAS]: "Ventas",
   [UserRole.LOGISTICA]: "Logística",
+  [UserRole.ENCARGADO]: "Encargado",
 };
 
 export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {

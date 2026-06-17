@@ -7,6 +7,7 @@ export enum UserRole {
   ATENCION = 'ATENCION',
   VENTAS = 'VENTAS',
   LOGISTICA = 'LOGISTICA',
+  ENCARGADO = 'ENCARGADO',
 }
 
 export class AuthUser {

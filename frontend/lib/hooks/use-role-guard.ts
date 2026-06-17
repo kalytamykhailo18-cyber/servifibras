@@ -20,18 +20,33 @@ export function useRoleGuard(allowedRoles: UserRole[]) {
   const router = useRouter();
   const user = useAuthStore(selectUser);
 
+  // Marcos 2026-06-17: ENCARGADO is a supervisor role that inherits
+  // from ATENCION and LOGISTICA. A page allowing either auto-allows
+  // ENCARGADO too — keeps role allowlists tight without sprinkling
+  // ENCARGADO across every callsite. Pages that should be hidden
+  // from ENCARGADO (sales metrics, audit, settings, users) simply
+  // don't list ATENCION or LOGISTICA in their allowlists.
+  const expandedRoles = (() => {
+    const set = new Set<UserRole>(allowedRoles);
+    if (set.has(UserRole.ATENCION) || set.has(UserRole.LOGISTICA)) {
+      set.add(UserRole.ENCARGADO);
+    }
+    return set;
+  })();
+
   useEffect(() => {
     if (!user) return;
-    if (!allowedRoles.includes(user.role)) {
+    if (!expandedRoles.has(user.role)) {
       toast.error("No tienes acceso a esta sección");
       router.replace("/conversations");
     }
-  }, [user, allowedRoles, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, router]);
 
   // Render nothing until we know who the user is AND that they are allowed.
   // Pages early-return on !isAllowed, so a brief null render is invisible
   // (the layout's bootstrap spinner covers the auth-hydration gap).
   return {
-    isAllowed: !!user && allowedRoles.includes(user.role),
+    isAllowed: !!user && expandedRoles.has(user.role),
   };
 }

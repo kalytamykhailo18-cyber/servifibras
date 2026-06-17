@@ -43,7 +43,7 @@ import {
 
 const ROLES = [UserRole.ADMIN];
 const ROLE_OPTIONS: UserRole[] = [
-  UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA,
+  UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO,
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -51,6 +51,7 @@ const ROLE_LABEL: Record<string, string> = {
   VENTAS:    "Ventas",
   ATENCION:  "Atención",
   LOGISTICA: "Logística",
+  ENCARGADO: "Encargado",
 };
 
 interface UserRow {
