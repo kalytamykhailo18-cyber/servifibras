@@ -122,6 +122,13 @@ export class OrderManagementService implements IOrderManagementService {
         notes: data.notes,
         sectionOverride,
         status: OrderStatus.CONFIRMED,
+        // Marcos 2026-06-17: reposición flag. Carrier + shipping
+        // cost MUST be set when this is true so the dispatch
+        // estimate stays accurate.
+        isReposicion: !!(data as any).isReposicion,
+        carrier: (data as any).carrier ?? null,
+        shippingZone: (data as any).shippingZone ?? null,
+        shippingCost: typeof (data as any).shippingCost === 'number' ? (data as any).shippingCost : null,
       },
       include: {
         contact: {
@@ -242,6 +249,9 @@ export class OrderManagementService implements IOrderManagementService {
         invoicedAt: null,
         source: { in: ['MANUAL', 'TIENDANUBE'] as any },
         status: { notIn: ['CANCELLED'] as any },
+        // Marcos 2026-06-17: reposiciones are re-shipments without a
+        // buyer to bill — they MUST NOT show in the invoicing queue.
+        isReposicion: false,
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -360,7 +370,7 @@ export class OrderManagementService implements IOrderManagementService {
    * order — Nombre + Dirección + Localidad + TEL + BULTOS. Pulls the
    * address from Contact.metadata (the quick-client expanded form).
    */
-  async renderEtiqueta(orderId: string): Promise<Buffer | null> {
+  async renderEtiqueta(orderId: string, bultos: number = 1): Promise<Buffer | null> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -386,12 +396,17 @@ export class OrderManagementService implements IOrderManagementService {
       direccion,
       localidad,
       telefono: order.contact?.phone ?? null,
-      bultos: 1,
+      bultos: Math.max(1, Math.min(50, Math.floor(bultos))),
     });
   }
 
   async getOrderStatistics(): Promise<OrderStatistics> {
+    // Marcos 2026-06-17: reposiciones are re-shipments without a
+    // buyer to bill — they MUST NOT pollute sales metrics. Excluded
+    // at fetch time so every downstream count (totalRevenue,
+    // averageOrderValue, byStatus) reflects only real sales.
     const allOrders = await this.prisma.order.findMany({
+      where: { isReposicion: false },
       select: {
         status: true,
         amount: true,

@@ -1208,9 +1208,13 @@ export const ordersApi = {
   },
 
   /** Marcos 2026-06-16: Zebra 10×15 cm shipping-label PDF for the
-   *  warehouse's thermal printer. */
-  getEtiquetaBlobUrl: async (id: string): Promise<string> => {
-    const r = await apiClient.get(`/admin/orders/${id}/etiqueta`, { responseType: 'blob' });
+   *  warehouse's thermal printer. `bultos` (Marcos 2026-06-17) makes
+   *  the endpoint emit one labelled page per bulto (BULTO 1/N, …, N/N). */
+  getEtiquetaBlobUrl: async (id: string, bultos: number = 1): Promise<string> => {
+    const r = await apiClient.get(`/admin/orders/${id}/etiqueta`, {
+      params: { bultos: Math.max(1, Math.min(50, Math.floor(bultos))) },
+      responseType: 'blob',
+    });
     return URL.createObjectURL(r.data as Blob);
   },
 

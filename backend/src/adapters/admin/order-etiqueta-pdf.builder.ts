@@ -20,6 +20,8 @@ export interface EtiquetaPdfData {
   direccion: string | null;
   localidad: string | null;
   telefono: string | null;
+  /** Total number of bultos for this order. When >1 the builder
+   *  emits one page per bulto with "BULTO 1/N", "BULTO 2/N", etc. */
   bultos: number;
 }
 
@@ -67,8 +69,14 @@ export function buildEtiquetaPdf(data: EtiquetaPdfData): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      renderHeader(doc, company);
-      renderRows(doc, data);
+      // Marcos 2026-06-17: emit one page per bulto so the warehouse
+      // can stick one label on each box (BULTO 1/N, 2/N, …, N/N).
+      const total = Math.max(1, Math.min(50, Math.floor(data.bultos || 1)));
+      for (let i = 1; i <= total; i++) {
+        if (i > 1) doc.addPage({ size: [PAGE_WIDTH, PAGE_HEIGHT], margin: MARGIN });
+        renderHeader(doc, company);
+        renderRows(doc, { ...data, bultos: total }, i);
+      }
 
       doc.end();
     } catch (e) {
@@ -116,7 +124,7 @@ function renderHeader(doc: PDFKit.PDFDocument, c: CompanyConfig) {
   doc.y = top + headerH + 6;
 }
 
-function renderRows(doc: PDFKit.PDFDocument, data: EtiquetaPdfData) {
+function renderRows(doc: PDFKit.PDFDocument, data: EtiquetaPdfData, currentBulto: number = 1) {
   const left = MARGIN;
   const innerW = PAGE_WIDTH - 2 * MARGIN;
   const labelW = 80;
@@ -124,12 +132,14 @@ function renderRows(doc: PDFKit.PDFDocument, data: EtiquetaPdfData) {
   const valueW = innerW - labelW;
   const rowH = 42;
 
+  const total = Math.max(1, data.bultos || 1);
+  const bultosValue = total === 1 ? '1' : `${currentBulto} / ${total}`;
   const rows: Array<{ label: string; value: string; highlight?: boolean }> = [
     { label: 'Nombre',    value: data.nombre || '' },
     { label: 'Dirección', value: data.direccion || '' },
     { label: 'Localidad', value: data.localidad || '' },
     { label: 'TEL',       value: data.telefono || '' },
-    { label: 'BULTOS',    value: String(data.bultos ?? 1), highlight: true },
+    { label: 'BULTOS',    value: bultosValue, highlight: true },
   ];
 
   let y = doc.y;

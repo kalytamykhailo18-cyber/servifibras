@@ -374,6 +374,12 @@ model Order {
   // can cross-check the courier's invoice against the platform.
   shippingCost Float?
   shippingZone String?
+  // Marcos 2026-06-17: reposición orders are re-shipments after an
+  // armado error. They consume courier capacity (must be tracked for
+  // dispatch costs) but DON'T belong in sales metrics or pending-
+  // invoicing — there's no buyer to bill. Default false; set true
+  // by the operator via the REPOSICIÓN tab on the Pedidos form.
+  isReposicion Boolean    @default(false)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

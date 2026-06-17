@@ -46,9 +46,14 @@ interface ProductRow {
   category: string;
   quantity: string;
   unitPrice: string;
+  // Marcos 2026-06-17: SKU stamped on the row when the operator picks
+  // from the catalog. The Logística panel uses it to look up the
+  // warehouse UBI for the armado item list. Manually-typed product
+  // names leave this empty.
+  sku?: string;
 }
 
-const EMPTY_ROW: ProductRow = { name: "", category: "", quantity: "1", unitPrice: "" };
+const EMPTY_ROW: ProductRow = { name: "", category: "", quantity: "1", unitPrice: "", sku: "" };
 
 function lineTotal(row: ProductRow): number {
   const q = Number(row.quantity);
@@ -72,6 +77,7 @@ function rowsFromOrder(o: Order | undefined): ProductRow[] {
     category: typeof p?.category === "string" ? p.category : "",
     quantity: p?.quantity != null ? String(p.quantity) : "1",
     unitPrice: p?.unitPrice != null ? String(p.unitPrice) : "",
+    sku: typeof p?.sku === "string" ? p.sku : "",
   }));
 }
 
@@ -98,6 +104,20 @@ export function OrderFormDialog({
   const [sectionOverride, setSectionOverride] = useState<'MOTOS' | 'MICROS' | 'RETIRA_CASEROS' | 'LAMINADOS_PRFV'>(
     ((order as any)?.sectionOverride as any) || 'MOTOS',
   );
+  // Marcos 2026-06-17: REPOSICIÓN tab. When toggled the form
+  // captures a re-shipment after armado error: courier + zone are
+  // mandatory and the shipping cost auto-fills from the tariff.
+  // These rows stay out of invoicing + sales metrics.
+  const [isReposicion, setIsReposicion] = useState<boolean>(!!(order as any)?.isReposicion);
+  const [repCarrier, setRepCarrier] = useState<string>((order as any)?.carrier ?? '');
+  const [repZone, setRepZone] = useState<string>((order as any)?.shippingZone ?? '');
+  const [repCost, setRepCost] = useState<string>(
+    (order as any)?.shippingCost != null ? String((order as any).shippingCost) : ''
+  );
+  // Tariff table + carriers list pulled from the same source the
+  // dispatch-stats card uses, so the operator sees a deterministic
+  // dropdown of valid pairs.
+  const [tariffs, setTariffs] = useState<Array<{ carrier: string; zone: string; costPerPackage: number; currency: string }>>([]);
   // Inline "Nuevo cliente" sub-form state.
   const [newContactOpen, setNewContactOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -135,6 +155,10 @@ export function OrderFormDialog({
     setNewStreetNumber("");
     setNewLocality("");
     setNewPostalCode("");
+    setIsReposicion(!!(order as any)?.isReposicion);
+    setRepCarrier((order as any)?.carrier ?? '');
+    setRepZone((order as any)?.shippingZone ?? '');
+    setRepCost((order as any)?.shippingCost != null ? String((order as any).shippingCost) : '');
   }, [open, order]);
 
   // Marcos 2026-06-12: quick-add a contact without leaving the order
@@ -206,9 +230,31 @@ export function OrderFormDialog({
       } catch {
         if (!cancelled) setContacts([]);
       }
+      // Marcos 2026-06-17: tariff table for the REPOSICIÓN form
+      // (carrier + zone → cost). Failures are non-fatal — the cost
+      // input stays manual.
+      try {
+        const tr = await (api as any).dispatchTariffs?.list?.();
+        if (!cancelled && Array.isArray(tr)) {
+          setTariffs(tr.filter((t: any) => t.active !== false));
+        }
+      } catch {/* non-fatal */}
     })();
     return () => { cancelled = true; };
   }, [open]);
+
+  // Marcos 2026-06-17: auto-fill the shipping cost when carrier+zone
+  // match a tariff row. Operator can still edit the value manually
+  // after the auto-fill.
+  useEffect(() => {
+    if (!isReposicion) return;
+    if (!repCarrier || !repZone) return;
+    const hit = tariffs.find(
+      (t) => t.carrier.trim().toLowerCase() === repCarrier.trim().toLowerCase()
+          && t.zone.trim().toLowerCase() === repZone.trim().toLowerCase(),
+    );
+    if (hit) setRepCost(String(hit.costPerPackage));
+  }, [isReposicion, repCarrier, repZone, tariffs]);
 
   const computedTotal = useMemo(() => rows.reduce((s, r) => s + lineTotal(r), 0), [rows]);
   const finalTotal = amountOverride !== "" ? Number(amountOverride) || 0 : computedTotal;
@@ -223,12 +269,50 @@ export function OrderFormDialog({
 
   const onSubmit = async () => {
     if (!contactId) { toast.error("Elegí un cliente"); return; }
+
+    // Marcos 2026-06-17: REPOSICIÓN branch — no product list, just
+    // the courier + zone + cost. Skip the products validation and
+    // post a row with isReposicion=true so it stays out of
+    // invoicing + sales metrics.
+    if (isReposicion) {
+      const carrier = repCarrier.trim();
+      const zone = repZone.trim();
+      const cost = Number(repCost);
+      if (!carrier) { toast.error("Cargá la mensajería de la reposición"); return; }
+      if (!zone) { toast.error("Cargá la zona"); return; }
+      if (!Number.isFinite(cost) || cost < 0) { toast.error("Cargá el costo de logística"); return; }
+      setSubmitting(true);
+      try {
+        await api.orders.create({
+          contactId,
+          amount: cost,
+          currency: 'ARS',
+          products: [{ name: `Reposición ${carrier} ${zone}`, category: 'Reposición', quantity: 1, unitPrice: cost, totalPrice: cost }],
+          notes: notes.trim() || undefined,
+          sectionOverride,
+          isReposicion: true,
+          carrier,
+          shippingZone: zone,
+          shippingCost: cost,
+        } as any);
+        toast.success("Reposición registrada");
+        onOpenChange(false);
+        onSuccess?.();
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error || err?.message || "No se pudo guardar la reposición");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const cleaned = rows
       .map((r) => ({
         name: r.name.trim(),
         category: r.category.trim() || "General",
         quantity: Number(r.quantity),
         unitPrice: Number(r.unitPrice),
+        sku: (r.sku || '').trim() || undefined,
       }))
       .filter((r) => r.name.length > 0 && r.quantity > 0 && Number.isFinite(r.unitPrice) && r.unitPrice >= 0);
     if (cleaned.length === 0) {
@@ -245,6 +329,7 @@ export function OrderFormDialog({
       quantity: r.quantity,
       unitPrice: r.unitPrice,
       totalPrice: Math.round(r.quantity * r.unitPrice * 100) / 100,
+      ...(r.sku ? { sku: r.sku } : {}),
     }));
     setSubmitting(true);
     try {
@@ -297,6 +382,41 @@ export function OrderFormDialog({
         </DialogHeader>
 
         <div className="mt-3 space-y-4">
+          {/* Marcos 2026-06-17: PEDIDO / REPOSICIÓN tabs. Reposición
+              is a re-shipment after armado error — needs courier +
+              zone + cost (auto-fills from tariffs) and stays out of
+              sales metrics + invoicing queue. */}
+          {!isEditing && (
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100/60 p-1">
+              <button
+                type="button"
+                onClick={() => setIsReposicion(false)}
+                data-testid="order-form-tab-pedido"
+                className={
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors " +
+                  (!isReposicion
+                    ? "bg-white text-slate-900 shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]"
+                    : "text-slate-500 hover:text-slate-700")
+                }
+              >
+                Pedido
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReposicion(true)}
+                data-testid="order-form-tab-reposicion"
+                className={
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors " +
+                  (isReposicion
+                    ? "bg-amber-500 text-white shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]"
+                    : "text-slate-500 hover:text-slate-700")
+                }
+              >
+                Reposición
+              </button>
+            </div>
+          )}
+
           {/* Contact picker — disabled in edit mode (same lock-in as before). */}
           <div>
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-slate-500">
@@ -485,7 +605,55 @@ export function OrderFormDialog({
             )}
           </div>
 
+          {/* Marcos 2026-06-17: REPOSICIÓN block — courier + zone +
+              cost. Cost auto-fills from the tariff table when the
+              pair matches; the operator can still override. */}
+          {isReposicion && (
+            <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/40 p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-amber-800">
+                Datos de la reposición
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_140px]">
+                <select
+                  value={repCarrier}
+                  onChange={(e) => setRepCarrier(e.target.value)}
+                  data-testid="order-form-reposicion-carrier"
+                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                >
+                  <option value="">Mensajería…</option>
+                  {Array.from(new Set(tariffs.map((t) => t.carrier))).sort().map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select
+                  value={repZone}
+                  onChange={(e) => setRepZone(e.target.value)}
+                  data-testid="order-form-reposicion-zone"
+                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                >
+                  <option value="">Zona…</option>
+                  {Array.from(new Set(tariffs.filter((t) => !repCarrier || t.carrier === repCarrier).map((t) => t.zone))).sort().map((z) => (
+                    <option key={z} value={z}>{z}</option>
+                  ))}
+                </select>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={repCost}
+                  onChange={(e) => setRepCost(e.target.value)}
+                  placeholder="Costo logística"
+                  data-testid="order-form-reposicion-cost"
+                  className="text-right"
+                />
+              </div>
+              <p className="text-[11px] text-amber-700">
+                Esta fila no entra en facturación ni en métricas de ventas. Solo suma al cómputo de despachos.
+              </p>
+            </div>
+          )}
+
           {/* Product rows — the actual manual-load surface. */}
+          {!isReposicion && (
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
@@ -516,6 +684,10 @@ export function OrderFormDialog({
                       const patch: Partial<ProductRow> = {
                         name: p.name,
                         category: p.category || row.category,
+                        // Marcos 2026-06-17: stamp the SKU so the
+                        // Logística panel can pull the UBI from
+                        // Product.warehouseLocation.
+                        sku: p.sku || row.sku,
                       };
                       if (price != null && !row.unitPrice) patch.unitPrice = String(price);
                       updateRow(idx, patch);
@@ -558,8 +730,11 @@ export function OrderFormDialog({
               ))}
             </ul>
           </div>
+          )}
 
-          {/* Total + override */}
+          {/* Total + override — hidden in reposición mode (the cost
+              from the carrier+zone tariff IS the total). */}
+          {!isReposicion && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-slate-500">
@@ -591,6 +766,7 @@ export function OrderFormDialog({
               )}
             </div>
           </div>
+          )}
 
           {/* Notes */}
           <div>

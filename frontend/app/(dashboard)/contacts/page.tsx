@@ -113,13 +113,32 @@ export default function ContactsPage() {
   const handleFormSubmit = async (data: ContactFormData) => {
     setIsSubmitting(true);
     try {
+      // Marcos 2026-06-17: pack fiscal + shipping fields into
+      // Contact.metadata so the order PDF + etiqueta envío pick
+      // them up. On UPDATE we merge with the existing metadata so
+      // editing one field doesn't clobber the others.
+      const metaPatch: Record<string, string> = {};
+      if (data.fiscalId) metaPatch.fiscalId = data.fiscalId;
+      if (data.address) metaPatch.address = data.address;
+      if (data.streetNumber) metaPatch.streetNumber = data.streetNumber;
+      if (data.locality) metaPatch.locality = data.locality;
+      if (data.postalCode) metaPatch.postalCode = data.postalCode;
+      const existingMeta = (editingContact?.metadata ?? {}) as Record<string, any>;
+      const mergedMeta = { ...existingMeta, ...metaPatch };
+      // Strip the fiscal-shaped keys from the top-level payload — the
+      // backend expects them under `metadata`, not as Contact columns.
+      const { fiscalId, address, streetNumber, locality, postalCode, ...rest } = data;
+      void fiscalId; void address; void streetNumber; void locality; void postalCode;
+      const payload = Object.keys(mergedMeta).length > 0
+        ? { ...rest, metadata: mergedMeta }
+        : rest;
       if (editingContact) {
         // Update existing contact
-        await api.contacts.update(editingContact.id, data);
+        await api.contacts.update(editingContact.id, payload);
         toast.success("Contacto actualizado correctamente");
       } else {
         // Create new contact
-        await api.contacts.create(data);
+        await api.contacts.create(payload);
         toast.success("Contacto creado correctamente");
       }
       fetchContacts(currentPage);

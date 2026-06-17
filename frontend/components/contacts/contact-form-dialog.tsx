@@ -25,6 +25,7 @@ import PhoneIcon from "@mui/icons-material/Phone";
 import MailOutlineIcon from "@mui/icons-material/MailOutlined";
 import EditIcon from "@mui/icons-material/Edit";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import { useState } from "react";
 
 const contactSchema = z
   .object({
@@ -33,6 +34,11 @@ const contactSchema = z
     email: z.string().optional(),
     type: z.nativeEnum(ContactType),
     channel: z.nativeEnum(Channel).optional(),
+    fiscalId: z.string().optional(),
+    address: z.string().optional(),
+    streetNumber: z.string().optional(),
+    locality: z.string().optional(),
+    postalCode: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     if (val.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.email)) {
@@ -76,21 +82,37 @@ export function ContactFormDialog({
       email: "",
       type: ContactType.MINORISTA,
       channel: undefined,
+      fiscalId: "",
+      address: "",
+      streetNumber: "",
+      locality: "",
+      postalCode: "",
     },
   });
 
   const selectedType = watch("type");
   const selectedChannel = watch("channel");
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     if (open && contact) {
+      const meta = (contact.metadata ?? {}) as Record<string, any>;
       reset({
         name: contact.name || "",
         phone: contact.phone || "",
         email: contact.email || "",
         type: contact.type,
         channel: contact.channel || undefined,
+        fiscalId: String(meta.fiscalId ?? meta.cuit ?? meta.dni ?? ""),
+        address: String(meta.address ?? meta.domicilio ?? ""),
+        streetNumber: String(meta.streetNumber ?? meta.numero ?? ""),
+        locality: String(meta.locality ?? meta.localidad ?? ""),
+        postalCode: String(meta.postalCode ?? meta.codigoPostal ?? ""),
       });
+      // Auto-expand the "Más información" section when the contact
+      // already has any of these fields loaded.
+      const hasMeta = !!(meta.fiscalId || meta.cuit || meta.dni || meta.address || meta.domicilio || meta.streetNumber || meta.numero || meta.locality || meta.localidad || meta.postalCode || meta.codigoPostal);
+      setMoreOpen(hasMeta);
     } else if (!open) {
       reset({
         name: "",
@@ -98,12 +120,28 @@ export function ContactFormDialog({
         email: "",
         type: ContactType.MINORISTA,
         channel: undefined,
+        fiscalId: "",
+        address: "",
+        streetNumber: "",
+        locality: "",
+        postalCode: "",
       });
+      setMoreOpen(false);
     }
   }, [open, contact, reset]);
 
   const handleFormSubmit = async (data: ContactFormData) => {
-    await onSubmit(data);
+    // Strip empty optional fields so we don't overwrite metadata with
+    // blanks. Caller packs the fiscal/address keys into Contact.metadata.
+    const cleaned: ContactFormData = {
+      ...data,
+      fiscalId: data.fiscalId?.trim() || undefined,
+      address: data.address?.trim() || undefined,
+      streetNumber: data.streetNumber?.trim() || undefined,
+      locality: data.locality?.trim() || undefined,
+      postalCode: data.postalCode?.trim() || undefined,
+    };
+    await onSubmit(cleaned);
     onOpenChange(false);
   };
 
@@ -251,6 +289,90 @@ export function ContactFormDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Marcos 2026-06-17: optional fiscal + shipping fields,
+              expandable so the basic form stays compact. Fields land
+              on Contact.metadata and feed both the order PDF and the
+              etiqueta envío. */}
+          <div className="border-t border-slate-200 pt-3">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((s) => !s)}
+              data-testid="contact-form-more-toggle"
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-700 hover:underline"
+            >
+              {moreOpen ? '▾ Ocultar más información' : '▸ Más información (CUIT/DNI, domicilio, CP)'}
+            </button>
+            {moreOpen && (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label htmlFor="fiscalId" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    CUIT / DNI
+                  </label>
+                  <input
+                    id="fiscalId"
+                    disabled={isLoading}
+                    {...register("fiscalId")}
+                    data-testid="contact-form-fiscal-id"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:border-blue-500 focus:ring-blue-500/15"
+                    placeholder="20-12345678-9"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="address" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Domicilio (calle)
+                  </label>
+                  <input
+                    id="address"
+                    disabled={isLoading}
+                    {...register("address")}
+                    data-testid="contact-form-address"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:border-blue-500 focus:ring-blue-500/15"
+                    placeholder="Av. Siempre Viva"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="streetNumber" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Número
+                  </label>
+                  <input
+                    id="streetNumber"
+                    disabled={isLoading}
+                    {...register("streetNumber")}
+                    data-testid="contact-form-street-number"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:border-blue-500 focus:ring-blue-500/15"
+                    placeholder="742"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="postalCode" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Código postal
+                  </label>
+                  <input
+                    id="postalCode"
+                    disabled={isLoading}
+                    {...register("postalCode")}
+                    data-testid="contact-form-postal-code"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:border-blue-500 focus:ring-blue-500/15"
+                    placeholder="B1834"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="locality" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Localidad
+                  </label>
+                  <input
+                    id="locality"
+                    disabled={isLoading}
+                    {...register("locality")}
+                    data-testid="contact-form-locality"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:border-blue-500 focus:ring-blue-500/15"
+                    placeholder="Lomas del Mirador"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

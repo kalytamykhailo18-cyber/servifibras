@@ -211,8 +211,17 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                     <DropdownMenuItem
                       onClick={async (e) => {
                         e.stopPropagation();
+                        // Marcos 2026-06-17: prompt for bulto count so the
+                        // PDF emits N labelled pages (BULTO 1/N, …, N/N).
+                        const raw = window.prompt('¿Cuántos bultos para este pedido?', '1');
+                        if (raw === null) return;
+                        const bultos = parseInt(raw, 10);
+                        if (!Number.isFinite(bultos) || bultos < 1 || bultos > 50) {
+                          toast.error('Cantidad de bultos inválida (1 a 50)');
+                          return;
+                        }
                         try {
-                          const url = await ordersApi.getEtiquetaBlobUrl(order.id);
+                          const url = await ordersApi.getEtiquetaBlobUrl(order.id, bultos);
                           window.open(url, '_blank', 'noopener');
                         } catch (err: any) {
                           toast.error(err?.response?.data?.error || 'No se pudo generar la etiqueta');

@@ -666,6 +666,15 @@ export interface ContactFormData {
   email?: string;
   type: ContactType;
   channel?: Channel;
+  // Marcos 2026-06-17: optional fiscal + shipping fields stored on
+  // Contact.metadata. Same shape as the inline quick-add form in
+  // Pedidos so an edited address rounds-trips into the order PDF
+  // + etiqueta envío.
+  fiscalId?: string;
+  address?: string;
+  streetNumber?: string;
+  locality?: string;
+  postalCode?: string;
 }
 
 export interface KnowledgeFormData {

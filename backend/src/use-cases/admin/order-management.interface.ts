@@ -47,6 +47,14 @@ export interface CreateOrderData {
   // daily logística panel should receive this row. One of
   // MOTOS / MICROS / RETIRA_CASEROS / LAMINADOS_PRFV.
   sectionOverride?: string | null;
+  // Marcos 2026-06-17: reposición flag — re-shipment after armado
+  // error. Stays out of pending-invoicing + sales metrics. When
+  // true the form forces the operator to pick carrier+zone and
+  // the shipping cost auto-fills from the tariff table.
+  isReposicion?: boolean;
+  carrier?: string | null;
+  shippingZone?: string | null;
+  shippingCost?: number | null;
 }
 
 export interface UpdateOrderData {

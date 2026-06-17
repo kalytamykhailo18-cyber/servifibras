@@ -132,11 +132,16 @@ export class OrdersController {
    */
   @Get(':id/etiqueta')
   @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
-  async getOrderEtiqueta(@Param('id') id: string, @Res() res: Response) {
-    const buf = await this.orderManagement.renderEtiqueta(id);
+  async getOrderEtiqueta(
+    @Param('id') id: string,
+    @Query('bultos') bultosRaw: string | undefined,
+    @Res() res: Response,
+  ) {
+    const bultos = Number(bultosRaw) || 1;
+    const buf = await this.orderManagement.renderEtiqueta(id, bultos);
     if (!buf) throw new NotFoundException('Pedido no encontrado');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="etiqueta-${id.slice(0, 8)}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="etiqueta-${id.slice(0, 8)}-${bultos}b.pdf"`);
     res.setHeader('Content-Length', String(buf.length));
     res.send(buf);
   }
