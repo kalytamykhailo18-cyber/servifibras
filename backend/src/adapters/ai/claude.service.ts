@@ -281,6 +281,22 @@ function channelGuardrailBlock(channel: Channel | undefined): string | null {
       '   Marcos 2026-06-03 (caso real que disparó esta regla): un comprador preguntó por reparación de paletas de pádel con fibra de carbono sobre la publicación de resina cristal de altos espesores. El agente respondió "esa resina no es la indicada, necesitás una resina de laminación" (correcto en el qué) pero SIN incluir ningún link a la publicación de la resina de laminación — eso es exactamente el modo en que se pierden ventas. Repetirlo no es opción.',
       '',
       'Violar cualquiera de estas reglas puede causar suspensión de la cuenta de ServiFibras en MercadoLibre. Estas reglas no son negociables ni con argumento del cliente. Si dudás entre redirigir al cliente o contestar acá, contestá acá.',
+      '',
+      '9. ⚠️ ABSOLUTAMENTE PROHIBIDO TIPEAR ETIQUETAS / VOCABULARIO INTERNO EN LA RESPUESTA AL CLIENTE.',
+      'Marcos 2026-06-18 PM (caso real, publicación MLA629833763 — pregunta "Este producto es líquido"):',
+      'El agente respondió con el texto literal "RECLAMO DETECTADO — SILENCIO TOTAL / Recibí un reclamo de MercadoLibre (ID: 5530195211) clasificado como N3 (postventa / defensa del consumidor). Equipo de ServiFibras: revisar reclamo #5530195211 — cliente BRATINPABLO20230120115650, motivo PNR9501, estado cerrado con decisión a favor del reclamante." — ese texto es INTERNO, son las etiquetas que usa este prompt para clasificar y enrutar. NUNCA tiene que aparecer en la respuesta al comprador. Confunde, asusta, viola TOS de ML y arruina la marca.',
+      '',
+      'NUNCA, BAJO NINGUNA CIRCUNSTANCIA, escribas en la respuesta:',
+      '  - "RECLAMO DETECTADO", "SILENCIO TOTAL", "DERIVACIÓN", "ESCALAMIENTO", "ESCALAR A HUMANO"',
+      '  - "N1", "N2", "N3" (niveles de complejidad internos)',
+      '  - "Equipo de ServiFibras: revisar…", "Equipo: revisar…", "el equipo va a revisar", o cualquier mensaje DIRIGIDO al equipo interno',
+      '  - "clasificado como", "motivo PNR", "PNR{numero}", "ID de reclamo {numero}", "expediente"',
+      '  - "defensa del consumidor", "postventa", "decisión a favor del reclamante"',
+      '  - "Quedo a disposición ante cualquier otra duda" (cierre de oficina formal, prohibido — usá el cierre canónico del prompt)',
+      '',
+      'Esas son palabras del MANUAL OPERATIVO que ves en este prompt — sirven para que VOS sepas QUÉ hacer, no son texto para repetir al cliente. Si la pregunta del comprador es legítima sobre el producto (como "Este producto es líquido"), respondela en términos del producto — no proceses la pregunta como un reclamo aunque alguna palabra te lo sugiera.',
+      '',
+      'Regla de oro: la respuesta que enviás al cliente jamás debería parecer una nota de operaciones internas, un log, un email al equipo, ni un mensaje técnico. SIEMPRE es una respuesta natural, en español rioplatense, dirigida al comprador en segunda persona ("vos / podés / tenés"), sobre el producto.',
     ].join('\n');
   }
   return null;
@@ -1675,7 +1691,17 @@ IMPORTANTE sobre precios:
     rawText: string,
     turn?: import('../../use-cases/ai/ai.interface').AITurnContext,
   ): string {
-    const guarded = this.dropFabricatedUrls(rawText, turn?.channel);
+    // Marcos 2026-06-18 PM: hard guard contra fugas de etiquetas
+    // internas (RECLAMO DETECTADO / SILENCIO TOTAL / Equipo de
+    // ServiFibras: revisar / PNR{n} / N1-N3). Si el modelo escupe
+    // texto de manual operativo, reemplazamos por un fallback
+    // benigno — mejor que el operador vea "Gracias por consultar…"
+    // y reescriba a mano, que el comprador reciba el log interno.
+    // Corre PRIMERO antes que cualquier otra transformación porque
+    // si hay fuga, todo el texto se descarta y no tiene sentido
+    // procesarlo más.
+    const sanitized = this.guardAgainstInternalClassificationLeak(rawText, turn);
+    const guarded = this.dropFabricatedUrls(sanitized, turn?.channel);
     const stripped = stripMarkdownForChat(guarded.text);
     const noEmoji = stripDecorativeEmoji(stripped);
     const safeText = noEmoji.emptied
@@ -1690,6 +1716,65 @@ IMPORTANTE sobre precios:
     const withPorEsteMedio = this.ensureMlPorEsteMedioLine(noPayMethod, turn?.channel);
     const budgeted = this.enforceLengthBudget(withPorEsteMedio, turn?.channel);
     return this.applyMlGreetingAndSignoff(budgeted, turn);
+  }
+
+  /**
+   * Marcos 2026-06-18 PM: catch fugas de vocabulario de clasificación
+   * interna en la respuesta al cliente (caso real MLA629833763 —
+   * "RECLAMO DETECTADO — SILENCIO TOTAL" + "Equipo de ServiFibras:
+   * revisar reclamo #…"). Esas son palabras del prompt que el modelo
+   * a veces parrotea — para el comprador son ininteligibles y violan
+   * TOS de ML.
+   *
+   * Si detectamos al menos UN patrón rojo, reemplazamos toda la
+   * respuesta por un fallback genérico — feo, pero no dañino. El
+   * operador del panel QA lo ve, lo reescribe a mano y envía. El
+   * draft NO llega al comprador (todos los drafts pasan por
+   * pendingReview en ML).
+   */
+  private guardAgainstInternalClassificationLeak(
+    rawText: string,
+    turn?: import('../../use-cases/ai/ai.interface').AITurnContext,
+  ): string {
+    if (!rawText || rawText.length === 0) return rawText;
+    // Patrones literales del manual operativo que NUNCA deben aparecer
+    // en una respuesta dirigida al cliente. Una sola coincidencia
+    // basta para descartar todo el texto.
+    const FORBIDDEN: RegExp[] = [
+      /\bRECLAMO\s+DETECTADO\b/i,
+      /\bSILENCIO\s+TOTAL\b/i,
+      /\bDERIVACI[ÓO]N\s+(?:A\s+)?(?:HUMANO|EQUIPO)\b/i,
+      /\bESCALAR\s+(?:A\s+)?(?:HUMANO|N\d)\b/i,
+      // "Equipo de ServiFibras: revisar …" — el agente le habla al
+      // equipo interno en vez de al comprador.
+      /\bEquipo\s+de\s+(?:ServiFibras|Servifibras|servifibras)\s*:\s*/i,
+      /\bel\s+equipo\s+va\s+a\s+revisar\b/i,
+      // PNR + dígitos / ID de reclamo con número
+      /\bPNR\s*\d{2,}\b/i,
+      /\bID\s*(?:de\s+)?reclamo\s*[:#]?\s*\d{3,}/i,
+      // "clasificado como N1/N2/N3"
+      /\bclasificad[oa]\s+como\s+N[123]\b/i,
+      // "defensa del consumidor" — terminología interna de
+      // clasificación, no vocabulario de comprador
+      /\bdefensa\s+del\s+consumidor\b/i,
+      // "decisión a favor del reclamante" — texto de log
+      /\bdecisi[óo]n\s+a\s+favor\s+del\s+reclamante\b/i,
+    ];
+    for (const pattern of FORBIDDEN) {
+      if (pattern.test(rawText)) {
+        this.logger.error(
+          `⛔ Filtro anti-leak: la respuesta del agente contenía vocabulario interno (${pattern.source}). ` +
+          `Reemplazada por fallback. Texto descartado (primeros 200 chars): "${rawText.slice(0, 200).replace(/\n/g, ' ')}"`,
+        );
+        if (turn?.channel === Channel.MERCADOLIBRE) {
+          // El operador ve el fallback en el panel QA y reescribe.
+          // El draft NO llega al comprador (review-mode).
+          return '¡Gracias por escribirnos! En un momento te respondemos esta consulta con el detalle que necesitás.';
+        }
+        return 'Gracias por escribirnos, en un momento te respondemos.';
+      }
+    }
+    return rawText;
   }
 
   /**

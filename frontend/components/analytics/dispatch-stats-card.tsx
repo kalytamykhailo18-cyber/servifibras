@@ -225,18 +225,38 @@ export function DispatchStatsCard() {
                           : <ChevronRightIcon sx={{ fontSize: 16 }} className="text-slate-400" />}
                         <span className="text-sm font-semibold text-slate-900">{c.carrier}</span>
                       </span>
+                      {/* Marcos 2026-06-18 PM: rótulos in-line en cada
+                         fila — antes los montos quedaban como números
+                         sueltos y había que leer el header para
+                         entender cuál era "cobrado" y cuál "estimado". */}
                       <span className="flex items-baseline gap-3 font-mono text-sm tabular-nums">
                         {c.totalShippingCost > 0 && (
-                          <span className="text-[12px] text-amber-700" title="Cobrado al cliente (TN/ML)" data-testid={`dispatch-stats-carrier-cost-${c.carrier.replace(/\s+/g, '-')}`}>
+                          <span
+                            className="inline-flex items-baseline gap-1 text-[12px] text-amber-700"
+                            title="Cobrado al cliente (TN/ML)"
+                            data-testid={`dispatch-stats-carrier-cost-${c.carrier.replace(/\s+/g, '-')}`}
+                          >
+                            <span className="text-[9px] font-sans uppercase tracking-wider text-amber-600/80">cobrado</span>
                             ARS {Math.round(c.totalShippingCost).toLocaleString("es-AR")}
                           </span>
                         )}
                         {c.totalEstimatedCost != null && (
-                          <span className="text-[12px] text-emerald-700" title="Estimado a pagar al courier (tarifas)" data-testid={`dispatch-stats-carrier-estimated-${c.carrier.replace(/\s+/g, '-')}`}>
+                          <span
+                            className="inline-flex items-baseline gap-1 text-[12px] text-emerald-700"
+                            title="Estimado a pagar al courier (tarifas)"
+                            data-testid={`dispatch-stats-carrier-estimated-${c.carrier.replace(/\s+/g, '-')}`}
+                          >
+                            <span className="text-[9px] font-sans uppercase tracking-wider text-emerald-600/80">estimado</span>
                             ~ARS {Math.round(c.totalEstimatedCost).toLocaleString("es-AR")}
                           </span>
                         )}
-                        <span className="text-slate-700">{c.count}</span>
+                        <span
+                          className="inline-flex items-baseline gap-1 text-slate-700"
+                          title={`${c.count} paquete${c.count === 1 ? '' : 's'} despachado${c.count === 1 ? '' : 's'}`}
+                        >
+                          <span className="text-[9px] font-sans uppercase tracking-wider text-slate-500">paq</span>
+                          {c.count}
+                        </span>
                       </span>
                     </button>
                     {isOpen && (
