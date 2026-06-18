@@ -99,6 +99,18 @@ export class MercadolibreQaController {
   }
 
   /**
+   * Marcos 2026-06-18: "Marcar como resuelto" on a claim card —
+   * clears the conversation's needsHumanAttention flag so the
+   * Reclamos list drops it on next refresh.
+   */
+  @Post('qa/claim/:conversationId/resolve')
+  async resolveClaim(@Param('conversationId') conversationId: string) {
+    const ok = await this.svc.resolveClaim(conversationId);
+    if (!ok) throw new BadRequestException('conversation not found');
+    return { success: true };
+  }
+
+  /**
    * Marcos 2026-06-11: release a pending draft to MercadoLibre.
    * Body: { text?: string } — if omitted, the saved AI text is sent
    * verbatim; if provided, the operator's edited version is sent and

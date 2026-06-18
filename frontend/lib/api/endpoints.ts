@@ -2186,10 +2186,14 @@ export const mercadolibreApi = {
     mlAccountKey: string | null;
     mlResourceId: string | null;
     createdAt: string;
+    messageCount: number;
   }>> => {
     const url = `/admin/mercadolibre/qa/open-claims${limit ? `?limit=${limit}` : ''}`;
     const r = await apiClient.get<any>(url);
     return r.data?.data ?? r.data ?? [];
+  },
+  resolveClaim: async (conversationId: string): Promise<void> => {
+    await apiClient.post<any>(`/admin/mercadolibre/qa/claim/${encodeURIComponent(conversationId)}/resolve`);
   },
   pendingDrafts: async (limit?: number): Promise<Array<{
     messageId: string;

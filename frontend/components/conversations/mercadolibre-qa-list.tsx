@@ -115,6 +115,7 @@ type OpenClaim = {
   mlAccountKey: string | null;
   mlResourceId: string | null;
   createdAt: string;
+  messageCount: number;
 };
 
 export function MercadolibreQaList() {
@@ -473,15 +474,39 @@ export function MercadolibreQaList() {
                           #{c.mlResourceId.split('/').pop()}
                         </span>
                       )}
+                      {c.messageCount > 1 && (
+                        <span className="ml-2 inline-flex h-4 items-center rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold text-rose-700">
+                          {c.messageCount} actualizaciones
+                        </span>
+                      )}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/conversations/${c.conversationId}`)}
-                      data-testid={`ml-pending-claim-open-${c.messageId}`}
-                      className="rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-700"
-                    >
-                      Abrir conversación
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm('¿Marcar este reclamo como resuelto? Se saca del panel.')) return;
+                          try {
+                            await api.mercadolibre.resolveClaim(c.conversationId);
+                            toast.success('Reclamo marcado como resuelto');
+                            await loadDrafts();
+                          } catch (err: any) {
+                            toast.error(err?.response?.data?.error || 'No se pudo marcar');
+                          }
+                        }}
+                        data-testid={`ml-pending-claim-resolve-${c.messageId}`}
+                        className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        Resuelto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/conversations/${c.conversationId}`)}
+                        data-testid={`ml-pending-claim-open-${c.messageId}`}
+                        className="rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-700"
+                      >
+                        Abrir
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-rose-900/80">{c.content}</p>
                 </li>

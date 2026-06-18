@@ -705,21 +705,28 @@ export class MercadolibreQaService {
     mlAccountKey: string | null;
     mlResourceId: string | null;
     createdAt: Date;
+    /** Marcos 2026-06-18: extra claim messages on the same
+     *  conversation (ML often sends 3-5 webhooks for one reclamo).
+     *  Surfaced as a count so the operator knows there's a thread. */
+    messageCount: number;
   }>> {
+    // Marcos 2026-06-18: only the last 30 days of claims surface in
+    // the Reclamos panel — older ones that ML already closed but
+    // we never cleared just clutter the queue. Operator can still
+    // clear stale rows manually with "Marcar como resuelto".
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const rows = await this.prisma.message.findMany({
       where: {
         isFromAI: false,
+        timestamp: { gte: since },
         metadata: { path: ['kind'], equals: 'ml_claim' } as any,
         conversation: {
           channel: Channel.MERCADOLIBRE,
-          // Only show claims whose conversation still needs a human.
-          // Once the operator clears the handoff flag the claim drops
-          // off the panel.
           needsHumanAttention: true,
         },
       },
       orderBy: { timestamp: 'desc' },
-      take: Math.max(1, Math.min(200, limit)),
+      take: Math.max(1, Math.min(500, limit * 6)),
       select: {
         id: true,
         content: true,
@@ -734,20 +741,56 @@ export class MercadolibreQaService {
         },
       },
     });
+    // Marcos 2026-06-18: dedupe by conversation. ML fires multiple
+    // post_purchase webhooks per claim (created → message added →
+    // status change) and each one saved a row. Operator only needs
+    // ONE card per reclamo — the freshest message, with the rest
+    // collapsed into a messageCount.
     const cipher = getMessageCipher();
-    return rows.map((m) => {
-      const meta = (m.metadata as Record<string, unknown> | null) ?? {};
-      return {
-        conversationId: m.conversationId,
-        messageId: m.id,
-        contactId: m.conversation?.contactId ?? '',
-        contactName: m.conversation?.contact?.name ?? null,
-        content: cipher.decrypt(m.content),
-        mlAccountKey: typeof meta.mlAccountKey === 'string' ? meta.mlAccountKey : null,
-        mlResourceId: typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null,
-        createdAt: m.timestamp,
-      };
-    });
+    const byConv = new Map<string, { latest: typeof rows[number]; count: number }>();
+    for (const m of rows) {
+      const prev = byConv.get(m.conversationId);
+      if (!prev) {
+        byConv.set(m.conversationId, { latest: m, count: 1 });
+      } else {
+        prev.count++;
+      }
+    }
+    return Array.from(byConv.values())
+      .sort((a, b) => b.latest.timestamp.getTime() - a.latest.timestamp.getTime())
+      .slice(0, Math.max(1, Math.min(200, limit)))
+      .map(({ latest: m, count }) => {
+        const meta = (m.metadata as Record<string, unknown> | null) ?? {};
+        return {
+          conversationId: m.conversationId,
+          messageId: m.id,
+          contactId: m.conversation?.contactId ?? '',
+          contactName: m.conversation?.contact?.name ?? null,
+          content: cipher.decrypt(m.content),
+          mlAccountKey: typeof meta.mlAccountKey === 'string' ? meta.mlAccountKey : null,
+          mlResourceId: typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null,
+          createdAt: m.timestamp,
+          messageCount: count,
+        };
+      });
+  }
+
+  /**
+   * Marcos 2026-06-18: clear the needsHumanAttention flag on a
+   * conversation so the Reclamos panel drops it. Used by the
+   * "Marcar como resuelto" button on each claim card.
+   */
+  async resolveClaim(conversationId: string): Promise<boolean> {
+    try {
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { needsHumanAttention: false, escalatedAt: null },
+      });
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'P2025') return false;
+      throw err;
+    }
   }
 
   /**
