@@ -991,6 +991,91 @@ export class MercadoLibreService implements IMercadoLibreService {
   }
 
   /**
+   * Marcos 2026-06-18 PM: búsqueda en TIEMPO REAL sobre las
+   * publicaciones ACTIVAS de la cuenta ML. Sirve al typeahead "#" del
+   * compositor del panel de QA — el operador tipea # + texto y le
+   * traemos las publicaciones live de ML que matchean, no las del
+   * catálogo TN (un link de TiendaNube pegado en una respuesta de ML
+   * es falta grave de plataforma).
+   *
+   * Llama `/users/{user_id}/items/search?status=active&q=<texto>` con
+   * paginación cortada a `limit` resultados — el typeahead muestra ~8
+   * sugerencias, no necesitamos más. Hace el search en CADA cuenta
+   * conectada (cuenta 1 + cuenta 2) y mezcla los resultados, así el
+   * operador no tiene que pre-elegir cuenta.
+   *
+   * Para cada item id que devuelve la búsqueda, llamamos
+   * fetchListingDetails (ya cacheado) para enriquecer con título +
+   * permalink — ese es el dato que el operador necesita ver en el
+   * dropdown para elegir.
+   */
+  async searchActiveListings(args: {
+    q: string;
+    limit?: number;
+  }): Promise<Array<{ itemId: string; title: string; permalink: string; thumbnailUrl: string | null; accountKey: string }>> {
+    const q = (args.q ?? '').trim();
+    if (!q) return [];
+    const limit = Math.max(1, Math.min(20, args.limit ?? 8));
+    const accounts: Array<'mercadolibre' | 'mercadolibre_cuenta2'> = [
+      'mercadolibre',
+      'mercadolibre_cuenta2',
+    ];
+    const out: Array<{ itemId: string; title: string; permalink: string; thumbnailUrl: string | null; accountKey: string }> = [];
+    for (const which of accounts) {
+      const auth = await this.resolveAuthFor(which);
+      if (!auth) continue;
+      try {
+        const url = `${this.apiUrl}/users/${encodeURIComponent(auth.userId)}/items/search?status=active&limit=${limit}&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${auth.accessToken}` },
+        });
+        if (!res.ok) {
+          this.logger.warn(`ML active items search (${which}) returned ${res.status}`);
+          continue;
+        }
+        const json: any = await res.json();
+        const ids: string[] = Array.isArray(json?.results)
+          ? json.results.map((x: any) => String(x)).filter(Boolean)
+          : [];
+        if (ids.length === 0) continue;
+        // Enrich each id with title + permalink via fetchListingDetails
+        // (cached). Cap at limit so we don't fan out 20 enrichments
+        // when the operator only sees 8 options.
+        const limited = ids.slice(0, limit);
+        const enriched = await Promise.all(
+          limited.map((id) => this.fetchListingDetails(id).catch(() => null)),
+        );
+        for (const e of enriched) {
+          if (e && e.permalink) {
+            out.push({
+              itemId: e.itemId,
+              title: e.title,
+              permalink: e.permalink,
+              thumbnailUrl: e.thumbnailUrl ?? null,
+              accountKey: which,
+            });
+          }
+        }
+        // Early stop — if cuenta 1 ya devolvió suficientes resultados,
+        // no consultamos cuenta 2 (la mayoría de las publicaciones
+        // viven en cuenta 1; evitamos el round-trip extra).
+        if (out.length >= limit) break;
+      } catch (err: any) {
+        this.logger.warn(`ML active items search (${which}) threw: ${err?.message ?? err}`);
+      }
+    }
+    // Dedup by itemId — si por algún motivo la misma publicación
+    // aparece en las dos cuentas (no debería, pero por las dudas).
+    const seen = new Set<string>();
+    return out.filter((r) => {
+      if (seen.has(r.itemId)) return false;
+      seen.add(r.itemId);
+      return true;
+    }).slice(0, limit);
+  }
+
+  /**
    * Fetch ML orders for the seller in a given date range. Marcos 2026-
    * 06-06 (Bloque C): the daily logistics Excel needs the day's ML
    * orders split by cuenta + by shipping mode (colecta vs flex vs

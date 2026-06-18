@@ -87,6 +87,22 @@ export class MercadolibreQaController {
   }
 
   /**
+   * Marcos 2026-06-18 PM: typeahead "#" del compositor del panel de QA.
+   * Devuelve publicaciones ACTIVAS de ML que matchean la query — NO
+   * del catálogo TN. Sirve para insertar link directo a otra
+   * publicación cuando el operador responde a un comprador y quiere
+   * derivarlo a una variante / complemento que tenemos publicada.
+   */
+  @Get('listings/search')
+  async searchListings(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const data = await this.mlService.searchActiveListings({
+      q: (q ?? '').trim(),
+      limit: limit != null ? Number(limit) : undefined,
+    });
+    return { success: true, data };
+  }
+
+  /**
    * Marcos 2026-06-17: list open reclamos for the QA panel's Reclamos
    * section. Claims escalate to human handoff without an AI draft, so
    * they're not in pending-drafts — this endpoint surfaces them.

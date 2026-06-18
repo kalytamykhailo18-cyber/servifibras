@@ -36,10 +36,11 @@ type QuickReply = {
 };
 
 type ListingHit = {
-  id: string;
-  sku: string;
-  name: string;
-  mlPermalink: string;
+  itemId: string;
+  title: string;
+  permalink: string;
+  thumbnailUrl: string | null;
+  accountKey: string;
 };
 
 interface Props {
@@ -88,31 +89,33 @@ export function MlDraftComposer({
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
   const [hashAnchor, setHashAnchor] = useState<{ start: number; end: number } | null>(null);
 
-  // Debounced fetch — kicks 250ms after the operator stops typing the
-  // # query so we don't fire on every keystroke.
+  // Debounced fetch — kicks 300ms after the operator stops typing the
+  // # query so we don't fire on every keystroke. Marcos 2026-06-18 PM:
+  // pega contra `/admin/mercadolibre/listings/search` que consulta las
+  // publicaciones ACTIVAS de ML en tiempo real (no el catálogo local
+  // TN — un link de tiendaservifibras.com pegado en ML es falta grave).
   useEffect(() => {
     if (!hashOpen) return;
+    if (hashQuery.trim().length < 2) {
+      // Two-char floor — la API de ML penaliza queries de 1 char con
+      // muchísimos falsos positivos. Esperá a que el operador escriba
+      // un poco antes de disparar.
+      setHashHits([]);
+      setHashLoading(false);
+      return;
+    }
     const t = window.setTimeout(async () => {
       setHashLoading(true);
       try {
-        const list = await api.products.list({ activeOnly: true, search: hashQuery });
-        const filtered = (list || [])
-          .filter((p: any) => typeof p?.mlPermalink === 'string' && p.mlPermalink.length > 0)
-          .slice(0, 8)
-          .map((p: any) => ({
-            id: p.id,
-            sku: p.sku,
-            name: p.name,
-            mlPermalink: p.mlPermalink as string,
-          }));
-        setHashHits(filtered);
+        const list = await api.mercadolibre.searchListings(hashQuery, 8);
+        setHashHits((list ?? []).slice(0, 8));
         setHashActiveIdx(0);
       } catch (err: any) {
         setHashHits([]);
       } finally {
         setHashLoading(false);
       }
-    }, 250);
+    }, 300);
     return () => window.clearTimeout(t);
   }, [hashOpen, hashQuery]);
 
@@ -188,9 +191,10 @@ export function MlDraftComposer({
   const pickHash = useCallback(
     (hit: ListingHit) => {
       if (!hashAnchor) return;
-      // Replace the "#query" with the article URL (and a trailing space
-      // so the operator can keep typing without merging into the URL).
-      insertAtCursor(`${hit.mlPermalink} `, hashAnchor);
+      // Replace the "#query" with the ML article URL (and a trailing
+      // space so the operator can keep typing without merging into
+      // the URL).
+      insertAtCursor(`${hit.permalink} `, hashAnchor);
       closeHash();
     },
     [hashAnchor, insertAtCursor, closeHash],
@@ -278,33 +282,50 @@ export function MlDraftComposer({
             </p>
           ) : (
             <ul className="max-h-64 overflow-y-auto py-1">
-              {hashHits.map((hit, idx) => (
-                <li
-                  key={hit.id}
-                  role="option"
-                  aria-selected={idx === hashActiveIdx}
-                  onMouseEnter={() => setHashActiveIdx(idx)}
-                  onMouseDown={(e) => { e.preventDefault(); pickHash(hit); }}
-                  className={
-                    "flex cursor-pointer items-start gap-2 px-3 py-2 " +
-                    (idx === hashActiveIdx
-                      ? "bg-blue-50 text-blue-900"
-                      : "text-slate-700 hover:bg-slate-50")
-                  }
-                  data-testid={`ml-draft-hash-option-${hit.id}`}
-                >
-                  <span className="mt-0.5 inline-flex shrink-0 items-center rounded-md bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white">
-                    {hit.sku}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">{hit.name}</div>
-                    <div className="truncate text-[11px] text-slate-500">
-                      <LinkIcon sx={{ fontSize: 11 }} className="mr-0.5 align-middle" />
-                      {hit.mlPermalink}
+              {hashHits.map((hit, idx) => {
+                const cuentaTag = hit.accountKey === 'mercadolibre_cuenta2' ? 'cuenta 2' : 'cuenta 1';
+                return (
+                  <li
+                    key={hit.itemId}
+                    role="option"
+                    aria-selected={idx === hashActiveIdx}
+                    onMouseEnter={() => setHashActiveIdx(idx)}
+                    onMouseDown={(e) => { e.preventDefault(); pickHash(hit); }}
+                    className={
+                      "flex cursor-pointer items-start gap-2 px-3 py-2 " +
+                      (idx === hashActiveIdx
+                        ? "bg-blue-50 text-blue-900"
+                        : "text-slate-700 hover:bg-slate-50")
+                    }
+                    data-testid={`ml-draft-hash-option-${hit.itemId}`}
+                  >
+                    {hit.thumbnailUrl ? (
+                      <img
+                        src={hit.thumbnailUrl}
+                        alt=""
+                        className="mt-0.5 h-8 w-8 shrink-0 rounded-md object-cover"
+                      />
+                    ) : (
+                      <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-[9px] font-mono text-slate-500">
+                        ML
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium">{hit.title}</div>
+                      <div className="flex items-center gap-1.5 truncate text-[11px] text-slate-500">
+                        <span className="inline-flex shrink-0 items-center rounded bg-slate-100 px-1 py-0.5 font-mono text-[9px] font-semibold text-slate-600">
+                          {hit.itemId}
+                        </span>
+                        <span className="inline-flex shrink-0 items-center rounded bg-amber-100 px-1 py-0.5 text-[9px] font-medium text-amber-800">
+                          {cuentaTag}
+                        </span>
+                        <LinkIcon sx={{ fontSize: 11 }} className="shrink-0" />
+                        <span className="truncate">{hit.permalink}</span>
+                      </div>
                     </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

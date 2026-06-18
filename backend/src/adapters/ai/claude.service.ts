@@ -52,6 +52,27 @@ function approvedFormulationsBlock(rows: Array<{ label: string; body: string }>)
   return lines.join('\n');
 }
 
+/**
+ * Marcos 2026-06-18 PM: bloque de fallback cuando NO pudimos cargar
+ * la publicación. Sin esto el agente quedaba sin contexto y respondía
+ * "¿sobre qué producto me estás preguntando?" — error grave en ML,
+ * donde el comprador siempre está parado en UNA publicación
+ * específica y preguntarle "cuál" es admitir desorientación.
+ */
+function mlListingMissingContextBlock(): string {
+  return [
+    '▸ PUBLICACIÓN ACTUAL DE MERCADOLIBRE — contexto no cargado',
+    '',
+    'No pudimos cargar los detalles de la publicación específica en la que el comprador escribió esta pregunta (puede ser un fallo transitorio de la API de ML o una publicación con permisos restringidos). NO admitas el error en la respuesta y NO preguntes "sobre qué producto me estás preguntando".',
+    '',
+    'Reglas mientras dure la falta de contexto:',
+    '  - El comprador YA está parado en una publicación específica. Pedirle que aclare "qué producto" es admitir que no tenemos contexto — eso baja la confianza del agente y baja el score de relevancia de la cuenta.',
+    '  - Si la pregunta tiene una pista del producto (ej. nombra "resina", "lámina", "fibra", "pigmento", una medida, un kilo, una presentación), inferí el rubro de ahí y llamá a `buscar_producto` con esa pista — eso te devuelve productos del catálogo con su link de ML.',
+    '  - Si la pregunta es genérica ("¿tenés stock?", "¿hacen envíos?", "¿cuánto sale?"), respondé en términos del rubro de la cuenta (Servifibras = resinas, fibras de vidrio, laminados PRFV, pigmentos, siliconas) sin nombrar un producto puntual. Ej: para "¿tenés stock?" → "Sí, lo tenemos disponible para enviar de inmediato."',
+    '  - PROHIBIDO inventar nombres de producto, precios, medidas o stocks. Si no podés deducir el rubro y la pregunta no es genérica, contestá pidiendo que el comprador AMPLÍE la consulta (ej. "Para darte el dato exacto necesitamos un detalle más — ¿cuántos kilos / qué medida / qué uso le vas a dar?") en vez de pedir que diga "qué producto".',
+  ].join('\n');
+}
+
 function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface').AITurnContext['mercadolibreListing']): string | null {
   if (!listing) return null;
   // Marcos 2026-06-18: 600 chars cortaba la descripción de los
@@ -125,6 +146,14 @@ function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface'
     'Ejemplo BIEN:',
     '  → Agente llama buscar_producto("laminado prfv 1.10 ancho") → devuelve "Laminado PRFV 1,10 x 16m" con link ML.',
     '  → Agente: "El ancho exacto de 1 m no lo manejamos en stock; el más cercano disponible es 1,10 m. Esa medida la encontrás en la publicación específica: [link ML]. Si te sirve, te conviene comprar por ahí."',
+    '',
+    '⚠️ MISMO RUBRO, DIFERENTE PRESENTACIÓN / COMPLEMENTO — Marcos 2026-06-18 PM:',
+    'La regla cross-publicación se aplica TAMBIÉN cuando el comprador pide más cantidad del mismo producto en otra presentación, o un complemento que no es esta publicación pero igual lo manejamos. NUNCA contestes "te paso por aparte" / "consultalo con nosotros" / "te lo envío al privado" — siempre buscar_producto + link ML literal en la respuesta.',
+    'Casos típicos:',
+    '  - Comprador en una publicación de Resina Epoxi 1kg pregunta "¿tenés de 5 kg?" → buscar_producto("resina epoxi 5kg") → devolvé el link ML del 5 kg.',
+    '  - Comprador en una publicación de Resina Epoxi pregunta "¿tenés pigmentos?" → buscar_producto("pigmento resina") → devolvé el link ML del pigmento (uno, el más representativo, NO una lista de 10).',
+    '  - Comprador en una publicación de Lámina PRFV pregunta "¿qué pegamento uso?" → buscar_producto("pegamento prfv") → devolvé el link ML del pegamento.',
+    'Lo que SIEMPRE va junto al link: el nombre exacto del producto cross + el formato canónico de arriba. Lo que NUNCA va: precio del producto cross, cantidad, m², "te lo armo con todo en el mismo pedido", "te lo paso por privado".',
     '',
     'BLOQUEO ABSOLUTO — productos fuera de esta publicación:',
     'Si el cliente pregunta por CUALQUIER producto que no sea el que muestra esta publicación específica (aunque sea del mismo rubro, aunque sea complementario, aunque sea para el mismo proyecto, aunque parezca cross-sell útil), aplica esta regla SIN EXCEPCIÓN:',
@@ -1569,6 +1598,17 @@ IMPORTANTE sobre precios:
       const listingBlock = mlListingContextBlock((turn as any).mercadolibreListing);
       if (listingBlock) {
         systemBlocks.push({ type: 'text', text: listingBlock });
+      } else {
+        // Marcos 2026-06-18 PM: cuando fetchListingDetails devuelve
+        // null (cuenta sin permisos, publicación dada de baja, fallo
+        // de red de un solo intento), antes el agente quedaba sin
+        // ningún anclaje y respondía "¿sobre qué producto me estás
+        // preguntando?". Esa pregunta no la podemos hacer — el
+        // comprador YA está en una publicación específica de ML;
+        // preguntárselo se lee como "no sé dónde estás parado". Este
+        // bloque le da al agente reglas de fallback para extraer
+        // contexto de la pregunta misma en vez de pedirlo.
+        systemBlocks.push({ type: 'text', text: mlListingMissingContextBlock() });
       }
     }
     // Marcos 2026-06-18: librería de respuestas rápidas. Si hay chips
@@ -1595,14 +1635,19 @@ IMPORTANTE sobre precios:
       ? turn.modelOverride
       : this.model;
     const replyMaxTokensForLevel = (lvl?: 1 | 2 | 3): number => {
-      // Marcos 2026-06-18: L1=150/L2=300 dejaban respuestas cortadas a
-      // mitad de oración en ML (consultas con dimensiones + alternativa
-      // a otra publicación pasan los 300 tokens fácil). Subo los pisos
-      // por defecto; .env sigue siendo el override real
-      // (CLAUDE_MAX_TOKENS_REPLY_L1 / _L2).
-      if (lvl === 1) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L1', 600);
-      if (lvl === 2) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L2', 900);
-      return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY', 1024);
+      // Marcos 2026-06-18 PM: el corte a mitad de oración seguía
+      // apareciendo en publicaciones que no son laminado, no solo en
+      // PRFV. El clasificador de complejidad seguía routing varias
+      // preguntas como L1 y 600 tokens NO alcanzan cuando la respuesta
+      // incluye link cross-publicación + cierre obligatorio.
+      // Unifico el techo: L1/L2/L3 todos usan el mismo cap por defecto
+      // (REPLY). La complejidad sigue eligiendo modelo más barato para
+      // L1 (eso es donde el ahorro real está); el techo de tokens no
+      // tiene que castigar a la inversa. .env sigue siendo el override.
+      const ceiling = this.maxTokens('CLAUDE_MAX_TOKENS_REPLY', 1024);
+      if (lvl === 1) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L1', ceiling);
+      if (lvl === 2) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L2', ceiling);
+      return ceiling;
     };
     const requestConfig: any = {
       model: modelForTurn,

@@ -2185,6 +2185,23 @@ export const mercadolibreApi = {
     const r = await apiClient.get<any>('/admin/mercadolibre/qa/counts');
     return r.data?.data ?? r.data;
   },
+  /**
+   * Marcos 2026-06-18 PM: typeahead "#" del compositor del panel de
+   * QA. Búsqueda en TIEMPO REAL sobre publicaciones ACTIVAS de ML (no
+   * sobre el catálogo TN — pegar links de TiendaNube en una respuesta
+   * de ML es falta grave de plataforma).
+   */
+  searchListings: async (q: string, limit = 8): Promise<Array<{
+    itemId: string;
+    title: string;
+    permalink: string;
+    thumbnailUrl: string | null;
+    accountKey: string;
+  }>> => {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    const r = await apiClient.get<any>(`/admin/mercadolibre/listings/search?${qs.toString()}`);
+    return r.data?.data ?? r.data ?? [];
+  },
   listQa: async (params?: {
     limit?: number;
     since?: string;
