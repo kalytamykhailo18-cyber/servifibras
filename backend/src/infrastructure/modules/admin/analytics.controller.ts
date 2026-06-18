@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { AnalyticsService } from '../../../adapters/admin/analytics.service';
 import { RoleMetricsService } from '../../../adapters/admin/role-metrics.service';
+import { TeamPerformanceService } from '../../../adapters/admin/team-performance.service';
 import { VentasUnificadasService, VentasRange, VentasSource } from '../../../adapters/admin/ventas-unificadas.service';
 import { VentasUnificadasDriveService } from '../../../adapters/admin/ventas-unificadas-drive.service';
 import { AuthGuard } from '../../guards/auth.guard';
@@ -30,7 +31,26 @@ export class AnalyticsController {
     private readonly roleMetrics: RoleMetricsService,
     private readonly ventasUnificadas: VentasUnificadasService,
     private readonly ventasDrive: VentasUnificadasDriveService,
+    private readonly teamPerformance: TeamPerformanceService,
   ) {}
+
+  /**
+   * Marcos 2026-06-18: per-user team-performance leaderboard. One row
+   * per active operator with manual-sales totals + response-time
+   * averages over the window. Filter `from` / `to` are ISO instants.
+   * Admin-only (compares the team — non-admin can't see peers).
+   */
+  @Get('team-performance')
+  @Roles(UserRole.ADMIN, UserRole.ENCARGADO)
+  async teamPerformanceRoute(
+    @Query('from') fromIso: string | undefined,
+    @Query('to') toIso: string | undefined,
+  ) {
+    const to = toIso || new Date().toISOString();
+    const from = fromIso || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const data = await this.teamPerformance.team({ fromIso: from, toIso: to });
+    return { success: true, data };
+  }
 
   /**
    * Per-role dashboard cuts (Marcos's redesign).

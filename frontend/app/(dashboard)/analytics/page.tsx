@@ -7,6 +7,7 @@ import { ConversationChart } from "@/components/analytics/conversation-chart";
 import { RoleMetricsCards } from "@/components/analytics/role-metrics-cards";
 import { QualityPersonalCard } from "@/components/analytics/quality-personal-card";
 import { QualityTeamOverlay } from "@/components/analytics/quality-team-overlay";
+import { TeamPerformanceCard } from "@/components/analytics/team-performance-card";
 import { ClaudeBudgetWidget } from "@/components/analytics/claude-budget-widget";
 import { DailyDigestWidget } from "@/components/analytics/daily-digest-widget";
 import { ContactChart } from "@/components/analytics/contact-chart";
@@ -297,6 +298,7 @@ export default function AnalyticsPage() {
 
       {activeTab === "calidad-equipo" && (isAdmin || isEncargado) && (
         <div className="space-y-6">
+          <TeamPerformanceCard />
           <QualityTeamOverlay />
         </div>
       )}

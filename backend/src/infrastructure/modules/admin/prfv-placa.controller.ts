@@ -83,6 +83,8 @@ export class PrfvPlacaController {
         producto: String(body?.producto ?? ''),
         state: body?.state && VALID_STATES.has(body.state) ? body.state : undefined,
         notes: body?.notes ?? null,
+        // Marcos 2026-06-18: stamp the operator for team analytics.
+        createdById: req.user?.id ?? null,
       });
       this.logger.log(`PRFV placa ${row.id.slice(0, 8)} created by ${req.user?.email ?? 'unknown'}`);
       return { success: true, data: row };

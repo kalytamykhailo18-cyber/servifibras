@@ -59,6 +59,9 @@ export class OrderManagementService implements IOrderManagementService {
               type: true,
             },
           },
+          // Marcos 2026-06-18: surface the operator who loaded the
+          // pedido so the UI can render "Cargado por …".
+          createdBy: { select: { id: true, name: true, email: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
@@ -129,6 +132,11 @@ export class OrderManagementService implements IOrderManagementService {
         carrier: (data as any).carrier ?? null,
         shippingZone: (data as any).shippingZone ?? null,
         shippingCost: typeof (data as any).shippingCost === 'number' ? (data as any).shippingCost : null,
+        // Marcos 2026-06-18: operator audit for team-performance
+        // analytics. createOrder may be called by an authenticated
+        // controller (with the user id) or by the TN sync service
+        // (no user — falls back to null).
+        createdById: typeof (data as any).createdById === 'string' ? (data as any).createdById : null,
       },
       include: {
         contact: {

@@ -51,6 +51,9 @@ model User {
   publicationFaqs    PublicationFaq[]
   competitorWatches  MlCompetitorWatch[]
   dispatchTariffs    DispatchTariff[] @relation("DispatchTariffCreatedBy")
+  // Marcos 2026-06-18: per-user team-performance analytics.
+  ordersCreated      Order[]            @relation("OrderCreatedBy")
+  prfvPlacasCreated  PrfvPlaca[]        @relation("PrfvPlacaCreatedBy")
 
   @@map("users")
 }
@@ -388,6 +391,13 @@ model Order {
   // invoicing — there's no buyer to bill. Default false; set true
   // by the operator via the REPOSICIÓN tab on the Pedidos form.
   isReposicion Boolean    @default(false)
+  // Marcos 2026-06-18: operator who loaded this order. The team-
+  // performance analytics counts a MANUAL sale toward whoever
+  // pressed "Crear" in the panel — the assigned-to-operator semantic
+  // Marcos asked for. TN / ML orders land with createdById=null
+  // (no human input on import).
+  createdById  String?
+  createdBy    User?      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -399,6 +409,7 @@ model Order {
   @@index([orderNumber])
   @@index([status])
   @@index([invoicedAt])
+  @@index([createdById])
   @@unique([source, externalId])
   @@map("orders")
 }
@@ -937,9 +948,15 @@ model PrfvPlaca {
   stateChangedAt DateTime       @default(now())
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  // Marcos 2026-06-18: operator who loaded this placa. Drives the
+  // per-user analytics ("quién carga más laminados") and the row's
+  // "Cargado por ..." caption in the panel.
+  createdById    String?
+  createdBy      User?          @relation("PrfvPlacaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([state])
   @@index([stateChangedAt])
+  @@index([createdById])
   @@map("prfv_placas")
 }
 

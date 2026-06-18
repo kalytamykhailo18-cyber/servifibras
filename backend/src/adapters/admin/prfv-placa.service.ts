@@ -27,6 +27,9 @@ export interface PrfvPlacaInput {
   producto: string;
   state?: PrfvPlacaState;
   notes?: string | null;
+  // Marcos 2026-06-18: operator who loaded the placa — drives the
+  // per-user team-performance analytics.
+  createdById?: string | null;
 }
 
 export interface PrfvPlacaListFilter {
@@ -65,10 +68,13 @@ export class PrfvPlacaService {
     }
     // Group by state in the daily-Excel order, freshest movement first
     // inside each state.
+    // Marcos 2026-06-18: include createdBy so the UI can render
+    // "Cargado por …" on each row.
     return this.prisma.prfvPlaca.findMany({
       where,
+      include: { createdBy: { select: { id: true, name: true, email: true } } } as any,
       orderBy: [{ state: 'asc' }, { stateChangedAt: 'desc' }],
-    });
+    }) as any;
   }
 
   async getById(id: string): Promise<PrfvPlaca | null> {
@@ -86,6 +92,7 @@ export class PrfvPlacaService {
         producto,
         state: input.state ?? PrfvPlacaState.PENDIENTE,
         notes: input.notes?.trim() || null,
+        createdById: input.createdById ?? null,
       },
     });
     this.logger.log(`PRFV placa ${row.id.slice(0, 8)} created (${row.state})`);

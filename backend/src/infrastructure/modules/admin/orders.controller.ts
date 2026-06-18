@@ -167,7 +167,12 @@ export class OrdersController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
   async createOrder(@Body() body: any, @Request() req: any) {
-    const data = await this.orderManagement.createOrder(body);
+    const data = await this.orderManagement.createOrder({
+      ...body,
+      // Marcos 2026-06-18: stamp the operator who loaded the order
+      // so team-performance analytics can attribute manual sales.
+      createdById: req.user?.id ?? null,
+    });
     const ctx = this.auditCtx(req);
     await this.audit.log({
       userId: req.user.id,

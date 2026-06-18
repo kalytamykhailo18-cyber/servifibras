@@ -866,6 +866,33 @@ export const analyticsApi = {
    * Marcos 2026-06-12: dispatch history per mensajería. Bounds are
    * ISO instants from the caller; presets resolved client-side.
    */
+  /**
+   * Marcos 2026-06-18: team-performance leaderboard. Per-user totals
+   * (orders + invoiced ARS + conversations handled + response-time
+   * averages) over an ISO window. Returns one row per active user so
+   * the comparison table stays stable even on quiet days.
+   */
+  getTeamPerformance: async (params: { from: string; to: string }): Promise<{
+    fromIso: string;
+    toIso: string;
+    users: Array<{
+      userId: string;
+      name: string;
+      email: string;
+      role: string;
+      ordersCreated: number;
+      invoicedArs: number;
+      conversationsHandled: number;
+      avgFirstResponseSeconds: number | null;
+      avgReplyLatencySeconds: number | null;
+    }>;
+  }> => {
+    const qs = new URLSearchParams();
+    qs.set('from', params.from);
+    qs.set('to', params.to);
+    const r = await apiClient.get<any>(`/admin/analytics/team-performance?${qs.toString()}`);
+    return r.data?.data ?? r.data;
+  },
   getDispatchStats: async (params: { from: string; to: string }): Promise<{
     fromIso: string;
     toIso: string;

@@ -55,6 +55,8 @@ export interface CreateOrderData {
   carrier?: string | null;
   shippingZone?: string | null;
   shippingCost?: number | null;
+  // Marcos 2026-06-18: stamped from the controller's req.user.id.
+  createdById?: string | null;
 }
 
 export interface UpdateOrderData {

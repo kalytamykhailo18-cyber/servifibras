@@ -163,7 +163,16 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
               </TableCell>
 
               <TableCell className="px-4 py-3 text-xs text-slate-500">
-                {safeFormatDistanceToNow(order.createdAt)}
+                <div>{safeFormatDistanceToNow(order.createdAt)}</div>
+                {(order as any).createdBy?.name && (
+                  <div
+                    className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                    title={`Cargado por ${(order as any).createdBy.name}`}
+                    data-testid="order-row-created-by"
+                  >
+                    por {(order as any).createdBy.name}
+                  </div>
+                )}
               </TableCell>
 
               <TableCell className="px-4 py-3 text-right">

@@ -315,6 +315,15 @@ export default function PrfvPlacasPage() {
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <span className="text-[10px] text-slate-400">
                             {safeFormatDistanceToNow(p.stateChangedAt)}
+                            {(p as any).createdBy?.name && (
+                              <span
+                                className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                                title={`Cargado por ${(p as any).createdBy.name}`}
+                                data-testid="prfv-row-created-by"
+                              >
+                                por {(p as any).createdBy.name}
+                              </span>
+                            )}
                           </span>
                           <div className="flex items-center gap-1">
                             {p.state !== "DESPACHADA_RETIRADA" && (
