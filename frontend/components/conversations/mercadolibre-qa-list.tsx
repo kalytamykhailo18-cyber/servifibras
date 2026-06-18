@@ -33,6 +33,7 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlineOutlin
 import UndoIcon from "@mui/icons-material/Undo";
 import MenuBookIcon from "@mui/icons-material/MenuBookOutlined";
 import { PublicationFaqDialog } from "./publication-faq-dialog";
+import { MlDraftComposer } from "./ml-draft-composer";
 
 type QaFilter = "all" | "flagged" | "score-le-7" | "score-le-5";
 
@@ -157,6 +158,20 @@ export function MercadolibreQaList() {
   const [autoReplyBusy, setAutoReplyBusy] = useState<boolean>(false);
   // Confirmation prompt for the bulk-discard action.
   const [confirmDiscard, setConfirmDiscard] = useState<null | { hours: number; label: string }>(null);
+  // Marcos 2026-06-18: librería de respuestas rápidas — cargada una
+  // vez en el padre para que los N borradores del panel no disparen
+  // N requests idénticos al backend.
+  const [sharedQuickReplies, setSharedQuickReplies] = useState<Array<{
+    id: string; label: string; body: string; category: string | null;
+  }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.conversations
+      .listQuickReplies()
+      .then((rows) => { if (!cancelled) setSharedQuickReplies(rows as any); })
+      .catch(() => { /* degrades silently — composer cae a fetch local */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -672,9 +687,10 @@ export function MercadolibreQaList() {
                       {d.questionText}
                     </div>
                   )}
-                  <textarea
+                  <MlDraftComposer
+                    draftId={d.messageId}
                     value={text}
-                    onChange={(e) => onDraftEdit(d.messageId, e.target.value)}
+                    onChange={(next) => onDraftEdit(d.messageId, next)}
                     onBlur={() => {
                       // Force-flush the pending save when the
                       // operator tabs / clicks away. The timer is
@@ -685,10 +701,8 @@ export function MercadolibreQaList() {
                         if (text.trim().length > 0) void flushDraftEdit(d.messageId, text);
                       }
                     }}
-                    rows={Math.max(3, Math.min(8, Math.ceil(text.length / 90)))}
                     disabled={!!busy}
-                    data-testid={`ml-draft-textarea-${d.messageId}`}
-                    className="w-full resize-y rounded-lg border border-slate-200 bg-white p-2 text-sm leading-relaxed text-slate-900 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-500/15 disabled:opacity-60"
+                    quickReplies={sharedQuickReplies}
                   />
                   {/* Save-state hint. Stays invisible until the operator
                       starts typing, switches to "guardando…" while the

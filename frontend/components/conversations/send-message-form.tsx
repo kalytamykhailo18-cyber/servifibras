@@ -222,7 +222,7 @@ export function SendMessageForm({
   };
 
   const handlePick = (opt: QuickReplyOption) => {
-    setContentValue(opt.content);
+    setContentValue(opt.body);
     setPickerQuery(null);
     // Best-effort usage tracking — never blocks the operator.
     api.conversations.markQuickReplyUsed(opt.id).catch(() => {});

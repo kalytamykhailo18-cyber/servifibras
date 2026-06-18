@@ -364,17 +364,21 @@ export const conversationsApi = {
    * message id + attachment metadata.
    */
   /**
-   * GET /admin/quick-replies — operator-side templates triggered by typing
-   * "/" in the composer. Returns the active list (most-used first).
+   * GET /admin/quick-replies — librería global de chips reusables
+   * (HAY STOCK, ENVIOS, MASILLA 10 MIN, etc.) que se insertan al
+   * cursor en la caja de respuesta y alimentan el system prompt de la
+   * IA cuando feedAi=true.
    */
   listQuickReplies: async (): Promise<Array<{
     id: string;
-    shortcut: string;
-    title: string;
-    content: string;
+    label: string;
+    body: string;
     category: string | null;
     active: boolean;
-    usageCount: number;
+    feedAi: boolean;
+    sortOrder: number;
+    hitCount: number;
+    lastUsedAt: string | null;
   }>> => {
     const r = await apiClient.get<any>('/admin/quick-replies?activeOnly=true');
     return r.data?.data ?? r.data;
@@ -406,24 +410,28 @@ export const conversationsApi = {
   /** Admin-only — full list including inactive templates. */
   listAllQuickReplies: async (): Promise<Array<{
     id: string;
-    shortcut: string;
-    title: string;
-    content: string;
+    label: string;
+    body: string;
     category: string | null;
     active: boolean;
-    usageCount: number;
+    feedAi: boolean;
+    sortOrder: number;
+    hitCount: number;
+    lastUsedAt: string | null;
   }>> => {
     const r = await apiClient.get<any>('/admin/quick-replies');
     return r.data?.data ?? r.data;
   },
   createQuickReply: async (input: {
-    shortcut: string; title: string; content: string; category?: string | null; active?: boolean;
+    label: string; body: string; category?: string | null;
+    active?: boolean; feedAi?: boolean; sortOrder?: number;
   }) => {
     const r = await apiClient.post<any>('/admin/quick-replies', input);
     return r.data?.data ?? r.data;
   },
   updateQuickReply: async (id: string, input: Partial<{
-    shortcut: string; title: string; content: string; category: string | null; active: boolean;
+    label: string; body: string; category: string | null;
+    active: boolean; feedAi: boolean; sortOrder: number;
   }>) => {
     const r = await apiClient.put<any>(`/admin/quick-replies/${id}`, input);
     return r.data?.data ?? r.data;

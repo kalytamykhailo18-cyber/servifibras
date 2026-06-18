@@ -55,6 +55,8 @@ model User {
   ordersCreated      Order[]            @relation("OrderCreatedBy")
   ordersReturned     Order[]            @relation("OrderReturnedBy")
   prfvPlacasCreated  PrfvPlaca[]        @relation("PrfvPlacaCreatedBy")
+  // Marcos 2026-06-18: librería de respuestas rápidas (chips reusables).
+  quickRepliesAuthored QuickReply[]     @relation("QuickReplyCreatedBy")
 
   @@map("users")
 }
@@ -526,36 +528,6 @@ enum CampaignDeliveryStatus {
   SENT
   FAILED
   SKIPPED
-}
-
-// Operator-side response templates triggered by typing "/" in the
-// conversation composer. Marcos's brief: "horarios de atención, dirección
-// de retiro, datos bancarios — quiero que el operador apriete / y le salga
-// la respuesta lista."
-model QuickReply {
-  id         String   @id @default(uuid())
-  // Short token typed after "/" to summon this reply (e.g. "horarios",
-  // "direccion", "banco"). Lower-case, no spaces. Unique so the picker can
-  // resolve unambiguously.
-  shortcut   String   @unique
-  // Display title shown in the picker.
-  title      String
-  // Actual text inserted into the message composer.
-  content    String
-  // Optional grouping ("info", "ventas", "logistica") so the picker can
-  // section them. Free-form for v1.
-  category   String?
-  active     Boolean  @default(true)
-  // How many times this template has been used. Bumped server-side when
-  // an operator triggers it. Useful for "popular shortcuts" sorting.
-  usageCount Int      @default(0)
-  createdBy  String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([active])
-  @@index([shortcut])
-  @@map("quick_replies")
 }
 
 // Quotes / presupuestos. Mirrors the layout of the paper presupuesto
@@ -1044,6 +1016,61 @@ model PublicationFaq {
   @@index([active])
   @@index([hitCount])
   @@map("publication_faqs")
+}
+
+// Marcos 2026-06-18: librería global de "Respuestas rápidas".
+//
+// Replaces the per-publication FAQ approach (PublicationFaq) — that
+// model required curating per-listing entries which never got
+// populated (0 rows in prod). The chip pattern Marcos uses in ML's
+// own backoffice ("HAY STOCK", "ENVIOS", "MASILLA 10 MIN") is the
+// right unit: a small reusable library where each chip applies
+// across all publications.
+//
+// Two consumers at once:
+//  (a) operator UI: chip strip above the reply textarea — one click
+//      inserts the body at the cursor; "guardado" indicator stays the
+//      same. Reduces typing during manual ML / WhatsApp replies.
+//  (b) Claude prompt: rows with `feedAi=true` are injected as a
+//      "FORMULACIONES APROBADAS POR EL EQUIPO" block in the system
+//      prompt, so the AI parrots Marcos's voice ("Hay stock disponible
+//      para enviar de inmediato.") instead of inventing new
+//      formulations each time.
+//
+// hitCount + lastUsedAt drive the admin panel's ordering ("most-used
+// first") so the operator's most-frequent chip lands at the left edge.
+model QuickReply {
+  id          String    @id @default(uuid())
+  // Chip label visible on the UI — short, ALL CAPS by convention
+  // ("HAY STOCK", "ENVIOS", "MASILLA 10 MIN"). Unique so two chips
+  // can't collide in the dropdown.
+  label       String    @unique
+  // The reusable text inserted into the reply / fed to the AI. Plain
+  // text, no greeting or signoff — the channel wrapper adds those.
+  body        String
+  // Optional grouping ("envios", "stock", "tecnico") — only used for
+  // visual sorting in the admin panel.
+  category    String?
+  // Off-switch without deleting: an FAQ that turned out to be wrong
+  // can be toggled off while we rewrite it.
+  active      Boolean   @default(true)
+  // Drives the AI side of the bridge. When true, the row joins the
+  // "approved formulations" block in the Claude system prompt.
+  feedAi      Boolean   @default(true)
+  // Manual order override; rows with the same `sortOrder` fall back
+  // to hitCount-desc for the natural "most-used first" experience.
+  sortOrder   Int       @default(0)
+  hitCount    Int       @default(0)
+  lastUsedAt  DateTime?
+  createdById String?
+  createdBy   User?     @relation("QuickReplyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([active])
+  @@index([sortOrder])
+  @@index([hitCount])
+  @@map("quick_replies")
 }
 
 // Bloque E item 4 — Marcos 2026-06-06: batch processing for ML pre-venta.

@@ -12,6 +12,7 @@ import { ConversationSummaryService } from '../../../adapters/ai/conversation-su
 import { ConversationScorerService } from '../../../adapters/quality/conversation-scorer.service';
 import { KnowledgeRepository } from '../../../adapters/repositories/knowledge.repository';
 import { PublicationFaqService } from '../../../adapters/admin/publication-faq.service';
+import { QuickReplyService } from '../../../adapters/admin/quick-reply.service';
 import { MlBatchQueueService } from '../../../adapters/ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../../../adapters/ai/history-compression.service';
 import { AIController } from './ai.controller';
@@ -40,6 +41,11 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     // controller in AdminModule (which imports AIModule) can inject it
     // for the CRUD endpoints. Single shared instance across both paths.
     PublicationFaqService,
+    // Marcos 2026-06-18: librería global de respuestas rápidas. Vive
+    // acá para que ClaudeService la pueda inyectar como bloque
+    // "FORMULACIONES APROBADAS" en el system prompt; el CRUD admin la
+    // recibe desde AdminModule donde también está provided.
+    QuickReplyService,
     // ML batch queue (Bloque E item 4). Same wiring — injected by the
     // ML inbound handler to enqueue inbound questions, and by the
     // admin controller / cron for dispatch/poll/visibility.
@@ -56,6 +62,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     ConversationSummaryService,
     ConversationScorerService,
     PublicationFaqService,
+    QuickReplyService,
     MlBatchQueueService,
     HistoryCompressionService,
   ],

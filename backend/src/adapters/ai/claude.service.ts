@@ -4,7 +4,7 @@
  * Can be swapped with another AI provider without touching use cases
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { promises as fs } from 'fs';
 import { Channel, PrismaClient } from '@prisma/client';
@@ -25,6 +25,33 @@ import { Channel, PrismaClient } from '@prisma/client';
  * block stays well under a paragraph — the agent only needs the
  * shape, not the full marketing copy.
  */
+/**
+ * Marcos 2026-06-18: capa de "respuestas aprobadas por el equipo".
+ *
+ * El operador cura una librería pequeña de chips reusables ("HAY
+ * STOCK", "ENVIOS", "MASILLA 10 MIN", "DIRECCIONES") con el texto
+ * canónico para cada situación recurrente. Cuando el comprador
+ * pregunta algo que matchea uno de esos casos, la IA debe responder
+ * con la FORMULACIÓN literal que figura acá — no inventar variaciones.
+ *
+ * Esto reemplaza el modelo per-publication FAQ (PublicationFaq) que
+ * en la práctica nunca se pobló porque curar por publicación es
+ * demasiado trabajo. Acá una sola entrada cubre N publicaciones.
+ */
+function approvedFormulationsBlock(rows: Array<{ label: string; body: string }>): string | null {
+  if (!rows || rows.length === 0) return null;
+  const lines = [
+    '▸ FORMULACIONES APROBADAS POR EL EQUIPO (usá la misma formulación cuando el caso matchee la etiqueta)',
+    '',
+    'Cuando la pregunta del cliente entre dentro del tema de una de estas etiquetas, copiá el cuerpo literal — no lo parafrasees, no lo recortes. Estas son las respuestas que el equipo ya validó. La IA hereda el tono y las palabras exactas.',
+    '',
+    ...rows.map((r) => `- ${r.label}: ${r.body.replace(/\s+/g, ' ').trim()}`),
+    '',
+    'Regla: si ninguna etiqueta aplica al caso del comprador, generá la respuesta con el resto del prompt como siempre. Esta lista NO es exhaustiva — es el subconjunto de casos donde el equipo quiere una formulación específica.',
+  ];
+  return lines.join('\n');
+}
+
 function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface').AITurnContext['mercadolibreListing']): string | null {
   if (!listing) return null;
   // Marcos 2026-06-18: 600 chars cortaba la descripción de los
@@ -316,6 +343,7 @@ import { ProductCatalogService } from '../admin/product-catalog.service';
 import { BudgetExceededError, ClaudeBudgetService } from './claude-budget.service';
 import { ConversationStyleService } from './conversation-style.service';
 import { CustomerContextService } from './customer-context.service';
+import { QuickReplyService } from '../admin/quick-reply.service';
 
 @Injectable()
 export class ClaudeService implements IAIService {
@@ -359,6 +387,10 @@ export class ClaudeService implements IAIService {
     private readonly conversationStyle: ConversationStyleService,
     private readonly laminadosCotizador: LaminadosCotizadorService,
     private readonly customerContext: CustomerContextService,
+    // Marcos 2026-06-18: librería de respuestas rápidas — chips
+    // reusables que el operador curó. @Optional para que tests viejos
+    // que arman el ClaudeService sin contenedor sigan funcionando.
+    @Optional() private readonly quickReplies?: QuickReplyService,
   ) {
     // ✅ RULE 1: All config from .env, never hardcoded
     const apiKey = process.env.CLAUDE_API_KEY;
@@ -1537,6 +1569,25 @@ IMPORTANTE sobre precios:
       const listingBlock = mlListingContextBlock((turn as any).mercadolibreListing);
       if (listingBlock) {
         systemBlocks.push({ type: 'text', text: listingBlock });
+      }
+    }
+    // Marcos 2026-06-18: librería de respuestas rápidas. Si hay chips
+    // con feedAi=true, inyectamos el bloque "FORMULACIONES APROBADAS"
+    // ÚLTIMO — después del listing — para que cuando el comprador
+    // pregunte algo que matchea una de estas etiquetas (ej. "tenés
+    // stock?", "¿hacen envíos?") la IA copie la formulación curada
+    // por el equipo en vez de inventar. Fire-and-forget: si la consulta
+    // a Postgres falla por cualquier motivo, dejamos que la IA siga
+    // sin este bloque — no es información crítica.
+    if (this.quickReplies) {
+      try {
+        const approvedReplies = await this.quickReplies.listForAi();
+        const block = approvedFormulationsBlock(approvedReplies);
+        if (block) {
+          systemBlocks.push({ type: 'text', text: block });
+        }
+      } catch (err: any) {
+        this.logger.warn(`quick-replies AI block load failed (non-fatal): ${err.message}`);
       }
     }
     const tools = [this.getCatalogSearchTool(), this.getLaminadosCotizadorTool()];

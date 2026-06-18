@@ -13,9 +13,11 @@ import { IntegrationsForm } from "@/components/settings/integrations-form";
 import { LeadDetectionForm } from "@/components/settings/lead-detection-form";
 import { LogisticaForm } from "@/components/settings/logistica-form";
 import { DispatchTariffsForm } from "@/components/settings/dispatch-tariffs-form";
+import { QuickRepliesForm } from "@/components/settings/quick-replies-form";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
 import { UserRole } from "@/types";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
+import BoltIcon from "@mui/icons-material/Bolt";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import HubIcon from "@mui/icons-material/Hub";
 import LayersIcon from "@mui/icons-material/Layers";
@@ -49,7 +51,7 @@ export default function SettingsPage() {
 
       {/* TABS — scrolls horizontally on mobile to fit all 6 tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="flex h-12 w-full gap-1 overflow-x-auto rounded-2xl border border-slate-200/70 bg-slate-100/60 p-1.5 sm:grid sm:grid-cols-8">
+        <TabsList className="flex h-12 w-full gap-1 overflow-x-auto rounded-2xl border border-slate-200/70 bg-slate-100/60 p-1.5 sm:grid sm:grid-cols-9">
           <TabsTrigger
             value="ai"
             className="group h-9 gap-2 rounded-xl border-0 px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:text-slate-900 data-active:bg-white data-active:text-violet-700 data-active:shadow-[0_4px_12px_-2px_rgb(15_23_42/0.08)]"
@@ -100,6 +102,13 @@ export default function SettingsPage() {
             <span className="hidden sm:inline">Logística</span>
           </TabsTrigger>
           <TabsTrigger
+            value="quickReplies"
+            className="group h-9 gap-2 rounded-xl border-0 px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:text-slate-900 data-active:bg-white data-active:text-violet-700 data-active:shadow-[0_4px_12px_-2px_rgb(15_23_42/0.08)]"
+          >
+            <BoltIcon sx={{ fontSize: 16 }} />
+            <span className="hidden sm:inline">Respuestas</span>
+          </TabsTrigger>
+          <TabsTrigger
             value="system"
             className="group h-9 gap-2 rounded-xl border-0 px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:text-slate-900 data-active:bg-white data-active:text-slate-900 data-active:shadow-[0_4px_12px_-2px_rgb(15_23_42/0.08)]"
           >
@@ -137,6 +146,10 @@ export default function SettingsPage() {
         <TabsContent value="logistica" className="space-y-4">
           <LogisticaForm />
           <DispatchTariffsForm />
+        </TabsContent>
+
+        <TabsContent value="quickReplies" className="space-y-4">
+          <QuickRepliesForm />
         </TabsContent>
 
         <TabsContent value="system" className="space-y-4">

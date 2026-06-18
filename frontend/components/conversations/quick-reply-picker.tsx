@@ -8,9 +8,8 @@ import { useEffect, useRef, useState } from "react";
 
 export interface QuickReplyOption {
   id: string;
-  shortcut: string;
-  title: string;
-  content: string;
+  label: string;
+  body: string;
   category: string | null;
 }
 
@@ -98,12 +97,11 @@ export function QuickReplyPicker({ options, query, onPick, onDismiss }: Props) {
             }
           >
             <span className="mt-0.5 inline-flex shrink-0 items-center rounded-md bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white">
-              /{opt.shortcut}
+              {opt.label}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-semibold">{opt.title}</div>
-              <div className="line-clamp-2 text-[11px] leading-snug text-slate-500">
-                {opt.content}
+              <div className="line-clamp-2 text-[11px] leading-snug text-slate-700">
+                {opt.body}
               </div>
             </div>
             {opt.category && (
@@ -122,7 +120,7 @@ function filterOptions(options: QuickReplyOption[], q: string): QuickReplyOption
   const needle = q.toLowerCase();
   if (!needle) return options;
   return options.filter((o) =>
-    o.shortcut.toLowerCase().includes(needle) ||
-    o.title.toLowerCase().includes(needle),
+    o.label.toLowerCase().includes(needle) ||
+    o.body.toLowerCase().includes(needle),
   );
 }

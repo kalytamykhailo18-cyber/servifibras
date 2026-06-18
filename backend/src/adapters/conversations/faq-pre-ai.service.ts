@@ -35,7 +35,8 @@ type IntentKey = 'horarios' | 'direccion' | 'envios';
 
 interface IntentMatch {
   intent: IntentKey;
-  shortcut: string;
+  /** Etiqueta del QuickReply asociado (uppercase). */
+  label: string;
   matched: string;
 }
 
@@ -88,10 +89,12 @@ const INTENT_PATTERNS: Array<{ intent: IntentKey; re: RegExp }> = [
   },
 ];
 
-const INTENT_TO_SHORTCUT: Record<IntentKey, string> = {
-  horarios: 'faq-horarios',
-  direccion: 'faq-direccion',
-  envios: 'faq-envios',
+// Marcos 2026-06-18: rotuladas en mayúsculas para coincidir con la
+// convención del nuevo modelo QuickReply (`label` en uppercase).
+const INTENT_TO_LABEL: Record<IntentKey, string> = {
+  horarios: 'FAQ-HORARIOS',
+  direccion: 'FAQ-DIRECCION',
+  envios: 'FAQ-ENVIOS',
 };
 
 function detect(text: string): IntentMatch | null {
@@ -104,7 +107,7 @@ function detect(text: string): IntentMatch | null {
   for (const { intent, re } of INTENT_PATTERNS) {
     const m = trimmed.match(re);
     if (m) {
-      return { intent, shortcut: INTENT_TO_SHORTCUT[intent], matched: m[0] };
+      return { intent, label: INTENT_TO_LABEL[intent], matched: m[0] };
     }
   }
   return null;
@@ -131,27 +134,30 @@ export class FaqPreAiService {
 
     try {
       const row = await this.prisma.quickReply.findUnique({
-        where: { shortcut: intent.shortcut },
+        where: { label: intent.label },
       });
       if (!row || !row.active) {
         // Intent matched but no canned answer is configured — fall
         // through to AI rather than leaving the customer hanging.
         this.logger.debug(
-          `FAQ intent "${intent.intent}" matched but shortcut ${intent.shortcut} missing/inactive — letting AI answer`,
+          `FAQ intent "${intent.intent}" matched but label ${intent.label} missing/inactive — letting AI answer`,
         );
         return null;
       }
       this.logger.log(
-        `📌 Pre-AI FAQ matched: intent=${intent.intent} shortcut=${intent.shortcut} ("${intent.matched}") — Claude skipped`,
+        `📌 Pre-AI FAQ matched: intent=${intent.intent} label=${intent.label} ("${intent.matched}") — Claude skipped`,
       );
       // Best-effort usage bump so the QuickReply admin UI shows that
       // the pre-AI path is hitting this row too, not just operator use.
       void this.prisma.quickReply
-        .update({ where: { id: row.id }, data: { usageCount: { increment: 1 } } })
+        .update({
+          where: { id: row.id },
+          data: { hitCount: { increment: 1 }, lastUsedAt: new Date() },
+        })
         .catch((err: any) =>
           this.logger.warn(`FAQ usage bump failed (non-fatal): ${err.message}`),
         );
-      return row.content;
+      return row.body;
     } catch (err: any) {
       // Never block the conversation — fall through to Claude.
       this.logger.error(`FAQ pre-AI lookup failed (non-fatal): ${err.message}`);
