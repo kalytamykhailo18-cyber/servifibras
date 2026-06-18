@@ -53,6 +53,7 @@ model User {
   dispatchTariffs    DispatchTariff[] @relation("DispatchTariffCreatedBy")
   // Marcos 2026-06-18: per-user team-performance analytics.
   ordersCreated      Order[]            @relation("OrderCreatedBy")
+  ordersReturned     Order[]            @relation("OrderReturnedBy")
   prfvPlacasCreated  PrfvPlaca[]        @relation("PrfvPlacaCreatedBy")
 
   @@map("users")
@@ -391,6 +392,17 @@ model Order {
   // invoicing — there's no buyer to bill. Default false; set true
   // by the operator via the REPOSICIÓN tab on the Pedidos form.
   isReposicion Boolean    @default(false)
+  // Marcos 2026-06-18: order type classifier — SALE / REPOSICION /
+  // DEVOLUCION (see OrderType comment). The legacy `isReposicion`
+  // boolean is kept synced for backward compat with existing
+  // queries; orderType is the new canonical field. DEVOLUCION rows
+  // use `returnedAt` to mark when the courier physically brought
+  // the wrong package back. Until that stamp lands the row stays
+  // in the "Pendientes de regreso" panel.
+  orderType    OrderType  @default(SALE)
+  returnedAt   DateTime?
+  returnedById String?
+  returnedBy   User?      @relation("OrderReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   // Marcos 2026-06-18: operator who loaded this order. The team-
   // performance analytics counts a MANUAL sale toward whoever
   // pressed "Crear" in the panel — the assigned-to-operator semantic
@@ -410,6 +422,8 @@ model Order {
   @@index([status])
   @@index([invoicedAt])
   @@index([createdById])
+  @@index([orderType])
+  @@index([returnedAt])
   @@unique([source, externalId])
   @@map("orders")
 }
@@ -426,6 +440,21 @@ enum OrderStatus {
   DISPATCHED
   DELIVERED
   CANCELLED
+}
+
+// Marcos 2026-06-18: classify the operational nature of the order so
+// metrics + invoicing queues can route it correctly:
+//   SALE        — normal customer purchase (default)
+//   REPOSICION  — re-shipment of correct item after armado error;
+//                 Servifibras pays the courier, customer keeps the
+//                 wrong item (no buyer to bill, out of sales metrics)
+//   DEVOLUCION  — courier picks up the wrong package and brings it
+//                 back; tracked until `returnedAt` is stamped so a
+//                 lost pickup never silently disappears
+enum OrderType {
+  SALE
+  REPOSICION
+  DEVOLUCION
 }
 
 // Mass remarketing campaign — Marcos's brief: "lo que falta es el botón de

@@ -58,6 +58,45 @@ export class OrdersController {
   }
 
   /**
+   * Marcos 2026-06-18: DEVOLUCION rows whose package hasn't physically
+   * been brought back yet. Static segment declared above @Get(':id') so
+   * the dynamic id route doesn't swallow it.
+   */
+  @Get('pending-returns')
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  async listPendingReturns() {
+    const data = await this.orderManagement.listPendingReturns();
+    return { success: true, data };
+  }
+
+  /**
+   * Marcos 2026-06-18: tick a DEVOLUCION row as "volvió" — the
+   * courier physically returned the package. Idempotent;
+   *   body { returned: false } reverts the stamp.
+   */
+  @Post(':id/mark-returned')
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  async markReturned(
+    @Param('id') id: string,
+    @Body() body: { returned?: boolean } = {},
+    @Request() req: any,
+  ) {
+    const returned = body?.returned !== false;
+    const data = await this.orderManagement.markReturned(id, returned, req.user?.id ?? null);
+    if (!data) throw new NotFoundException('Pedido no encontrado');
+    const ctx = this.auditCtx(req);
+    await this.audit.log({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: returned ? 'order.return.mark' : 'order.return.unmark',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { orderId: id, orderNumber: data.orderNumber },
+    });
+    return { success: true, data };
+  }
+
+  /**
    * Marcos 2026-06-12: stamp an order as invoiced. Idempotent —
    * re-marking an already-invoiced order is a no-op.
    *   POST /admin/orders/:id/mark-invoiced     → marks invoiced now

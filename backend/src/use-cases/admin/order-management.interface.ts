@@ -57,6 +57,9 @@ export interface CreateOrderData {
   shippingCost?: number | null;
   // Marcos 2026-06-18: stamped from the controller's req.user.id.
   createdById?: string | null;
+  // Marcos 2026-06-18: 'SALE' (default) / 'REPOSICION' / 'DEVOLUCION'.
+  // The string takes precedence over the legacy isReposicion bool.
+  orderType?: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
 }
 
 export interface UpdateOrderData {

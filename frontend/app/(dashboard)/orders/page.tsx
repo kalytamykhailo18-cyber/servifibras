@@ -14,6 +14,7 @@ import {
 import { OrderTable } from "@/components/orders/order-table";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import { PendingInvoicingList } from "@/components/orders/pending-invoicing-list";
+import { PendingReturnsList } from "@/components/orders/pending-returns-list";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
 import { ORDER_STATUS_LABELS, UserRole } from "@/types";
@@ -54,7 +55,7 @@ export default function OrdersPage() {
   // Marcos 2026-06-12: top-level view toggle on the page. "todos"
   // keeps the regular order table; "pendientes-facturacion" swaps in
   // the dedicated list.
-  const [view, setView] = useState<'todos' | 'pendientes-facturacion'>('todos');
+  const [view, setView] = useState<'todos' | 'pendientes-facturacion' | 'pendientes-regreso'>('todos');
   const pg = useClientPagination(orders, { storageKey: "orders", defaultPageSize: 25 });
 
   const fetchOrders = async () => {
@@ -232,6 +233,7 @@ export default function OrdersPage() {
         {([
           { id: 'todos' as const,                    label: 'Todos los pedidos' },
           { id: 'pendientes-facturacion' as const,   label: 'Pendientes de facturación' },
+          { id: 'pendientes-regreso' as const,       label: 'Pendientes de regreso' },
         ]).map((t) => (
           <button
             key={t.id}
@@ -253,6 +255,8 @@ export default function OrdersPage() {
 
       {view === 'pendientes-facturacion' ? (
         <PendingInvoicingList />
+      ) : view === 'pendientes-regreso' ? (
+        <PendingReturnsList />
       ) : (<>
       {/* FILTERS */}
       <div className="flex flex-wrap items-center gap-3">

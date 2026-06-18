@@ -1226,6 +1226,28 @@ export const ordersApi = {
     return r.data?.data ?? r.data;
   },
 
+  /** Marcos 2026-06-18: DEVOLUCION rows whose package hasn't been
+   *  physically returned yet. Used by the "Pendientes de regreso"
+   *  tab on /orders. */
+  pendingReturns: async (): Promise<Array<{
+    id: string;
+    orderNumber: string;
+    contact: { id: string; name: string | null };
+    carrier: string | null;
+    shippingZone: string | null;
+    shippingCost: number | null;
+    notes: string | null;
+    createdAt: string;
+    createdBy: { id: string; name: string } | null;
+  }>> => {
+    const r = await apiClient.get<any>(`/admin/orders/pending-returns`);
+    return r.data?.data ?? r.data ?? [];
+  },
+  markReturned: async (id: string, returned: boolean = true): Promise<{ id: string; orderNumber: string; returnedAt: string | null }> => {
+    const r = await apiClient.post<any>(`/admin/orders/${id}/mark-returned`, { returned });
+    return r.data?.data ?? r.data;
+  },
+
   /** Marcos 2026-06-15: render an order as a printable PDF (same
    *  letterhead as Presupuestos) including the shipping block.
    *  Returns a Blob URL the browser can open in a new tab. */

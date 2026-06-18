@@ -104,11 +104,20 @@ export function OrderFormDialog({
   const [sectionOverride, setSectionOverride] = useState<'MOTOS' | 'MICROS' | 'RETIRA_CASEROS' | 'LAMINADOS_PRFV'>(
     ((order as any)?.sectionOverride as any) || 'MOTOS',
   );
-  // Marcos 2026-06-17: REPOSICIÓN tab. When toggled the form
-  // captures a re-shipment after armado error: courier + zone are
-  // mandatory and the shipping cost auto-fills from the tariff.
-  // These rows stay out of invoicing + sales metrics.
-  const [isReposicion, setIsReposicion] = useState<boolean>(!!(order as any)?.isReposicion);
+  // Marcos 2026-06-17/06-18: form mode — PEDIDO (sale), REPOSICION
+  // (re-shipment, Servifibras pays courier, customer keeps wrong
+  // item), DEVOLUCION (courier brings wrong package back; tracked
+  // until "Volvió"). REPOSICION and DEVOLUCION share the same
+  // form shape (carrier + zone + cost) and both stay out of
+  // facturación / ventas. The legacy `isReposicion` state is
+  // derived from the mode so existing checks keep working.
+  const initialMode: 'PEDIDO' | 'REPOSICION' | 'DEVOLUCION' =
+    ((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
+    : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
+    : 'PEDIDO';
+  const [orderMode, setOrderMode] = useState<'PEDIDO' | 'REPOSICION' | 'DEVOLUCION'>(initialMode);
+  const isReposicion = orderMode !== 'PEDIDO';
+  const setIsReposicion = (v: boolean) => setOrderMode(v ? 'REPOSICION' : 'PEDIDO');
   const [repCarrier, setRepCarrier] = useState<string>((order as any)?.carrier ?? '');
   const [repZone, setRepZone] = useState<string>((order as any)?.shippingZone ?? '');
   const [repCost, setRepCost] = useState<string>(
@@ -155,7 +164,11 @@ export function OrderFormDialog({
     setNewStreetNumber("");
     setNewLocality("");
     setNewPostalCode("");
-    setIsReposicion(!!(order as any)?.isReposicion);
+    setOrderMode(
+      ((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
+      : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
+      : 'PEDIDO',
+    );
     setRepCarrier((order as any)?.carrier ?? '');
     setRepZone((order as any)?.shippingZone ?? '');
     setRepCost((order as any)?.shippingCost != null ? String((order as any).shippingCost) : '');
@@ -270,36 +283,41 @@ export function OrderFormDialog({
   const onSubmit = async () => {
     if (!contactId) { toast.error("Elegí un cliente"); return; }
 
-    // Marcos 2026-06-17: REPOSICIÓN branch — no product list, just
-    // the courier + zone + cost. Skip the products validation and
-    // post a row with isReposicion=true so it stays out of
-    // invoicing + sales metrics.
-    if (isReposicion) {
+    // Marcos 2026-06-17/06-18: REPOSICIÓN + DEVOLUCIÓN share the
+    // same form — courier + zone + cost are mandatory and there's
+    // no product list. Reposición = Servifibras paga el envío del
+    // reemplazo (cliente se queda con lo errado). Devolución = la
+    // mensajería trae el paquete equivocado de vuelta; queda en
+    // "Pendientes de regreso" hasta que se marque que volvió.
+    // Both stay out of facturación + ventas.
+    if (orderMode !== 'PEDIDO') {
       const carrier = repCarrier.trim();
       const zone = repZone.trim();
       const cost = Number(repCost);
-      if (!carrier) { toast.error("Cargá la mensajería de la reposición"); return; }
+      const label = orderMode === 'DEVOLUCION' ? 'devolución' : 'reposición';
+      if (!carrier) { toast.error(`Cargá la mensajería de la ${label}`); return; }
       if (!zone) { toast.error("Cargá la zona"); return; }
       if (!Number.isFinite(cost) || cost < 0) { toast.error("Cargá el costo de logística"); return; }
       setSubmitting(true);
       try {
+        const prefix = orderMode === 'DEVOLUCION' ? 'Devolución' : 'Reposición';
         await api.orders.create({
           contactId,
           amount: cost,
           currency: 'ARS',
-          products: [{ name: `Reposición ${carrier} ${zone}`, category: 'Reposición', quantity: 1, unitPrice: cost, totalPrice: cost }],
+          products: [{ name: `${prefix} ${carrier} ${zone}`, category: prefix, quantity: 1, unitPrice: cost, totalPrice: cost }],
           notes: notes.trim() || undefined,
           sectionOverride,
-          isReposicion: true,
+          orderType: orderMode,
           carrier,
           shippingZone: zone,
           shippingCost: cost,
         } as any);
-        toast.success("Reposición registrada");
+        toast.success(orderMode === 'DEVOLUCION' ? 'Devolución registrada' : 'Reposición registrada');
         onOpenChange(false);
         onSuccess?.();
       } catch (err: any) {
-        toast.error(err?.response?.data?.error || err?.message || "No se pudo guardar la reposición");
+        toast.error(err?.response?.data?.error || err?.message || `No se pudo guardar la ${label}`);
       } finally {
         setSubmitting(false);
       }
@@ -387,33 +405,25 @@ export function OrderFormDialog({
               zone + cost (auto-fills from tariffs) and stays out of
               sales metrics + invoicing queue. */}
           {!isEditing && (
-            <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100/60 p-1">
-              <button
-                type="button"
-                onClick={() => setIsReposicion(false)}
-                data-testid="order-form-tab-pedido"
-                className={
-                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors " +
-                  (!isReposicion
-                    ? "bg-white text-slate-900 shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]"
-                    : "text-slate-500 hover:text-slate-700")
-                }
-              >
-                Pedido
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsReposicion(true)}
-                data-testid="order-form-tab-reposicion"
-                className={
-                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors " +
-                  (isReposicion
-                    ? "bg-amber-500 text-white shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]"
-                    : "text-slate-500 hover:text-slate-700")
-                }
-              >
-                Reposición
-              </button>
+            <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-100/60 p-1">
+              {([
+                { id: 'PEDIDO',     label: 'Pedido',     active: 'bg-white text-slate-900 shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]' },
+                { id: 'REPOSICION', label: 'Reposición', active: 'bg-amber-500 text-white shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]' },
+                { id: 'DEVOLUCION', label: 'Devolución', active: 'bg-rose-500 text-white shadow-[0_1px_2px_0_rgb(15_23_42/0.06)]' },
+              ] as const).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setOrderMode(t.id)}
+                  data-testid={`order-form-tab-${t.id.toLowerCase()}`}
+                  className={
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors " +
+                    (orderMode === t.id ? t.active : "text-slate-500 hover:text-slate-700")
+                  }
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           )}
 
@@ -609,9 +619,17 @@ export function OrderFormDialog({
               cost. Cost auto-fills from the tariff table when the
               pair matches; the operator can still override. */}
           {isReposicion && (
-            <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/40 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-amber-800">
-                Datos de la reposición
+            <div className={
+              "space-y-3 rounded-xl p-3 " +
+              (orderMode === 'DEVOLUCION'
+                ? "border border-rose-300 bg-rose-50/40"
+                : "border border-amber-300 bg-amber-50/40")
+            }>
+              <p className={
+                "text-[11px] font-medium uppercase tracking-wider " +
+                (orderMode === 'DEVOLUCION' ? "text-rose-800" : "text-amber-800")
+              }>
+                {orderMode === 'DEVOLUCION' ? 'Datos de la devolución' : 'Datos de la reposición'}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_140px]">
                 <select
@@ -646,8 +664,13 @@ export function OrderFormDialog({
                   className="text-right"
                 />
               </div>
-              <p className="text-[11px] text-amber-700">
-                Esta fila no entra en facturación ni en métricas de ventas. Solo suma al cómputo de despachos.
+              <p className={
+                "text-[11px] " +
+                (orderMode === 'DEVOLUCION' ? "text-rose-700" : "text-amber-700")
+              }>
+                {orderMode === 'DEVOLUCION'
+                  ? 'Queda en "Pendientes de regreso" hasta marcar que volvió el paquete. No entra en facturación ni ventas.'
+                  : 'Esta fila no entra en facturación ni en métricas de ventas. Solo suma al cómputo de despachos.'}
               </p>
             </div>
           )}

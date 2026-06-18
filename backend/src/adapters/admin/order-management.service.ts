@@ -125,10 +125,22 @@ export class OrderManagementService implements IOrderManagementService {
         notes: data.notes,
         sectionOverride,
         status: OrderStatus.CONFIRMED,
-        // Marcos 2026-06-17: reposición flag. Carrier + shipping
-        // cost MUST be set when this is true so the dispatch
-        // estimate stays accurate.
-        isReposicion: !!(data as any).isReposicion,
+        // Marcos 2026-06-17: reposición flag — kept for backward
+        // compat (queries that filter by it). Marcos 2026-06-18:
+        // promoted to OrderType enum (SALE / REPOSICION /
+        // DEVOLUCION); we sync isReposicion=true when type is
+        // REPOSICION so the existing isReposicion=false filters
+        // still exclude both reposiciones and devoluciones.
+        ...(() => {
+          const raw = String((data as any).orderType ?? '').toUpperCase();
+          const orderType = raw === 'REPOSICION' || raw === 'DEVOLUCION' || raw === 'SALE'
+            ? (raw as 'SALE' | 'REPOSICION' | 'DEVOLUCION')
+            : ((data as any).isReposicion ? 'REPOSICION' : 'SALE');
+          return {
+            orderType,
+            isReposicion: orderType === 'REPOSICION',
+          };
+        })(),
         carrier: (data as any).carrier ?? null,
         shippingZone: (data as any).shippingZone ?? null,
         shippingCost: typeof (data as any).shippingCost === 'number' ? (data as any).shippingCost : null,
@@ -257,9 +269,11 @@ export class OrderManagementService implements IOrderManagementService {
         invoicedAt: null,
         source: { in: ['MANUAL', 'TIENDANUBE'] as any },
         status: { notIn: ['CANCELLED'] as any },
-        // Marcos 2026-06-17: reposiciones are re-shipments without a
-        // buyer to bill — they MUST NOT show in the invoicing queue.
-        isReposicion: false,
+        // Marcos 2026-06-17/06-18: only SALE rows go through the
+        // invoicing queue — reposiciones (Servifibras pays courier)
+        // and devoluciones (return-tracking only) are operational
+        // movements without a buyer to bill.
+        orderType: 'SALE',
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -374,6 +388,77 @@ export class OrderManagementService implements IOrderManagementService {
   }
 
   /**
+   * Marcos 2026-06-18: DEVOLUCION rows still waiting for the courier
+   * to physically bring the wrong package back. Returns the row plus
+   * its carrier + zone + cost so the Pedidos panel can show "JyJ /
+   * CABA / $3206" alongside each pending pickup.
+   */
+  async listPendingReturns(): Promise<Array<{
+    id: string;
+    orderNumber: string;
+    contact: { id: string; name: string | null };
+    carrier: string | null;
+    shippingZone: string | null;
+    shippingCost: number | null;
+    notes: string | null;
+    createdAt: Date;
+    createdBy: { id: string; name: string } | null;
+  }>> {
+    const rows = await this.prisma.order.findMany({
+      where: {
+        orderType: 'DEVOLUCION',
+        returnedAt: null,
+        status: { notIn: ['CANCELLED'] as any },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        orderNumber: true,
+        carrier: true,
+        shippingZone: true,
+        shippingCost: true,
+        notes: true,
+        createdAt: true,
+        contact: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      contact: { id: r.contact.id, name: r.contact.name },
+      carrier: r.carrier,
+      shippingZone: r.shippingZone,
+      shippingCost: r.shippingCost,
+      notes: r.notes,
+      createdAt: r.createdAt,
+      createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name } : null,
+    }));
+  }
+
+  /**
+   * Marcos 2026-06-18: stamp `returnedAt` on a DEVOLUCION row when
+   * the courier physically brought the wrong package back. Drops
+   * the row from the "Pendientes de regreso" panel. Idempotent.
+   */
+  async markReturned(orderId: string, returned: boolean, userId: string | null): Promise<{ id: string; orderNumber: string; returnedAt: Date | null } | null> {
+    try {
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: returned
+          ? { returnedAt: new Date(), returnedById: userId }
+          : { returnedAt: null, returnedById: null },
+        select: { id: true, orderNumber: true, returnedAt: true },
+      });
+      return updated;
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      throw err;
+    }
+  }
+
+  /**
    * Marcos 2026-06-16: Zebra 10×15 cm shipping-label PDF. One label per
    * order — Nombre + Dirección + Localidad + TEL + BULTOS. Pulls the
    * address from Contact.metadata (the quick-client expanded form).
@@ -409,12 +494,11 @@ export class OrderManagementService implements IOrderManagementService {
   }
 
   async getOrderStatistics(): Promise<OrderStatistics> {
-    // Marcos 2026-06-17: reposiciones are re-shipments without a
-    // buyer to bill — they MUST NOT pollute sales metrics. Excluded
-    // at fetch time so every downstream count (totalRevenue,
-    // averageOrderValue, byStatus) reflects only real sales.
+    // Marcos 2026-06-17/06-18: only real SALE rows feed the sales
+    // metrics — reposiciones (we pay courier) and devoluciones
+    // (return-tracking) are operational, not commercial.
     const allOrders = await this.prisma.order.findMany({
-      where: { isReposicion: false },
+      where: { orderType: 'SALE' },
       select: {
         status: true,
         amount: true,
