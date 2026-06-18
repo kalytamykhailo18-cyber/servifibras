@@ -12,11 +12,12 @@
  * it's closed by hand.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { api } from "@/lib/api/endpoints";
 import { toast } from "sonner";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 
 type Row = {
   id: string;
@@ -25,6 +26,8 @@ type Row = {
   carrier: string | null;
   shippingZone: string | null;
   shippingCost: number | null;
+  /** Marcos 2026-06-18 PM: valor del producto (suma de línea). */
+  productCost: number | null;
   notes: string | null;
   createdAt: string;
   createdBy: { id: string; name: string } | null;
@@ -75,6 +78,36 @@ export function PendingReturnsList() {
     }
   };
 
+  // Marcos 2026-06-18: segmentación por mensajería. La logística es
+  // quien tiene que traer el paquete de vuelta — necesita ver
+  // separado por carrier cuántos paquetes le falta retornar y por
+  // cuánta plata. "Sin mensajería" agrupa devoluciones cargadas sin
+  // carrier (caso raro pero pasa) así no se pierden en un grupo
+  // vacío. Orden alfabético + "Sin mensajería" al final.
+  const grouped = useMemo(() => {
+    const map = new Map<string, { rows: Row[]; totalShipping: number; totalProduct: number }>();
+    for (const r of rows) {
+      const key = (r.carrier ?? '').trim() || 'Sin mensajería';
+      if (!map.has(key)) map.set(key, { rows: [], totalShipping: 0, totalProduct: 0 });
+      const g = map.get(key)!;
+      g.rows.push(r);
+      g.totalShipping += typeof r.shippingCost === 'number' ? r.shippingCost : 0;
+      g.totalProduct += typeof r.productCost === 'number' ? r.productCost : 0;
+    }
+    const sorted = Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === 'Sin mensajería') return 1;
+      if (b[0] === 'Sin mensajería') return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    return sorted;
+  }, [rows]);
+
+  const grandTotal = useMemo(() => ({
+    count: rows.length,
+    shipping: rows.reduce((sum, r) => sum + (typeof r.shippingCost === 'number' ? r.shippingCost : 0), 0),
+    product: rows.reduce((sum, r) => sum + (typeof r.productCost === 'number' ? r.productCost : 0), 0),
+  }), [rows]);
+
   return (
     <div
       className="rounded-2xl border border-rose-200/70 bg-white p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
@@ -118,36 +151,104 @@ export function PendingReturnsList() {
           No hay devoluciones pendientes de regreso.
         </p>
       ) : (
-        <ul className="space-y-2" data-testid="pending-returns-rows">
-          {rows.map((r) => (
-            <li
-              key={r.id}
-              data-testid={`pending-returns-row-${r.orderNumber}`}
-              className="flex items-center justify-between gap-3 rounded-xl border border-rose-200/70 bg-rose-50/30 p-3 hover:border-rose-300"
+        <div className="space-y-4" data-testid="pending-returns-grouped">
+          {/* TOTALES GLOBALES — Marcos 2026-06-18 (+ producto 2026-06-18 PM) */}
+          <div
+            className="grid gap-2 rounded-xl border border-rose-200/70 bg-gradient-to-r from-rose-50 to-pink-50 px-3 py-2 sm:grid-cols-[1fr_auto] sm:items-center"
+            data-testid="pending-returns-grand-total"
+          >
+            <span className="text-xs font-semibold uppercase tracking-wider text-rose-800">
+              Total pendientes de regreso
+            </span>
+            <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-0.5 text-xs text-rose-900 sm:text-right">
+              <span className="text-[10px] uppercase tracking-wider text-rose-600">Paquetes</span>
+              <strong className="text-sm tabular-nums">{grandTotal.count}</strong>
+              <span className="text-[10px] uppercase tracking-wider text-rose-600">Costo logística</span>
+              <strong className="tabular-nums">{fmtArs(grandTotal.shipping)}</strong>
+              <span className="text-[10px] uppercase tracking-wider text-rose-600">Costo producto</span>
+              <strong
+                className="tabular-nums"
+                data-testid="pending-returns-grand-total-product"
+              >{fmtArs(grandTotal.product)}</strong>
+            </div>
+          </div>
+
+          {/* SEGMENTOS POR MENSAJERÍA */}
+          {grouped.map(([carrier, g]) => (
+            <section
+              key={carrier}
+              data-testid={`pending-returns-group-${carrier}`}
+              className="rounded-xl border border-slate-200/70 bg-slate-50/40 p-3"
             >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-900">
-                  #{r.orderNumber} · {r.contact.name ?? "Cliente"}
-                </p>
-                <p className="truncate text-[11px] text-slate-600">
-                  {r.carrier ? `${r.carrier} · ${r.shippingZone ?? 'sin zona'} · ${fmtArs(r.shippingCost)}` : 'sin mensajería asignada'}
-                  {' · '}{fmtAge(r.createdAt)}
-                  {r.createdBy?.name ? ` · por ${r.createdBy.name}` : ''}
-                  {r.notes ? ` · ${r.notes.slice(0, 60)}` : ''}
-                </p>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="inline-flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 text-white">
+                    <LocalShippingIcon sx={{ fontSize: 14 }} />
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900">{carrier}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-slate-600">
+                  <span
+                    data-testid={`pending-returns-group-${carrier}-count`}
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full border border-rose-200/70 bg-rose-100 px-1.5 text-rose-700"
+                  >
+                    {g.rows.length}
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px]">
+                    logística
+                    <strong
+                      data-testid={`pending-returns-group-${carrier}-total-shipping`}
+                      className="tabular-nums text-slate-800"
+                    >
+                      {fmtArs(g.totalShipping)}
+                    </strong>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-800">
+                    producto
+                    <strong
+                      data-testid={`pending-returns-group-${carrier}-total-product`}
+                      className="tabular-nums text-emerald-900"
+                    >
+                      {fmtArs(g.totalProduct)}
+                    </strong>
+                  </span>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => void onMarkReturned(r.id)}
-                disabled={!!busy[r.id]}
-                data-testid={`pending-returns-mark-${r.orderNumber}`}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {busy[r.id] ? 'Guardando…' : 'Volvió'}
-              </button>
-            </li>
+              <ul className="space-y-2" data-testid={`pending-returns-rows-${carrier}`}>
+                {g.rows.map((r) => (
+                  <li
+                    key={r.id}
+                    data-testid={`pending-returns-row-${r.orderNumber}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-rose-200/70 bg-white p-3 hover:border-rose-300"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        #{r.orderNumber} · {r.contact.name ?? "Cliente"}
+                      </p>
+                      <p className="truncate text-[11px] text-slate-600">
+                        {r.shippingZone ?? 'sin zona'}
+                        {' · log '}<span className="tabular-nums">{fmtArs(r.shippingCost)}</span>
+                        {' · prod '}<span className="tabular-nums">{fmtArs(r.productCost)}</span>
+                        {' · '}{fmtAge(r.createdAt)}
+                        {r.createdBy?.name ? ` · por ${r.createdBy.name}` : ''}
+                        {r.notes ? ` · ${r.notes.slice(0, 60)}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void onMarkReturned(r.id)}
+                      disabled={!!busy[r.id]}
+                      data-testid={`pending-returns-mark-${r.orderNumber}`}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {busy[r.id] ? 'Guardando…' : 'Volvió'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

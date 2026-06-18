@@ -39,6 +39,16 @@ interface OrderFormDialogProps {
   onOpenChange: (open: boolean) => void;
   order?: Order;
   onSuccess?: () => void;
+  /**
+   * Marcos 2026-06-18: pre-carga el formulario con los datos de un
+   * pedido existente PERO sin entrar en modo edición — el submit
+   * sigue creando una fila nueva. Pensado para "Registrar devolución
+   * desde un pedido" sin obligar al operador a re-tipear cliente,
+   * carrier y costo.
+   */
+  seedFromOrder?: Order;
+  /** Forzar la solapa inicial (PEDIDO / REPOSICION / DEVOLUCION). */
+  initialModeOverride?: 'PEDIDO' | 'REPOSICION' | 'DEVOLUCION';
 }
 
 interface ProductRow {
@@ -86,23 +96,28 @@ export function OrderFormDialog({
   onOpenChange,
   order,
   onSuccess,
+  seedFromOrder,
+  initialModeOverride,
 }: OrderFormDialogProps) {
   const isEditing = !!order;
+  // El "seed" mantiene isEditing=false (es una fila nueva) pero los
+  // valores iniciales salen del pedido origen. Marcos 2026-06-18.
+  const initialSource: Order | undefined = order ?? seedFromOrder;
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const [contactId, setContactId] = useState<string>(order?.contactId ?? "");
-  const [currency, setCurrency] = useState<"ARS" | "USD">((order?.currency as "ARS" | "USD") ?? "ARS");
-  const [rows, setRows] = useState<ProductRow[]>(rowsFromOrder(order));
-  const [notes, setNotes] = useState<string>((order as any)?.notes ?? "");
+  const [contactId, setContactId] = useState<string>(initialSource?.contactId ?? "");
+  const [currency, setCurrency] = useState<"ARS" | "USD">((initialSource?.currency as "ARS" | "USD") ?? "ARS");
+  const [rows, setRows] = useState<ProductRow[]>(rowsFromOrder(initialSource));
+  const [notes, setNotes] = useState<string>((initialSource as any)?.notes ?? "");
   const [amountOverride, setAmountOverride] = useState<string>(
-    order?.amount != null ? String(order.amount) : "",
+    initialSource?.amount != null ? String(initialSource.amount) : "",
   );
   // Marcos 2026-06-12: where the manual pedido should land in the
   // daily logística panel. Mandatory on create — defaults to MOTOS
   // (covers the most common case) and the operator can flip it.
   const [sectionOverride, setSectionOverride] = useState<'MOTOS' | 'MICROS' | 'RETIRA_CASEROS' | 'LAMINADOS_PRFV'>(
-    ((order as any)?.sectionOverride as any) || 'MOTOS',
+    ((initialSource as any)?.sectionOverride as any) || 'MOTOS',
   );
   // Marcos 2026-06-17/06-18: form mode — PEDIDO (sale), REPOSICION
   // (re-shipment, Servifibras pays courier, customer keeps wrong
@@ -112,16 +127,17 @@ export function OrderFormDialog({
   // facturación / ventas. The legacy `isReposicion` state is
   // derived from the mode so existing checks keep working.
   const initialMode: 'PEDIDO' | 'REPOSICION' | 'DEVOLUCION' =
-    ((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
-    : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
-    : 'PEDIDO';
+    initialModeOverride
+    ?? (((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
+      : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
+      : 'PEDIDO');
   const [orderMode, setOrderMode] = useState<'PEDIDO' | 'REPOSICION' | 'DEVOLUCION'>(initialMode);
   const isReposicion = orderMode !== 'PEDIDO';
   const setIsReposicion = (v: boolean) => setOrderMode(v ? 'REPOSICION' : 'PEDIDO');
-  const [repCarrier, setRepCarrier] = useState<string>((order as any)?.carrier ?? '');
-  const [repZone, setRepZone] = useState<string>((order as any)?.shippingZone ?? '');
+  const [repCarrier, setRepCarrier] = useState<string>((initialSource as any)?.carrier ?? '');
+  const [repZone, setRepZone] = useState<string>((initialSource as any)?.shippingZone ?? '');
   const [repCost, setRepCost] = useState<string>(
-    (order as any)?.shippingCost != null ? String((order as any).shippingCost) : ''
+    (initialSource as any)?.shippingCost != null ? String((initialSource as any).shippingCost) : ''
   );
   // Tariff table + carriers list pulled from the same source the
   // dispatch-stats card uses, so the operator sees a deterministic
@@ -148,12 +164,13 @@ export function OrderFormDialog({
   // previous state into the form.
   useEffect(() => {
     if (!open) return;
-    setContactId(order?.contactId ?? "");
-    setCurrency((order?.currency as "ARS" | "USD") ?? "ARS");
-    setRows(rowsFromOrder(order));
-    setNotes((order as any)?.notes ?? "");
-    setAmountOverride(order?.amount != null ? String(order.amount) : "");
-    setSectionOverride(((order as any)?.sectionOverride as any) || 'MOTOS');
+    const src = order ?? seedFromOrder;
+    setContactId(src?.contactId ?? "");
+    setCurrency((src?.currency as "ARS" | "USD") ?? "ARS");
+    setRows(rowsFromOrder(src));
+    setNotes((src as any)?.notes ?? "");
+    setAmountOverride(src?.amount != null ? String(src.amount) : "");
+    setSectionOverride(((src as any)?.sectionOverride as any) || 'MOTOS');
     setNewContactOpen(false);
     setNewName("");
     setNewPhone("");
@@ -165,14 +182,15 @@ export function OrderFormDialog({
     setNewLocality("");
     setNewPostalCode("");
     setOrderMode(
-      ((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
-      : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
-      : 'PEDIDO',
+      initialModeOverride
+      ?? (((order as any)?.orderType === 'REPOSICION' || (order as any)?.isReposicion) ? 'REPOSICION'
+        : (order as any)?.orderType === 'DEVOLUCION' ? 'DEVOLUCION'
+        : 'PEDIDO'),
     );
-    setRepCarrier((order as any)?.carrier ?? '');
-    setRepZone((order as any)?.shippingZone ?? '');
-    setRepCost((order as any)?.shippingCost != null ? String((order as any).shippingCost) : '');
-  }, [open, order]);
+    setRepCarrier((src as any)?.carrier ?? '');
+    setRepZone((src as any)?.shippingZone ?? '');
+    setRepCost((src as any)?.shippingCost != null ? String((src as any).shippingCost) : '');
+  }, [open, order, seedFromOrder, initialModeOverride]);
 
   // Marcos 2026-06-12: quick-add a contact without leaving the order
   // dialog. POSTs through the standard contacts endpoint so the new

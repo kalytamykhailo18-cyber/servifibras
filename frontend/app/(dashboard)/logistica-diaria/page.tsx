@@ -1355,6 +1355,24 @@ export default function LogisticaDiariaPage() {
                         ) : (
                           <p className="min-w-0 truncate text-sm text-slate-700">{row.producto}</p>
                         )}
+                        {/* Marcos 2026-06-18 PM: nota cargada desde
+                           /orders por el operador que armó el pedido —
+                           read-only para el armador para que la vea
+                           sin que se confunda con sus aclaraciones
+                           propias. Sólo se renderiza cuando viene
+                           algo del pedido origen. */}
+                        {row.orderNotes && row.orderNotes.trim().length > 0 && (
+                          <div
+                            data-testid="logistica-row-order-note"
+                            title="Nota cargada desde Pedidos"
+                            className="inline-flex max-w-full items-start gap-1.5 rounded-md border border-emerald-200/70 bg-emerald-50/70 px-2 py-1 text-[11px] leading-snug text-emerald-900"
+                          >
+                            <span className="shrink-0 rounded bg-emerald-200/70 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-800">
+                              pedido
+                            </span>
+                            <span className="min-w-0 break-words">{row.orderNotes}</span>
+                          </div>
+                        )}
                         {/* Bloque B item 3.8 — per-row editable note. Auto-saves on blur. */}
                         <input
                           type="text"
@@ -1373,7 +1391,7 @@ export default function LogisticaDiariaPage() {
                               e.currentTarget.blur();
                             }
                           }}
-                          placeholder="Nota…"
+                          placeholder={row.orderNotes ? 'Aclaración del armador…' : 'Nota…'}
                           maxLength={500}
                           data-testid="logistica-row-note"
                           className={

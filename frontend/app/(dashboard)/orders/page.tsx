@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRealtimeEvent } from "@/lib/realtime/use-realtime";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -61,11 +61,25 @@ export default function OrdersPage() {
   // no martillamos la API por cada tecla.
   const [searchInput, setSearchInput] = useState<string>("");
   const [searchDebounced, setSearchDebounced] = useState<string>("");
-  // Marcos 2026-06-12: top-level view toggle on the page. "todos"
-  // keeps the regular order table; "pendientes-facturacion" swaps in
-  // the dedicated list.
-  const [view, setView] = useState<'todos' | 'pendientes-facturacion' | 'pendientes-regreso'>('todos');
-  const pg = useClientPagination(orders, { storageKey: "orders", defaultPageSize: 25 });
+  // Marcos 2026-06-12: top-level view toggle on the page.
+  // Marcos 2026-06-18 PM: "todos" se partió en TIENDANUBE / OTROS
+  // MEDIOS para que el operador no tenga que escanear cientos de TN
+  // mezcladas con los manuales. "Otros medios" = manuales + ML (y
+  // cualquier source futuro que no sea TN).
+  const [view, setView] = useState<'tiendanube' | 'otros' | 'pendientes-facturacion' | 'pendientes-regreso'>('tiendanube');
+  // Filtra por canal en memoria — el fetch ya trae los 1000 más
+  // recientes, partirlos client-side es instantáneo y evita un
+  // re-fetch por cada cambio de tab.
+  const filteredBySource = useMemo(() => {
+    if (view === 'tiendanube') {
+      return orders.filter((o) => (o as any).source === 'TIENDANUBE');
+    }
+    if (view === 'otros') {
+      return orders.filter((o) => (o as any).source !== 'TIENDANUBE');
+    }
+    return orders;
+  }, [orders, view]);
+  const pg = useClientPagination(filteredBySource, { storageKey: `orders-${view}`, defaultPageSize: 25 });
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(searchInput.trim()), 300);
@@ -245,29 +259,46 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* VIEW TABS — Marcos 2026-06-12: Pendientes de facturación */}
+      {/* VIEW TABS — Marcos 2026-06-12; partidos en TN / Otros 2026-06-18 PM */}
       <div className="flex flex-wrap items-center gap-1.5" data-testid="orders-view-tabs">
         {([
-          { id: 'todos' as const,                    label: 'Todos los pedidos' },
+          { id: 'tiendanube' as const,               label: 'Tienda Nube' },
+          { id: 'otros' as const,                    label: 'Otros medios' },
           { id: 'pendientes-facturacion' as const,   label: 'Pendientes de facturación' },
           { id: 'pendientes-regreso' as const,       label: 'Pendientes de regreso' },
-        ]).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setView(t.id)}
-            data-testid={`orders-view-tab-${t.id}`}
-            aria-pressed={view === t.id}
-            className={
-              "inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-semibold transition-colors " +
-              (view === t.id
-                ? "border-emerald-400 bg-emerald-50 text-emerald-800"
-                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
-            }
-          >
-            {t.label}
-          </button>
-        ))}
+        ]).map((t) => {
+          // Conteos por canal — el operador lee el peso de cada tab
+          // sin tener que abrirlo. Sólo aplica a las dos tabs de
+          // listado (las otras son listas dedicadas).
+          let count: number | null = null;
+          if (t.id === 'tiendanube') count = orders.filter((o) => (o as any).source === 'TIENDANUBE').length;
+          else if (t.id === 'otros') count = orders.filter((o) => (o as any).source !== 'TIENDANUBE').length;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setView(t.id)}
+              data-testid={`orders-view-tab-${t.id}`}
+              aria-pressed={view === t.id}
+              className={
+                "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold transition-colors " +
+                (view === t.id
+                  ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
+              }
+            >
+              {t.label}
+              {count != null && (
+                <span className={
+                  "inline-flex h-5 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] tabular-nums " +
+                  (view === t.id ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600")
+                }>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {view === 'pendientes-facturacion' ? (
@@ -319,8 +350,8 @@ export default function OrdersPage() {
         </Select>
         <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          <span className="font-semibold text-slate-900 tabular-nums">{orders.length}</span>
-          pedido{orders.length !== 1 ? "s" : ""}
+          <span className="font-semibold text-slate-900 tabular-nums">{filteredBySource.length}</span>
+          pedido{filteredBySource.length !== 1 ? "s" : ""}
         </span>
       </div>
 

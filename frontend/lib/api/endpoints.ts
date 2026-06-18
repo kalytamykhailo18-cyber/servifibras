@@ -1244,6 +1244,8 @@ export const ordersApi = {
     carrier: string | null;
     shippingZone: string | null;
     shippingCost: number | null;
+    /** Marcos 2026-06-18 PM: valor del producto (suma de línea). */
+    productCost: number | null;
     notes: string | null;
     createdAt: string;
     createdBy: { id: string; name: string } | null;
@@ -2473,8 +2475,14 @@ export interface DailySectionRow {
    *  Array of item keys (SKU when present, else `idx:N`) the picker
    *  has ticked off inside the expanded panel. */
   itemsChecked: string[];
-  /** Bloque B item 3.8 — Marcos 2026-06-08: per-row free-text note. */
+  /** Bloque B item 3.8 — Marcos 2026-06-08: per-row free-text note del armador. */
   notes: string | null;
+  /**
+   * Marcos 2026-06-18 PM: nota cargada por el operador en /orders
+   * (o que vino del sync de TN). Read-only para el armador — su
+   * propia aclaración va en `notes`.
+   */
+  orderNotes: string | null;
   /** Bloque B item 3.9 — cancellation flag (red CANCELADA badge). */
   isCancelled: boolean;
   /** Bloque B item 3.9 — ML publication URL (ML rows only; null for CRM/TN). */

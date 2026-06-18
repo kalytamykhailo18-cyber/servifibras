@@ -36,6 +36,8 @@ import PersonIcon from "@mui/icons-material/Person";
 import PhoneIcon from "@mui/icons-material/Phone";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import NotesIcon from "@mui/icons-material/Notes";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import { toast } from "sonner";
 import { safeFormatDate } from "@/lib/date";
 import { formatMoney, formatNumber } from "@/lib/format";
@@ -57,6 +59,10 @@ export default function OrderDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState("");
+  // Marcos 2026-06-18: dispara el formulario de devolución pre-cargado
+  // con los datos de este pedido — el operador no re-tipea nada,
+  // sólo confirma y crea la fila DEVOLUCION.
+  const [devolucionOpen, setDevolucionOpen] = useState(false);
 
   // Initial load — shows skeleton on first render of the page.
   const loadOrder = async () => {
@@ -175,20 +181,44 @@ export default function OrderDetailPage() {
     }
   }
 
+  // Marcos 2026-06-18: la solapa "Registrar devolución" sale para
+  // pedidos ya entregados que el comprador rechazó o cuya entrega
+  // falló. Filtramos para no ofrecerla sobre reposiciones / devoluciones
+  // existentes (no tiene sentido devolver una devolución).
+  const canRegisterDevolucion =
+    canChangeStatus
+    && order
+    && (order as any).orderType !== 'DEVOLUCION'
+    && (order as any).orderType !== 'REPOSICION';
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* TOP BAR */}
-      <button
-        type="button"
-        onClick={() => router.push("/orders")}
-        className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
-      >
-        <ArrowBackIcon
-          sx={{ fontSize: 16 }}
-          className="transition-transform duration-300 group-hover:-translate-x-0.5"
-        />
-        Volver a Pedidos
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => router.push("/orders")}
+          className="group inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.97]"
+        >
+          <ArrowBackIcon
+            sx={{ fontSize: 16 }}
+            className="transition-transform duration-300 group-hover:-translate-x-0.5"
+          />
+          Volver a Pedidos
+        </button>
+
+        {canRegisterDevolucion && (
+          <button
+            type="button"
+            onClick={() => setDevolucionOpen(true)}
+            data-testid="order-register-devolucion"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:border-rose-300 hover:bg-rose-100 transition"
+          >
+            <AssignmentReturnIcon sx={{ fontSize: 16 }} />
+            Registrar devolución de este pedido
+          </button>
+        )}
+      </div>
 
       {/* IDENTITY ROW */}
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
@@ -425,6 +455,20 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Devolución pre-cargada — Marcos 2026-06-18 */}
+      {order && (
+        <OrderFormDialog
+          open={devolucionOpen}
+          onOpenChange={setDevolucionOpen}
+          seedFromOrder={order}
+          initialModeOverride="DEVOLUCION"
+          onSuccess={() => {
+            setDevolucionOpen(false);
+            toast.success("Devolución registrada — la encontrás en Pendientes de regreso");
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -126,10 +126,20 @@ export interface DailySectionRow {
    *  expanded panel. Drives the "3/5" counter and the LISTO
    *  block-until-complete rule. */
   itemsChecked: string[];
-  /** Bloque B item 3.8 — Marcos 2026-06-08: per-row free-text note.
-   *  Editable inline from the panel; persisted by rowKey across
-   *  day regenerations. Empty/blank → null. */
+  /** Bloque B item 3.8 — Marcos 2026-06-08: per-row free-text note
+   *  del armador. Editable inline desde el panel de logística;
+   *  persisted by rowKey across day regenerations. Empty/blank → null. */
   notes: string | null;
+  /**
+   * Marcos 2026-06-18 PM: nota del PEDIDO original (cargada por quien
+   * armó el pedido en /orders o que vino en TN). Pasa al armador SIN
+   * mezclarse con sus propias notas (`notes`). Si el operador escribió
+   * "frágil — atar con cinta" al cargar el pedido, el armador lo ve
+   * acá; si después él agrega "falta confirmar color", eso queda en
+   * `notes`. Read-only para el armador (su edición va a `notes`).
+   * Null para placas PRFV y otras fuentes sin nota de origen.
+   */
+  orderNotes: string | null;
   /** Bloque B item 3.9 — Marcos 2026-06-08: cancellation flag.
    *  True when the underlying ML shipping_status / order status is
    *  "cancelled" OR the CRM Order.status is CANCELLED. The panel
@@ -599,6 +609,7 @@ export class DailyLogisticaAggregatorService {
               state: 'PENDIENTE' as const,
               itemsChecked: [] as string[],
               notes: null as string | null,
+              orderNotes: null as string | null,
               isCancelled,
               mlPermalink,
               isDispatched,
@@ -764,6 +775,11 @@ export class DailyLogisticaAggregatorService {
           state: 'PENDIENTE' as const,
           itemsChecked: [] as string[],
           notes: null as string | null,
+          // Marcos 2026-06-18 PM: nota cargada por el operador en
+          // /orders (o por TN al sync). Llega read-only al armador
+          // para que vea aclaraciones del pedido sin que se
+          // confunda con las suyas propias.
+          orderNotes: o.notes ?? null,
           isCancelled,
           mlPermalink: null,
           isDispatched,
@@ -829,6 +845,7 @@ export class DailyLogisticaAggregatorService {
           listoAt: p.stateChangedAt.toISOString(),
           itemsChecked: [],
           notes: p.notes ?? null,
+          orderNotes: null,
           isCancelled: false,
           mlPermalink: null,
           isDispatched: false,

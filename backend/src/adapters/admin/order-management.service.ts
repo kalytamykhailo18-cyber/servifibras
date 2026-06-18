@@ -470,6 +470,14 @@ export class OrderManagementService implements IOrderManagementService {
     carrier: string | null;
     shippingZone: string | null;
     shippingCost: number | null;
+    /**
+     * Marcos 2026-06-18 PM: valor del producto (suma de
+     * line.unitPrice × quantity). Sirve para mostrar al lado del
+     * costo logístico cuánta plata representa la mercadería que está
+     * pendiente de regreso — el operador necesita verlo agrupado para
+     * priorizar a qué carrier llamarle primero.
+     */
+    productCost: number | null;
     notes: string | null;
     createdAt: Date;
     createdBy: { id: string; name: string } | null;
@@ -485,6 +493,8 @@ export class OrderManagementService implements IOrderManagementService {
       select: {
         id: true,
         orderNumber: true,
+        amount: true,
+        products: true,
         carrier: true,
         shippingZone: true,
         shippingCost: true,
@@ -494,17 +504,34 @@ export class OrderManagementService implements IOrderManagementService {
         createdBy: { select: { id: true, name: true } },
       },
     });
-    return rows.map((r) => ({
-      id: r.id,
-      orderNumber: r.orderNumber,
-      contact: { id: r.contact.id, name: r.contact.name },
-      carrier: r.carrier,
-      shippingZone: r.shippingZone,
-      shippingCost: r.shippingCost,
-      notes: r.notes,
-      createdAt: r.createdAt,
-      createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name } : null,
-    }));
+    return rows.map((r) => {
+      // Preferimos sumar línea por línea (más resistente a casos
+      // donde `amount` se completó a mano sin los productos). Si la
+      // suma de líneas da 0 — productos sin precio — caemos a
+      // `amount` para no mostrar siempre cero.
+      const products = Array.isArray(r.products) ? (r.products as any[]) : [];
+      const lineSum = products.reduce((sum, p: any) => {
+        const qty = Number(p?.quantity ?? 0);
+        const unit = Number(p?.unitPrice ?? 0);
+        if (!Number.isFinite(qty) || !Number.isFinite(unit)) return sum;
+        return sum + qty * unit;
+      }, 0);
+      const productCost = lineSum > 0
+        ? Math.round(lineSum)
+        : (typeof r.amount === 'number' && r.amount > 0 ? Math.round(r.amount) : null);
+      return {
+        id: r.id,
+        orderNumber: r.orderNumber,
+        contact: { id: r.contact.id, name: r.contact.name },
+        carrier: r.carrier,
+        shippingZone: r.shippingZone,
+        shippingCost: r.shippingCost,
+        productCost,
+        notes: r.notes,
+        createdAt: r.createdAt,
+        createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name } : null,
+      };
+    });
   }
 
   /**
