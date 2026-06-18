@@ -27,8 +27,13 @@ import { Channel, PrismaClient } from '@prisma/client';
  */
 function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface').AITurnContext['mercadolibreListing']): string | null {
   if (!listing) return null;
-  const descChars = Number(process.env.MERCADOLIBRE_LISTING_PROMPT_DESC_CHARS) || 600;
-  const attrLimit = Number(process.env.MERCADOLIBRE_LISTING_PROMPT_ATTR_LIMIT) || 8;
+  // Marcos 2026-06-18: 600 chars cortaba la descripción de los
+  // laminados PRFV justo en la zona donde la publicación enumera
+  // anchos / espesores disponibles. Subo el techo por defecto a
+  // 1500 chars; .env (MERCADOLIBRE_LISTING_PROMPT_DESC_CHARS) sigue
+  // mandando si quieren tunear caso por caso.
+  const descChars = Number(process.env.MERCADOLIBRE_LISTING_PROMPT_DESC_CHARS) || 1500;
+  const attrLimit = Number(process.env.MERCADOLIBRE_LISTING_PROMPT_ATTR_LIMIT) || 12;
   const desc = listing.descriptionPlain
     ? listing.descriptionPlain.replace(/\s+/g, ' ').trim().slice(0, descChars)
     : null;
@@ -77,6 +82,22 @@ function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface'
     '  - Solo si esta publicación NO ofrece la variante pedida, recién ahí aplicás el formato cross-publicación de abajo para nombrar el producto correcto.',
     '  - Ejemplo MAL: el comprador pregunta "¿tienen amarillo?" en la publicación "Pigmento Fotoluminiscente Flash" y el agente arranca a enumerar Combos 23/36/6/10 (otras publicaciones). Mal — tendría que haber contestado sobre las variantes/colores del Pigmento Fotoluminiscente Flash que ven en ESTA publicación.',
     '  - Ejemplo BIEN: el comprador pregunta "¿tienen amarillo?" en la publicación "Pigmento X colores" → respondés "Sí, el amarillo es una de las variantes de esta publicación, lo elegís en el selector de color al momento de comprar." (basándote en los atributos de la publicación).',
+    '',
+    '⚠️ MEDIDAS / ESPECIFICACIONES NO LISTADAS EN ESTA PUBLICACIÓN — Marcos 2026-06-18:',
+    'Si el comprador pide un ancho, largo, espesor, medida, presentación o variante específica que NO figura ni en los Atributos ni en la Descripción de "PUBLICACIÓN ACTUAL" (revisá ARRIBA — antes de contestar), tu trabajo NO es hedgear con "consultalo aparte" / "podría requerir corte personalizado" / "habría que ver". Esa respuesta vacía es la peor versión del agente — el comprador la lee como "no me supieron contestar".',
+    'Pasos OBLIGATORIOS en este caso, en este orden:',
+    '  1. Llamá a `buscar_producto` con la spec exacta que pidió el comprador (ej. "laminado prfv 1m ancho", "fibra mat 450", "resina 5kg"). Una sola llamada — no improvises sin haber buscado.',
+    '  2. Si la herramienta devuelve UNA coincidencia con "link ML": esa es LA publicación correcta — respondé con el formato canónico cross-publicación incluyendo ESE link textual. NO redirigís al perfil genérico.',
+    '  3. Si devuelve varias coincidencias parecidas: elegí la más cercana a lo que pidió (mismo material + mismo tipo de variante) y linkeala. NO listes todas.',
+    '  4. Si la herramienta no devuelve nada que matchee la spec pedida: ahí sí recién decís que esa medida puntual no la manejamos en stock y ofrecés el ancho/medida más cercano que SÍ existe (visible en los atributos/descripción de esta publicación). Sin hedgear.',
+    'Ejemplo MAL (lo que pasó 2026-06-18 con MLA2027020004):',
+    '  Publicación: Laminado PRFV (anchos disponibles en descripción: 1.10 / 1.22 / 2.0 / 2.1 / 2.2 / 2.4 / 2.5 / 2.6).',
+    '  Cliente: "busco filtración del techo de 1 metro de ancho x 10 metros".',
+    '  Agente (MAL): "habría que consultarlo directamente porque podría requerir un corte personalizado".',
+    '  → Por qué está mal: el agente no buscó si existe la publicación específica de 1.10m (la más cercana a 1m). Quedó como evasión.',
+    'Ejemplo BIEN:',
+    '  → Agente llama buscar_producto("laminado prfv 1.10 ancho") → devuelve "Laminado PRFV 1,10 x 16m" con link ML.',
+    '  → Agente: "El ancho exacto de 1 m no lo manejamos en stock; el más cercano disponible es 1,10 m. Esa medida la encontrás en la publicación específica: [link ML]. Si te sirve, te conviene comprar por ahí."',
     '',
     'BLOQUEO ABSOLUTO — productos fuera de esta publicación:',
     'Si el cliente pregunta por CUALQUIER producto que no sea el que muestra esta publicación específica (aunque sea del mismo rubro, aunque sea complementario, aunque sea para el mismo proyecto, aunque parezca cross-sell útil), aplica esta regla SIN EXCEPCIÓN:',
@@ -1523,8 +1544,13 @@ IMPORTANTE sobre precios:
       ? turn.modelOverride
       : this.model;
     const replyMaxTokensForLevel = (lvl?: 1 | 2 | 3): number => {
-      if (lvl === 1) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L1', 150);
-      if (lvl === 2) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L2', 300);
+      // Marcos 2026-06-18: L1=150/L2=300 dejaban respuestas cortadas a
+      // mitad de oración en ML (consultas con dimensiones + alternativa
+      // a otra publicación pasan los 300 tokens fácil). Subo los pisos
+      // por defecto; .env sigue siendo el override real
+      // (CLAUDE_MAX_TOKENS_REPLY_L1 / _L2).
+      if (lvl === 1) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L1', 600);
+      if (lvl === 2) return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY_L2', 900);
       return this.maxTokens('CLAUDE_MAX_TOKENS_REPLY', 1024);
     };
     const requestConfig: any = {
