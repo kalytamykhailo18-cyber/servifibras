@@ -133,6 +133,7 @@ export class OrdersController {
     @Query('contactId') contactId?: string,
     @Query('conversationId') conversationId?: string,
     @Query('orderNumber') orderNumber?: string,
+    @Query('search') search?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -141,6 +142,7 @@ export class OrdersController {
       contactId,
       conversationId,
       orderNumber,
+      search,
       limit: limit ? parseInt(limit) : undefined,
       offset: offset ? parseInt(offset) : undefined,
     });

@@ -7,6 +7,11 @@ export interface OrderListFilter {
   contactId?: string;
   conversationId?: string;
   orderNumber?: string;
+  // Marcos 2026-06-18: free-text search on /orders. Hits orderNumber
+  // (contains) OR contact.name (contains), insensitive. Replaces the
+  // need to scroll the table when the operator only remembers a name
+  // or a number fragment.
+  search?: string;
   limit?: number;
   offset?: number;
 }

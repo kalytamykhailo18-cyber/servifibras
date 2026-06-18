@@ -415,6 +415,11 @@ model Order {
 
   contact      Contact       @relation(fields: [contactId], references: [id])
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  // Marcos 2026-06-18: pedidos con sección LAMINADOS_PRFV auto-crean
+  // una placa en /prfv-placas con estado PENDIENTE. Esta relación
+  // hace de candado de unicidad — un pedido tiene como mucho una
+  // placa promovida, así un retry no genera duplicados.
+  prfvPlaca    PrfvPlaca?    @relation("OrderPrfvPlaca")
 
   @@index([contactId])
   @@index([conversationId])
@@ -982,6 +987,13 @@ model PrfvPlaca {
   // "Cargado por ..." caption in the panel.
   createdById    String?
   createdBy      User?          @relation("PrfvPlacaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Marcos 2026-06-18: link back al pedido que la generó, cuando la
+  // placa fue auto-promovida desde un pedido con sección
+  // LAMINADOS_PRFV. Único — un pedido a lo sumo una placa. Si el
+  // pedido se elimina la placa queda (el galpón ya tiene la lámina
+  // física en proceso); por eso onDelete SetNull, no Cascade.
+  orderId        String?        @unique
+  order          Order?         @relation("OrderPrfvPlaca", fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([state])
   @@index([stateChangedAt])

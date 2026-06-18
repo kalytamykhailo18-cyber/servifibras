@@ -38,13 +38,22 @@ export class OrderManagementService implements IOrderManagementService {
     limit: number;
     offset: number;
   }> {
-    const { status, contactId, conversationId, orderNumber, limit = 20, offset = 0 } = filter;
+    const { status, contactId, conversationId, orderNumber, search, limit = 20, offset = 0 } = filter;
 
     const where: any = {};
     if (status) where.status = status;
     if (contactId) where.contactId = contactId;
     if (conversationId) where.conversationId = conversationId;
     if (orderNumber) where.orderNumber = { contains: orderNumber };
+    // Marcos 2026-06-18: ORs orderNumber + contact.name so a single
+    // input on /orders covers both "ORD-2026-1822" and "Oscar Alberto".
+    if (search && search.trim().length > 0) {
+      const q = search.trim();
+      where.OR = [
+        { orderNumber: { contains: q, mode: 'insensitive' } },
+        { contact: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
 
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -171,7 +180,68 @@ export class OrderManagementService implements IOrderManagementService {
     // the full product detail. Same fire-and-forget pattern.
     void this.orderNotifications.notifyIfWholesale(order.id);
 
+    // Marcos 2026-06-18: si el operador eligió la sección "Laminados
+    // PRFV" en la solapa Pedido, auto-creamos la placa PENDIENTE en
+    // /prfv-placas con el nombre del cliente + descripción del primer
+    // producto laminado. Sin esto la lámina existe como Order pero
+    // nunca aparece en el kanban del galpón. El @unique en
+    // PrfvPlaca.orderId evita duplicados si la creación se reintenta.
+    if (sectionOverride === 'LAMINADOS_PRFV') {
+      await this.autoCreatePrfvPlacaForOrder(order as any).catch(() => {});
+    }
+
     return order as OrderDetails;
+  }
+
+  /**
+   * Marcos 2026-06-18: bridge between /orders y /prfv-placas.
+   *
+   * Un pedido con sección LAMINADOS_PRFV — sea cargado a mano,
+   * sea importado desde TN/ML — tiene que aparecer en el kanban
+   * del galpón en estado PENDIENTE para que el operador pueda
+   * cortarlo y avanzarlo. Sin este bridge la placa se carga dos
+   * veces (una en Pedidos, otra a mano en Placas) o, peor, se
+   * cargaba sólo en Pedidos y nunca llegaba al galpón.
+   *
+   * Idempotente vía PrfvPlaca.orderId @unique — si por algún motivo
+   * la creación se dispara dos veces para el mismo pedido, el
+   * segundo INSERT cae en una P2002 que tragamos en silencio.
+   */
+  private async autoCreatePrfvPlacaForOrder(order: {
+    id: string;
+    orderNumber: string;
+    products: any;
+    contact?: { name: string | null } | null;
+    notes?: string | null;
+    createdById?: string | null;
+  }): Promise<void> {
+    const products = Array.isArray(order.products) ? order.products : [];
+    const productLine = products
+      .map((p: any) => {
+        const qty = typeof p?.quantity === 'number' && p.quantity > 1 ? `${p.quantity}× ` : '';
+        const name = String(p?.name ?? '').trim();
+        return name ? `${qty}${name}` : null;
+      })
+      .filter(Boolean)
+      .join(' + ');
+    const cliente = `${order.contact?.name || 'Cliente sin nombre'} · #${order.orderNumber}`;
+    const producto = productLine || 'Laminado PRFV (ver pedido)';
+    try {
+      await this.prisma.prfvPlaca.create({
+        data: {
+          cliente,
+          producto,
+          state: 'PENDIENTE',
+          notes: order.notes || null,
+          createdById: order.createdById ?? null,
+          orderId: order.id,
+        },
+      });
+    } catch (err: any) {
+      // P2002 = unique violation on orderId — placa ya promovida,
+      // probablemente por un retry. Caso esperado, no es un error.
+      if (err?.code !== 'P2002') throw err;
+    }
   }
 
   async updateOrder(

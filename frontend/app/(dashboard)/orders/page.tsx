@@ -15,6 +15,7 @@ import { OrderTable } from "@/components/orders/order-table";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import { PendingInvoicingList } from "@/components/orders/pending-invoicing-list";
 import { PendingReturnsList } from "@/components/orders/pending-returns-list";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/endpoints";
 import type { Order } from "@/types";
 import { ORDER_STATUS_LABELS, UserRole } from "@/types";
@@ -30,6 +31,8 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SearchIcon from "@mui/icons-material/Search";
+import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -52,11 +55,22 @@ export default function OrdersPage() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Marcos 2026-06-18: free-text search por número de pedido o
+  // nombre de cliente. El input renderiza inmediato; el fetch
+  // arranca 300 ms después de que el operador deja de tipear, así
+  // no martillamos la API por cada tecla.
+  const [searchInput, setSearchInput] = useState<string>("");
+  const [searchDebounced, setSearchDebounced] = useState<string>("");
   // Marcos 2026-06-12: top-level view toggle on the page. "todos"
   // keeps the regular order table; "pendientes-facturacion" swaps in
   // the dedicated list.
   const [view, setView] = useState<'todos' | 'pendientes-facturacion' | 'pendientes-regreso'>('todos');
   const pg = useClientPagination(orders, { storageKey: "orders", defaultPageSize: 25 });
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(searchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
 
   const fetchOrders = async () => {
     try {
@@ -65,6 +79,9 @@ export default function OrdersPage() {
       const params: any = { limit: 1000 };
       if (statusFilter !== "all") {
         params.status = statusFilter;
+      }
+      if (searchDebounced.length > 0) {
+        params.search = searchDebounced;
       }
       const response = await api.orders.list(params);
       setOrders(response.data);
@@ -78,7 +95,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (isAllowed) fetchOrders();
-  }, [statusFilter, isAllowed]);
+  }, [statusFilter, searchDebounced, isAllowed]);
 
   // Silent refresh when a new wholesale order lands while the page is open.
   // No toast here — RealtimeNotifications already surfaces it globally.
@@ -258,6 +275,29 @@ export default function OrdersPage() {
       ) : view === 'pendientes-regreso' ? (
         <PendingReturnsList />
       ) : (<>
+      {/* SEARCH — Marcos 2026-06-18 */}
+      <div className="relative max-w-md">
+        <SearchIcon sx={{ fontSize: 16 }} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Buscar por número de pedido o nombre de cliente…"
+          className="h-10 pl-9 pr-9"
+          data-testid="orders-search"
+        />
+        {searchInput && (
+          <button
+            type="button"
+            onClick={() => setSearchInput("")}
+            aria-label="Limpiar búsqueda"
+            data-testid="orders-search-clear"
+            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <CloseIcon sx={{ fontSize: 14 }} />
+          </button>
+        )}
+      </div>
+
       {/* FILTERS */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600">
