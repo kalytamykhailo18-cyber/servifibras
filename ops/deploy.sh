@@ -105,6 +105,18 @@ log "flags: backend=$DO_BACKEND frontend=$DO_FRONTEND build=$DO_BUILD allow_sche
 systemctl cat "$BACKEND_UNIT" >/dev/null 2>&1  || fatal "$BACKEND_UNIT unit not found"  2
 systemctl cat "$FRONTEND_UNIT" >/dev/null 2>&1 || fatal "$FRONTEND_UNIT unit not found" 2
 
+# .env ownership guard — Marcos 2026-06-18 incident: an Edit-tool write
+# under root left backend/.env owned root:root mode 600. The nightly
+# backup service runs as user `servifibras` and silently FATAL'd
+# ("/home/servifibras/backend/.env not readable") for 2 nights — the
+# health endpoint then flagged backup as 'down' and Caddy refused
+# upstream traffic. Heal proactively on every deploy so any errant
+# editor (deploy script, manual sudo edit, AI tool) gets corrected.
+if [[ -f "$BACKEND_DIR/.env" ]]; then
+  chown servifibras:servifibras "$BACKEND_DIR/.env" 2>/dev/null || true
+  chmod 640 "$BACKEND_DIR/.env" 2>/dev/null || true
+fi
+
 # Postgres reachability via the env DB url. We only test that DATABASE_URL
 # parses; pg_isready is the cleanest probe.
 PG_HOST="$(grep -oP '^DATABASE_URL=postgres(ql)?://[^@]+@\K[^:/]+' "$BACKEND_DIR/.env" || true)"
