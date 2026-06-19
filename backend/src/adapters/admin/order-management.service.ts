@@ -186,7 +186,14 @@ export class OrderManagementService implements IOrderManagementService {
     // producto laminado. Sin esto la lámina existe como Order pero
     // nunca aparece en el kanban del galpón. El @unique en
     // PrfvPlaca.orderId evita duplicados si la creación se reintenta.
-    if (sectionOverride === 'LAMINADOS_PRFV') {
+    //
+    // Marcos 2026-06-19: SOLO para SALE. Una reposición o devolución
+    // de un pedido laminado NO debe abrir una placa nueva en el
+    // kanban del galpón — el galpón ya armó la lámina original
+    // (placa terminal DESPACHADA_RETIRADA); la reposición / devolución
+    // es un movimiento logístico, no producción nueva. Si se filtraba
+    // antes era un bug que sumaba ruido a "Pendientes" del kanban.
+    if (sectionOverride === 'LAMINADOS_PRFV' && (order as any).orderType === 'SALE') {
       await this.autoCreatePrfvPlacaForOrder(order as any).catch(() => {});
     }
 
