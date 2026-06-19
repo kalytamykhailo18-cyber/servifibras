@@ -360,7 +360,11 @@ export class VentasUnificadasService {
             const cur = o.currencyId ?? 'ARS';
             const cell = byCurrency.get(cur) ?? { count: 0, amount: 0 };
             cell.count++;
-            cell.amount += o.totalAmount ?? 0;
+            // Marcos 2026-06-19 (vista unificada): floats acumulaban
+            // hasta "41276932.00000003". Redondeo a centavos por suma
+            // para que el headline no exponga ese ruido — sigue siendo
+            // exacto al centavo.
+            cell.amount = Math.round((cell.amount + (o.totalAmount ?? 0)) * 100) / 100;
             byCurrency.set(cur, cell);
             // Daily bucket — keyed by AR-local day so it matches the
             // local-orders side + the chart axis.
@@ -424,7 +428,10 @@ export class VentasUnificadasService {
       const cur = (o.currency || 'ARS').toUpperCase();
       const cell = bucket.byCurrency.get(cur) ?? { count: 0, amount: 0 };
       cell.count++;
-      cell.amount += Number(o.amount) || 0;
+      // Marcos 2026-06-19: round to cents per add — los TN floats
+      // (ej. 47883414.68) son exactos; los manuales podían arrastrar
+      // residuos de float si la suma se acumulaba sin redondeo.
+      cell.amount = Math.round((cell.amount + (Number(o.amount) || 0)) * 100) / 100;
       bucket.byCurrency.set(cur, cell);
       bucket.count++;
       localBuckets.set(source, bucket);

@@ -24,6 +24,26 @@ export default function DashboardLayout({
   // Mobile nav drawer state — lifted here so Header can open it and Sidebar
   // can close it. At lg+ the drawer is permanently visible regardless.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Marcos 2026-06-18 PM: pidió que el sidebar lateral sea reducible
+  // para ganar ancho en pantallas chicas (laptop) y que las tablas
+  // densas respiren. Persiste en localStorage; default expandido para
+  // que la UX existente no cambie sin acción del operador.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('sidebar-rail-collapsed');
+      if (raw === 'true') setSidebarCollapsed(true);
+    } catch { /* corrupted storage — ignore */ }
+  }, []);
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem('sidebar-rail-collapsed', next ? 'true' : 'false'); }
+      catch { /* storage disabled — session-only is fine */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -79,8 +99,15 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-background">
       <RealtimeNotifications />
-      <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
-      <div className="lg:pl-64">
+      <Sidebar
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={toggleSidebarCollapsed}
+      />
+      {/* Marcos 2026-06-18 PM: el offset main = ancho real del rail.
+         Expandido = 256px (w-64), colapsado = 64px (w-16). */}
+      <div className={sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"}>
         <Header onMenuClick={() => setMobileNavOpen(true)} />
         <main className="p-4 sm:p-6">{children}</main>
       </div>

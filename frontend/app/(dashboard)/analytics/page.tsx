@@ -9,6 +9,7 @@ import { QualityPersonalCard } from "@/components/analytics/quality-personal-car
 import { QualityTeamOverlay } from "@/components/analytics/quality-team-overlay";
 import { TeamPerformanceCard } from "@/components/analytics/team-performance-card";
 import { ClaudeBudgetWidget } from "@/components/analytics/claude-budget-widget";
+import { AiSavingsCard } from "@/components/analytics/ai-savings-card";
 import { DailyDigestWidget } from "@/components/analytics/daily-digest-widget";
 import { ContactChart } from "@/components/analytics/contact-chart";
 import { AIPerformanceChart } from "@/components/analytics/ai-performance-chart";
@@ -305,6 +306,9 @@ export default function AnalyticsPage() {
 
       {activeTab === "ia" && isAdmin && (
         <div className="space-y-6">
+          {/* Marcos 2026-06-05 (dispute settlement): savings snapshot
+             arriba de todo porque es lo que valida el Bloque E. */}
+          <AiSavingsCard />
           <ClaudeBudgetWidget />
           <DailyDigestWidget />
         </div>

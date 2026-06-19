@@ -24,4 +24,16 @@ export class ClaudeBudgetController {
   async stats() {
     return { success: true, data: await this.budget.getStats() };
   }
+
+  /**
+   * Marcos 2026-06-05 (dispute settlement): snapshot que compara la
+   * ventana ANTES de las opts (Bloque E) contra la ventana actual,
+   * para que el cliente pueda validar el bloque viendo el delta de
+   * costo en plata real. ADMIN-only por el mismo motivo que /stats.
+   */
+  @Get('savings')
+  @Roles(UserRole.ADMIN)
+  async savings() {
+    return { success: true, data: await this.budget.getSavingsSnapshot() };
+  }
 }

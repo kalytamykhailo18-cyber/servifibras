@@ -473,4 +473,155 @@ export class ClaudeBudgetService {
       },
     };
   }
+
+  /**
+   * Marcos 2026-06-05 (dispute settlement): para validar Bloque E
+   * el cliente necesita ver con datos concretos cuánto bajó el costo
+   * después de los 5 cost opts (N1 → Haiku, FAQ pre-IA, batch ML,
+   * compresión historial, caps L1/L2). Este snapshot compara dos
+   * ventanas de 10 días: la previa al deploy de las opts vs la
+   * última semana. Ambas usan el mismo filtro `isTestTraffic=false`
+   * para no inflarse con tráfico de dev/test.
+   *
+   * `optsLiveSince` se lee de env (CLAUDE_OPTS_LIVE_SINCE_ISO) con
+   * default 2026-06-05 — el día que el todo.md registra el deploy
+   * de las opts. Si el cliente cambia esa fecha el snapshot lo
+   * refleja sin recompilar.
+   */
+  async getSavingsSnapshot(): Promise<{
+    optsLiveSince: string;
+    baseline: SavingsWindow;
+    current: SavingsWindow;
+    delta: {
+      costPctChange: number;          // -0.85 = -85% (cheaper)
+      callsPctChange: number;
+      costPerQuestionPctChange: number;
+    };
+    byModelCurrent: Array<{ model: string; calls: number; costUsd: number; share: number }>;
+    byCallSiteCurrent: Array<{ callSite: string; calls: number; costUsd: number; share: number }>;
+  }> {
+    const optsIso = (process.env.CLAUDE_OPTS_LIVE_SINCE_ISO || '2026-06-05T00:00:00Z').trim();
+    const optsDate = new Date(optsIso);
+    if (Number.isNaN(optsDate.getTime())) {
+      throw new Error(`Invalid CLAUDE_OPTS_LIVE_SINCE_ISO: ${optsIso}`);
+    }
+    const windowDays = num('CLAUDE_SAVINGS_WINDOW_DAYS', 10);
+    const dayMs = 86400 * 1000;
+    // Baseline: 10 días JUSTO ANTES del deploy de las opts.
+    const baselineTo = optsDate;
+    const baselineFrom = new Date(optsDate.getTime() - windowDays * dayMs);
+    // Current: últimos 10 días (rolling).
+    const currentTo = new Date();
+    const currentFrom = new Date(currentTo.getTime() - windowDays * dayMs);
+
+    const summarize = async (from: Date, to: Date): Promise<SavingsWindow> => {
+      const agg = await this.prisma.claudeUsageEvent.aggregate({
+        where: {
+          createdAt: { gte: from, lt: to },
+          isTestTraffic: false,
+        },
+        _count: { _all: true },
+        _sum: { costUsd: true, inputTokens: true, outputTokens: true, cacheReadTokens: true },
+      });
+      const cost = Number(agg._sum.costUsd ?? 0);
+      const calls = agg._count._all;
+      const rawQuestions = await this.prisma.message.findMany({
+        where: {
+          sender: 'CUSTOMER',
+          timestamp: { gte: from, lt: to },
+          conversation: { isSandbox: false },
+        },
+        select: { conversation: { select: { contact: { select: { name: true } } } } },
+      });
+      const questions = rawQuestions.filter(
+        (m) => !looksLikeTestContactName(m.conversation?.contact?.name),
+      ).length;
+      return {
+        fromIso: from.toISOString(),
+        toIso: to.toISOString(),
+        days: Math.round((to.getTime() - from.getTime()) / dayMs),
+        costUsd: Math.round(cost * 100) / 100,
+        calls,
+        questions,
+        costPerCallUsd: calls > 0 ? Math.round((cost / calls) * 10_000) / 10_000 : 0,
+        costPerQuestionUsd: questions > 0 ? Math.round((cost / questions) * 10_000) / 10_000 : 0,
+        inputTokens: agg._sum.inputTokens ?? 0,
+        outputTokens: agg._sum.outputTokens ?? 0,
+        cacheReadTokens: agg._sum.cacheReadTokens ?? 0,
+      };
+    };
+
+    const baseline = await summarize(baselineFrom, baselineTo);
+    const current = await summarize(currentFrom, currentTo);
+
+    const pctChange = (now: number, before: number): number =>
+      before > 0 ? Math.round(((now - before) / before) * 1000) / 1000 : 0;
+
+    // Model split y callSite split para la ventana actual — el
+    // cliente quiere ver QUÉ modelo está pagando (Haiku barato vs
+    // Sonnet caro) y EN QUÉ se gasta (replies vs JSON classify).
+    const modelRaw = await this.prisma.claudeUsageEvent.groupBy({
+      by: ['model'],
+      where: {
+        createdAt: { gte: currentFrom, lt: currentTo },
+        isTestTraffic: false,
+      },
+      _count: { _all: true },
+      _sum: { costUsd: true },
+    });
+    const totalCurrentCost = current.costUsd || 1;
+    const byModelCurrent = modelRaw
+      .map((g) => ({
+        model: g.model,
+        calls: g._count._all,
+        costUsd: Math.round(Number(g._sum.costUsd ?? 0) * 100) / 100,
+        share: Math.round((Number(g._sum.costUsd ?? 0) / totalCurrentCost) * 1000) / 1000,
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd);
+
+    const callSiteRaw = await this.prisma.claudeUsageEvent.groupBy({
+      by: ['callSite'],
+      where: {
+        createdAt: { gte: currentFrom, lt: currentTo },
+        isTestTraffic: false,
+      },
+      _count: { _all: true },
+      _sum: { costUsd: true },
+    });
+    const byCallSiteCurrent = callSiteRaw
+      .map((g) => ({
+        callSite: g.callSite,
+        calls: g._count._all,
+        costUsd: Math.round(Number(g._sum.costUsd ?? 0) * 100) / 100,
+        share: Math.round((Number(g._sum.costUsd ?? 0) / totalCurrentCost) * 1000) / 1000,
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd);
+
+    return {
+      optsLiveSince: optsDate.toISOString(),
+      baseline,
+      current,
+      delta: {
+        costPctChange: pctChange(current.costUsd, baseline.costUsd),
+        callsPctChange: pctChange(current.calls, baseline.calls),
+        costPerQuestionPctChange: pctChange(current.costPerQuestionUsd, baseline.costPerQuestionUsd),
+      },
+      byModelCurrent,
+      byCallSiteCurrent,
+    };
+  }
+}
+
+export interface SavingsWindow {
+  fromIso: string;
+  toIso: string;
+  days: number;
+  costUsd: number;
+  calls: number;
+  questions: number;
+  costPerCallUsd: number;
+  costPerQuestionUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
 }

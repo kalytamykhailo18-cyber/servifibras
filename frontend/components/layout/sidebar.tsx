@@ -23,6 +23,7 @@ import ScienceIcon from '@mui/icons-material/Science';
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 
 const ALL_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
@@ -247,9 +248,20 @@ interface SidebarProps {
   mobileOpen?: boolean;
   /** Called when the user dismisses the mobile drawer (backdrop click, close button, or route change). */
   onMobileClose?: () => void;
+  /**
+   * Marcos 2026-06-18 PM: rail colapsado (modo icon-only). Sólo
+   * aplica en lg+; en mobile el drawer siempre se abre full.
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({
+  mobileOpen = false,
+  onMobileClose,
+  collapsed = false,
+  onToggleCollapsed,
+}: SidebarProps) {
   const pathname = usePathname();
   const role = useAuthStore(selectUserRole);
 
@@ -340,23 +352,39 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
         )}
       />
 
-      {/* SIDEBAR — fixed drawer on mobile, permanent rail at lg+ */}
+      {/* SIDEBAR — fixed drawer on mobile, permanent rail at lg+.
+         Marcos 2026-06-18 PM: en lg+, el ancho responde al toggle
+         (w-64 expandido / w-16 colapsado). En mobile el drawer
+         siempre se abre completo. */}
       <aside
+        data-testid="sidebar"
+        data-collapsed={collapsed ? "true" : "false"}
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card shadow-xl transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card shadow-xl transition-[transform,width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
           // Mobile: slide in from left
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           // Desktop: always visible, no shadow needed
           "lg:translate-x-0 lg:shadow-none",
+          // Marcos 2026-06-18 PM: ancho colapsado solo en lg+.
+          collapsed && "lg:w-16",
         )}
       >
-        {/* LOGO + mobile close button — black header per Marcos 2026-06-03,
-            uses the official Servifibras mark (inverted variant on dark bg). */}
-        <div className="flex h-16 items-center justify-between border-b border-black bg-black px-4 lg:px-12">
+        {/* LOGO + mobile close button + Marcos 2026-06-18 desktop toggle.
+           Black header per Marcos 2026-06-03; usa la marca oficial
+           (variante invertida sobre fondo oscuro). En modo colapsado
+           el wordmark "SERVIFIBRAS" se oculta y queda solo el ícono;
+           el padding lateral se ajusta para centrar el ícono. */}
+        <div
+          className={cn(
+            "flex h-16 items-center border-b border-black bg-black",
+            collapsed ? "justify-center px-2 lg:px-0" : "justify-between px-4 lg:px-12",
+          )}
+        >
           <Link
             href="/conversations"
             onClick={onMobileClose}
             className="group flex items-center gap-2.5"
+            title={collapsed ? 'Servifibras' : undefined}
           >
             <span className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-[1.08]">
               <Image
@@ -368,10 +396,13 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
                 className="h-9 w-9 object-contain"
               />
             </span>
-            <span className="text-[1.05rem] font-semibold tracking-[0.04em] text-white">
-              SERVIFIBRAS
-            </span>
+            {!collapsed && (
+              <span className="text-[1.05rem] font-semibold tracking-[0.04em] text-white">
+                SERVIFIBRAS
+              </span>
+            )}
           </Link>
+          {/* Mobile close (always full layout) */}
           <button
             type="button"
             onClick={onMobileClose}
@@ -382,15 +413,49 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           </button>
         </div>
 
+        {/* Desktop collapse toggle — Marcos 2026-06-18 PM. Solo lg+.
+           Cuando está expandido va arriba a la derecha del header del
+           sidebar; cuando colapsa, se queda como un chip flotante en
+           el borde derecho del rail, alineado verticalmente con el
+           logo, así sigue siendo descubrible. */}
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+            data-testid="sidebar-rail-toggle"
+            title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+            className={cn(
+              "absolute -right-3 top-3 z-10 hidden h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md transition-all hover:border-slate-300 hover:text-slate-900 lg:grid",
+            )}
+          >
+            {collapsed
+              ? <ChevronRightIcon sx={{ fontSize: 16 }} />
+              : <ChevronLeftIcon sx={{ fontSize: 16 }} />}
+          </button>
+        )}
+
         {/* NAVIGATION — Marcos 2026-06-11: grouped into collapsible
             categories (Atención / Logística / Métricas / Sistema).
             Categories sit flush against each other so there are no
             dead zones between them — every pixel under the cursor is
-            either a hoverable item or a hoverable category header. */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+            either a hoverable item or a hoverable category header.
+            Marcos 2026-06-18 PM: en modo colapsado el rail muestra
+            sólo íconos — los headers de categoría desaparecen y
+            todas las items quedan listadas verticalmente como íconos
+            con tooltip para el texto. */}
+        <nav className={cn(
+          "flex-1 overflow-y-auto",
+          collapsed ? "px-2 py-3" : "px-3 py-4",
+        )}>
           <div>
             {grouped.map((cat, ci) => {
               const isCollapsed = expanded !== cat.id;
+              // Marcos 2026-06-18 PM: en rail colapsado todos los
+              // items se renderizan SIEMPRE (no hay acordeón) porque
+              // sin labels el costo cognitivo de abrir/cerrar no
+              // tiene sentido. Cada ícono es un atajo directo.
+              const railShowAllItems = collapsed;
               return (
                 <div
                   key={cat.id}
@@ -400,30 +465,32 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
                   // stay flat so the eye lands on the open one.
                   className={cn(
                     "transition-colors duration-200",
-                    !isCollapsed && "rounded-lg bg-slate-50/80 border-l-2 border-slate-300",
+                    !collapsed && !isCollapsed && "rounded-lg bg-slate-50/80 border-l-2 border-slate-300",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleCategory(cat.id)}
-                    aria-expanded={!isCollapsed}
-                    aria-controls={`sidebar-cat-${cat.id}`}
-                    data-testid={`sidebar-category-${cat.id}`}
-                    className={cn(
-                      "group flex w-full items-center justify-between rounded-lg px-3 py-3 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200",
-                      isCollapsed
-                        ? "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                        : "text-slate-800 hover:bg-slate-100/70",
-                    )}
-                  >
-                    <span className="transition-transform duration-200 group-hover:translate-x-0.5">{cat.label}</span>
-                    {isCollapsed ? (
-                      <ChevronRightIcon sx={{ fontSize: 16 }} className="text-slate-400 transition-colors group-hover:text-slate-700" />
-                    ) : (
-                      <ExpandMoreIcon sx={{ fontSize: 16 }} className="text-slate-600" />
-                    )}
-                  </button>
-                  {!isCollapsed && (
+                  {!collapsed && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(cat.id)}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={`sidebar-cat-${cat.id}`}
+                      data-testid={`sidebar-category-${cat.id}`}
+                      className={cn(
+                        "group flex w-full items-center justify-between rounded-lg px-3 py-3 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200",
+                        isCollapsed
+                          ? "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                          : "text-slate-800 hover:bg-slate-100/70",
+                      )}
+                    >
+                      <span className="transition-transform duration-200 group-hover:translate-x-0.5">{cat.label}</span>
+                      {isCollapsed ? (
+                        <ChevronRightIcon sx={{ fontSize: 16 }} className="text-slate-400 transition-colors group-hover:text-slate-700" />
+                      ) : (
+                        <ExpandMoreIcon sx={{ fontSize: 16 }} className="text-slate-600" />
+                      )}
+                    </button>
+                  )}
+                  {(!isCollapsed || railShowAllItems) && (
                     <ul id={`sidebar-cat-${cat.id}`} className="pb-1">
                       {cat.items.map((item, ii) => {
                         const isActive =
@@ -443,8 +510,13 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
                                 }
                                 onMobileClose?.();
                               }}
+                              title={collapsed ? item.name : undefined}
+                              aria-label={collapsed ? item.name : undefined}
                               className={cn(
-                                "group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+                                "group relative flex items-center overflow-hidden rounded-xl text-sm font-medium transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+                                collapsed
+                                  ? "justify-center px-2 py-2.5 gap-0"
+                                  : "gap-3 px-3 py-2.5",
                                 isActive
                                   ? `${item.activeBg} text-white`
                                   : "text-foreground/75 hover:bg-slate-100 hover:text-foreground",
@@ -482,9 +554,11 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
                                     : `${item.iconColor} group-hover:scale-110`,
                                 )}
                               />
-                              <span className="relative transition-transform duration-300 group-hover:translate-x-0.5">
-                                {item.name}
-                              </span>
+                              {!collapsed && (
+                                <span className="relative transition-transform duration-300 group-hover:translate-x-0.5">
+                                  {item.name}
+                                </span>
+                              )}
                             </Link>
                           </li>
                         );
@@ -497,19 +571,28 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           </div>
         </nav>
 
-        {/* FOOTER */}
-        <div className="relative px-4 py-4">
+        {/* FOOTER — colapsado muestra solo el dot de salud, expandido
+           muestra el copyright completo + chip de versión. */}
+        <div className={cn("relative py-4", collapsed ? "px-2" : "px-4")}>
           <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-300/60 to-transparent" />
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-500">
-              © 2026 Servifibras
-            </span>
-            <span className="group inline-flex items-center gap-1.5 rounded-full border border-blue-200/60 bg-blue-50/60 px-2 py-0.5 text-[10px] font-medium text-blue-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50">
+          <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between")}>
+            {!collapsed && (
+              <span className="text-[11px] font-medium text-slate-500">
+                © 2026 Servifibras
+              </span>
+            )}
+            <span
+              className={cn(
+                "group inline-flex items-center gap-1.5 rounded-full border border-blue-200/60 bg-blue-50/60 text-blue-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50",
+                collapsed ? "h-6 w-6 justify-center" : "px-2 py-0.5 text-[10px] font-medium",
+              )}
+              title={collapsed ? "Servifibras v1.0" : undefined}
+            >
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inset-0 inline-flex animate-ping rounded-full bg-emerald-500 opacity-75" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
               </span>
-              v1.0
+              {!collapsed && <span>v1.0</span>}
             </span>
           </div>
         </div>

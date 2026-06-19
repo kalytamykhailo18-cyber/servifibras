@@ -1155,9 +1155,14 @@ export class MercadoLibreService implements IMercadoLibreService {
     const toIso = encodeURIComponent(args.toIso);
     const ordersAcc: Array<any> = [];
     let offset = 0;
-    // Cap pages defensively — at 50/page × 20 pages = 1000 orders/day
-    // is well past Marcos's actual volume (145/day across both cuentas).
-    const maxPages = Number(process.env.MERCADOLIBRE_ORDERS_MAX_PAGES) || 20;
+    // Marcos 2026-06-19 (vista unificada bugfix): default 20 páginas ×
+    // 50/page = 1000 órdenes, capaz para el panel diario pero MUY
+    // corto para "Ventas unificadas — este mes". Cuenta 1 corta
+    // exactamente en 1000 y el total mensual sale subreportado. Subo
+    // el default a 80 páginas (4000 órdenes ≈ 130/día × 30 días con
+    // colchón). El .env lo puede bajar si Marcos quiere acotar
+    // latencia.
+    const maxPages = Number(process.env.MERCADOLIBRE_ORDERS_MAX_PAGES) || 80;
     for (let page = 0; page < maxPages; page++) {
       const url =
         `${this.apiUrl}/orders/search` +

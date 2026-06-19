@@ -1824,7 +1824,43 @@ export const aiBudgetApi = {
     const r = await apiClient.get<any>('/admin/ai-budget/stats');
     return r.data?.data ?? r.data;
   },
+  /**
+   * Marcos 2026-06-05: snapshot que compara ventana pre-opts vs ahora
+   * para validar el Bloque E. Backend reads CLAUDE_OPTS_LIVE_SINCE_ISO
+   * + CLAUDE_SAVINGS_WINDOW_DAYS de env.
+   */
+  getSavings: async (): Promise<AiSavingsSnapshot> => {
+    const r = await apiClient.get<any>('/admin/ai-budget/savings');
+    return r.data?.data ?? r.data;
+  },
 };
+
+export interface AiSavingsWindow {
+  fromIso: string;
+  toIso: string;
+  days: number;
+  costUsd: number;
+  calls: number;
+  questions: number;
+  costPerCallUsd: number;
+  costPerQuestionUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+export interface AiSavingsSnapshot {
+  optsLiveSince: string;
+  baseline: AiSavingsWindow;
+  current: AiSavingsWindow;
+  delta: {
+    costPctChange: number;
+    callsPctChange: number;
+    costPerQuestionPctChange: number;
+  };
+  byModelCurrent: Array<{ model: string; calls: number; costUsd: number; share: number }>;
+  byCallSiteCurrent: Array<{ callSite: string; calls: number; costUsd: number; share: number }>;
+}
 
 // ============================================================================
 // AUDIT API
