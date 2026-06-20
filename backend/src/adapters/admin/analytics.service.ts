@@ -834,9 +834,20 @@ export class AnalyticsService implements IAnalyticsService {
       // back to a province → zone alias (Capital Federal → CABA),
       // then to the raw province, then to "Sin zona". `rawCarrier`
       // is stripped from the row before it lands in the API response.
+      //
+      // Marcos 2026-06-20: cuando el operador picked manualmente la
+      // mensajería (s.flexCourier="JyJ"), `rawCarrier` venía como "JyJ"
+      // y `deriveZoneFromShippingLabel("JyJ")` no matcheaba nada — el
+      // zone hint embedded en la TN shipping-label original (ej. "GBA 1
+      // GRATIS") se perdía. Ahora pasamos `shippingLabel` por separado
+      // (siempre el label crudo TN/ML) y derivamos zone de ese, así la
+      // mensajería elegida + zona inferida resuelven la tarifa correcta.
       const rawCarrierHint = (row as any).rawCarrier ?? null;
+      const shippingLabelHint = (row as any).shippingLabel ?? null;
       delete (row as any).rawCarrier;
+      delete (row as any).shippingLabel;
       const derivedZone =
+        this.deriveZoneFromShippingLabel(shippingLabelHint) ??
         this.deriveZoneFromShippingLabel(rawCarrierHint) ??
         this.provinceToZone(row.shippingZone) ??
         (typeof row.shippingZone === 'string' && row.shippingZone.length > 0 ? row.shippingZone : null);
@@ -859,6 +870,13 @@ export class AnalyticsService implements IAnalyticsService {
       let shippingCost: number | null = null;
       let shippingZone: string | null = null;
       // Per-rowKey routing.
+      // Marcos 2026-06-20: shippingLabel preserva el label original
+      // (TN/ML), separado de rawCarrier (que puede ser override del
+      // operador). Sirve al zone derivation cuando el operador picó
+      // manualmente la mensajería — la zona embebida en el TN label
+      // ("GBA 1 GRATIS" → GBA 1) tiene que llegar aunque el carrier
+      // ya sea "JyJ".
+      let shippingLabel: string | null = null;
       let m = /^(?:crm|tn):([0-9a-f-]{36})$/i.exec(s.rowKey);
       if (m) {
         const o = orderById.get(m[1]);
@@ -869,6 +887,7 @@ export class AnalyticsService implements IAnalyticsService {
           // a row (e.g. picked M2 vs Baires for a GBA row) honour
           // that first.
           rawCarrier = s.flexCourier?.trim() || o.carrier || null;
+          shippingLabel = o.carrier ?? null;
           orderNumber = o.orderNumber;
           customer = o.contact?.name ?? null;
           amount = o.amount;
@@ -897,6 +916,7 @@ export class AnalyticsService implements IAnalyticsService {
         shippingCost,
         shippingZone,
         rawCarrier,
+        shippingLabel,
       });
     }
     // Marcos 2026-06-15: load the tariff table once and index by
