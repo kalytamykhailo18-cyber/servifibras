@@ -567,6 +567,50 @@ export class OrderManagementService implements IOrderManagementService {
    * order — Nombre + Dirección + Localidad + TEL + BULTOS. Pulls the
    * address from Contact.metadata (the quick-client expanded form).
    */
+  /**
+   * Marcos 2026-06-20: registra el print de la etiqueta. Stampea
+   * labelPrintedAt en el primer print, incrementa labelPrintCount en
+   * cada print posterior, persiste el usuario del último print.
+   * Fire-and-forget — un fallo nunca rompe la descarga del PDF.
+   */
+  async stampLabelPrinted(orderId: string, userId: string | null): Promise<void> {
+    try {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          labelPrintedAt: new Date(),
+          labelPrintedById: userId,
+          labelPrintCount: { increment: 1 },
+        },
+      });
+    } catch {
+      /* P2025 si ya no existe / otros — no rompe el download */
+    }
+  }
+
+  /**
+   * Marcos 2026-06-20: lectura barata del estado de print para que
+   * la UI decida 'Imprimir' vs 'Re-imprimir (ya impresa N veces)'.
+   */
+  async getLabelPrintStatus(orderId: string): Promise<{
+    orderId: string;
+    printed: boolean;
+    printedAt: Date | null;
+    printCount: number;
+  } | null> {
+    const row = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, labelPrintedAt: true, labelPrintCount: true },
+    });
+    if (!row) return null;
+    return {
+      orderId: row.id,
+      printed: !!row.labelPrintedAt,
+      printedAt: row.labelPrintedAt,
+      printCount: row.labelPrintCount,
+    };
+  }
+
   async renderEtiqueta(orderId: string, bultos: number = 1): Promise<Buffer | null> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },

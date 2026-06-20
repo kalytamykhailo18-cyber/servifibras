@@ -8,6 +8,7 @@ import {
   Body,
   Query,
   Request,
+  Req,
   Res,
   UseGuards,
   NotFoundException,
@@ -176,15 +177,33 @@ export class OrdersController {
   async getOrderEtiqueta(
     @Param('id') id: string,
     @Query('bultos') bultosRaw: string | undefined,
+    @Req() req: any,
     @Res() res: Response,
   ) {
     const bultos = Number(bultosRaw) || 1;
     const buf = await this.orderManagement.renderEtiqueta(id, bultos);
     if (!buf) throw new NotFoundException('Pedido no encontrado');
+    // Marcos 2026-06-20: registrar el print. Fire-and-forget — un
+    // fallo acá nunca debe romper la descarga del PDF.
+    void this.orderManagement.stampLabelPrinted(id, req.user?.userId ?? null).catch(() => {});
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="etiqueta-${id.slice(0, 8)}-${bultos}b.pdf"`);
     res.setHeader('Content-Length', String(buf.length));
     res.send(buf);
+  }
+
+  /**
+   * Marcos 2026-06-20: ¿esta etiqueta ya fue impresa antes? Lo
+   * usa el frontend para decidir mostrar 'Imprimir etiqueta' vs
+   * 'Re-imprimir etiqueta (ya se imprimió N veces)'. Lectura barata —
+   * un solo campo del Order, no toca el PDF.
+   */
+  @Get(':id/etiqueta/status')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
+  async getEtiquetaStatus(@Param('id') id: string) {
+    const data = await this.orderManagement.getLabelPrintStatus(id);
+    if (!data) throw new NotFoundException('Pedido no encontrado');
+    return { success: true, data };
   }
 
   // Get order by ID

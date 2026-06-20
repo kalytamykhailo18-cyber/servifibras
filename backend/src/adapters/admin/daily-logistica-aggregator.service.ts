@@ -171,6 +171,17 @@ export interface DailySectionRow {
    *  hiding under Despachadas. ML rows only; always false on CRM/TN
    *  rows because they have no in_hub state. */
   isStuckInHub: boolean;
+  /**
+   * Marcos 2026-06-20: true cuando el row salió a "Despachadas"
+   * porque ML reportó shipping_status / substatus de despacho, PERO
+   * el operador jamás stampó ARMADO ni LISTO (state quedó en
+   * PENDIENTE). Indica que el paquete físicamente se fue sin pasar
+   * por la verificación de armado del equipo — riesgo de que falte
+   * un producto o que se haya despachado el pedido equivocado. La UI
+   * lo surfacea con un badge rojo en la tab Despachadas + un contador
+   * en el chip de la tab para que el armador pueda revisar.
+   */
+  autoDispatchedWithoutArmado: boolean;
   /** Raw ML shipping signals — surfaced for diagnostics when an
    *  operator clicks into a row that's behaving oddly (e.g.
    *  "despachada" filing without a real pickup). Null on CRM/TN
@@ -614,6 +625,10 @@ export class DailyLogisticaAggregatorService {
               mlPermalink,
               isDispatched,
               isStuckInHub,
+              // Marcos 2026-06-20: se setea con true más abajo en el
+              // armado-merge pass cuando isDispatched=true pero el
+              // operador nunca stampó armado. Default false.
+              autoDispatchedWithoutArmado: false,
               mlShippingStatus,
               mlShippingSubstatus,
               pickupAgreement,
@@ -784,6 +799,7 @@ export class DailyLogisticaAggregatorService {
           mlPermalink: null,
           isDispatched,
           isStuckInHub: false,
+          autoDispatchedWithoutArmado: false,
           mlShippingStatus: null,
           mlShippingSubstatus: null,
           pickupAgreement: false,
@@ -850,6 +866,7 @@ export class DailyLogisticaAggregatorService {
           mlPermalink: null,
           isDispatched: false,
           isStuckInHub: false,
+          autoDispatchedWithoutArmado: false,
           mlShippingStatus: null,
           mlShippingSubstatus: null,
           pickupAgreement: false,
@@ -933,6 +950,23 @@ export class DailyLogisticaAggregatorService {
       }
     } catch (err: any) {
       out.errors.push({ source: 'logistica-armado', message: err?.message ?? String(err) });
+    }
+
+    // Marcos 2026-06-20: pase final que flagea filas auto-despachadas
+    // sin armar. La condición es: la fila terminó isDispatched=true
+    // (ML reportó shipped/in_hub/in_transit OR el operador stampó
+    // manuallyDispatched más arriba), PERO el state quedó PENDIENTE
+    // — nadie tildó armado ni listo en el panel. Eso significa que
+    // físicamente el paquete se fue del galpón sin pasar por la
+    // verificación de armado del equipo. Es la señal que Marcos pidió
+    // para no perder paquetes — la UI muestra un badge rojo en la tab
+    // Despachadas y la cuenta en el chip de la tab.
+    for (const s of SECTION_ORDER) {
+      for (const r of out.sections[s]) {
+        if (r.isDispatched && r.state === 'PENDIENTE' && !r.isCancelled) {
+          r.autoDispatchedWithoutArmado = true;
+        }
+      }
     }
 
     // Marcos 2026-06-10: filter out rows the picker archived (the

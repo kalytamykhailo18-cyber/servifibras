@@ -1278,6 +1278,22 @@ export const ordersApi = {
   },
 
   /**
+   * Marcos 2026-06-20: ¿esta etiqueta ya fue impresa antes? El UI
+   * lo consulta antes de imprimir para mostrar 'Re-imprimir
+   * etiqueta (N veces)' en vez de 'Imprimir', así el operador sabe
+   * que no es la primera vez y no re-arma el paquete por error.
+   */
+  getEtiquetaStatus: async (id: string): Promise<{
+    orderId: string;
+    printed: boolean;
+    printedAt: string | null;
+    printCount: number;
+  }> => {
+    const r = await apiClient.get<any>(`/admin/orders/${id}/etiqueta/status`);
+    return r.data?.data ?? r.data;
+  },
+
+  /**
    * GET /admin/orders/stats/summary
    * Get order fulfillment statistics (revenue, top products, etc.)
    */
@@ -2526,6 +2542,14 @@ export interface DailySectionRow {
   /** Bloque B item 3.11 — dispatched flag. Hidden from the default
    *  Pendientes tab; visible under the DESPACHADAS tab. */
   isDispatched: boolean;
+  /**
+   * Marcos 2026-06-20: true cuando la fila terminó como despachada
+   * porque ML reportó shipped/in_hub/in_transit, PERO nadie del
+   * equipo stampó armado en el panel (state === PENDIENTE). Señal
+   * de que el paquete físicamente se fue sin verificación. La UI
+   * lo surfacea con un badge rojo en la tab Despachadas.
+   */
+  autoDispatchedWithoutArmado: boolean;
   /** Marcos 2026-06-11 (#2000016880649372): ML pack parked in
    *  `substatus=in_hub` past ML_HUB_STALE_HOURS — the carrier never
    *  picked up. The backend forces `isDispatched=false` so the row

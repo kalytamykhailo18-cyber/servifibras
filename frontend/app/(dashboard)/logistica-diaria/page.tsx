@@ -665,8 +665,14 @@ export default function LogisticaDiariaPage() {
             { key: 'despachadas', label: 'Despachadas' },
           ] as const
         ).map(({ key, label }) => {
-          const total = view
-            ? Object.values(view.sections).flat().filter((r) => rowInTab(r, key)).length
+          const flat = view ? Object.values(view.sections).flat() : [];
+          const total = flat.filter((r) => rowInTab(r, key)).length;
+          // Marcos 2026-06-20: contador secundario "sin armar" en la
+          // tab Despachadas — paquetes que ML auto-promovió a
+          // despachados pero que el equipo nunca tildó armado. Visible
+          // sólo en esa tab y sólo si hay > 0.
+          const sinArmar = key === 'despachadas'
+            ? flat.filter((r) => r.isDispatched && r.autoDispatchedWithoutArmado && !r.isCancelled).length
             : 0;
           const isActive = tab === key;
           return (
@@ -692,6 +698,15 @@ export default function LogisticaDiariaPage() {
               >
                 {total}
               </span>
+              {sinArmar > 0 && (
+                <span
+                  data-testid="logistica-tab-despachadas-sin-armar"
+                  title={`${sinArmar} paquete${sinArmar === 1 ? '' : 's'} despachado${sinArmar === 1 ? '' : 's'} por ML sin que el equipo haya tildado armado — revisar`}
+                  className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold tabular-nums text-white animate-pulse"
+                >
+                  {sinArmar}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1250,6 +1265,20 @@ export default function LogisticaDiariaPage() {
                                 className="mr-1.5 inline-flex h-4 items-center rounded-full bg-rose-600 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-white align-middle animate-pulse"
                               >
                                 ATASCADO EN HUB
+                              </span>
+                            )}
+                            {/* Marcos 2026-06-20: badge para filas que
+                                aparecieron en Despachadas sin que el
+                                equipo haya stampado armado (ML
+                                auto-promovió). Hace falta verificar que
+                                el paquete físico salió correctamente. */}
+                            {row.autoDispatchedWithoutArmado && (
+                              <span
+                                data-testid="logistica-row-sin-armar"
+                                title="ML reportó este envío como despachado pero nadie tildó armado en el panel — verificar que el paquete físico salió correcto"
+                                className="mr-1.5 inline-flex h-4 items-center rounded-full bg-amber-600 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-white align-middle animate-pulse"
+                              >
+                                SIN ARMAR — REVISAR
                               </span>
                             )}
                             {/* Marcos 2026-06-10: per-row section

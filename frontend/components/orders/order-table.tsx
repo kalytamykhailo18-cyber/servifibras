@@ -220,6 +220,29 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                     <DropdownMenuItem
                       onClick={async (e) => {
                         e.stopPropagation();
+                        // Marcos 2026-06-20: avisar al armador si la
+                        // etiqueta ya se imprimió. Si ya hay un
+                        // labelPrintedAt registrado, le pedimos
+                        // confirmación explícita antes de re-emitirla.
+                        // Sirve para evitar el caso que Marcos contó —
+                        // un paquete volvió de Armados a Pendientes y
+                        // el operador re-armó pensando que era nuevo,
+                        // sin saber que la etiqueta ya había salido.
+                        let status: { printed: boolean; printCount: number; printedAt: string | null } | null = null;
+                        try {
+                          status = await ordersApi.getEtiquetaStatus(order.id);
+                        } catch { /* status es best-effort — no rompe el flow */ }
+                        if (status?.printed) {
+                          const cuando = status.printedAt
+                            ? new Date(status.printedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
+                            : '';
+                          const ok = window.confirm(
+                            `⚠️ Esta etiqueta ya fue impresa ${status.printCount === 1 ? 'una vez' : `${status.printCount} veces`}`
+                            + (cuando ? ` (última: ${cuando}).` : '.')
+                            + `\n\nEl pedido posiblemente ya esté armado y despachado. ¿Querés RE-IMPRIMIR la etiqueta?`,
+                          );
+                          if (!ok) return;
+                        }
                         // Marcos 2026-06-17: prompt for bulto count so the
                         // PDF emits N labelled pages (BULTO 1/N, …, N/N).
                         const raw = window.prompt('¿Cuántos bultos para este pedido?', '1');

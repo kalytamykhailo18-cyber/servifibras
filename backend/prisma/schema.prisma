@@ -404,6 +404,13 @@ model Order {
   orderType    OrderType  @default(SALE)
   returnedAt   DateTime?
   returnedById String?
+  /// Marcos 2026-06-20: timestamp del primer print de la etiqueta
+  /// Zebra 10x15. Cuando es no-null, la UI muestra al operador
+  /// "Esta etiqueta ya fue impresa - re-imprimir?" antes de generar
+  /// el PDF de nuevo. Evita re-armar un paquete que ya salio.
+  labelPrintedAt   DateTime?
+  labelPrintedById String?
+  labelPrintCount  Int       @default(0)
   returnedBy   User?      @relation("OrderReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   // Marcos 2026-06-18: operator who loaded this order. The team-
   // performance analytics counts a MANUAL sale toward whoever
