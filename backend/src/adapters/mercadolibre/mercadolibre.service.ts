@@ -1117,6 +1117,10 @@ export class MercadoLibreService implements IMercadoLibreService {
        *  collapses orders that share a packId into one row so
        *  the picker doesn't prepare the same cart N times. */
       packId: string | null;
+      /** Marcos 2026-06-20: order-level status (paid / cancelled /
+       *  invalid / payment_required / etc). Vista unificada lo usa
+       *  para restar canceladas/inválidas del total mensual. */
+      status: string | null;
       /** Bloque B item 4 — Marcos 2026-06-08: order total + currency
        *  for the ventas-unificadas dashboard. Both null when the
        *  order summary didn't include them. */
@@ -1224,6 +1228,10 @@ export class MercadoLibreService implements IMercadoLibreService {
         shippingSubstatus: typeof shipping?.substatus === 'string' ? shipping.substatus : null,
         shippingId: shipping?.id != null ? String(shipping.id) : null,
         packId: o?.pack_id != null ? String(o.pack_id) : null,
+        // Marcos 2026-06-20: ML order.status (paid / cancelled /
+        // invalid / payment_required / etc). Vista unificada lo usa
+        // para restar las canceladas/inválidas del total.
+        status: typeof o?.status === 'string' ? o.status : null,
         totalAmount: typeof o?.total_amount === 'number' ? o.total_amount : null,
         currencyId: typeof o?.currency_id === 'string' ? o.currency_id : null,
         dateCreated: typeof o?.date_created === 'string' ? o.date_created : null,

@@ -25,7 +25,7 @@
  */
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PrismaClient, OrderSource } from '@prisma/client';
+import { PrismaClient, OrderSource, OrderStatus } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 
@@ -356,7 +356,18 @@ export class VentasUnificadasService {
             continue;
           }
           const byCurrency = new Map<string, { count: number; amount: number }>();
+          // Marcos 2026-06-20: restamos las canceladas/inválidas para
+          // que el headline refleje ventas reales (no carritos que
+          // después se cayeron). El conteo de excluidas se acumula en
+          // `cancelledCount` y se surfaceará en notes para que el
+          // operador sepa cuántas filas se filtraron.
+          let cancelledCount = 0;
           for (const o of result.orders) {
+            const st = (o.status ?? '').toLowerCase();
+            if (st === 'cancelled' || st === 'invalid') {
+              cancelledCount++;
+              continue;
+            }
             const cur = o.currencyId ?? 'ARS';
             const cell = byCurrency.get(cur) ?? { count: 0, amount: 0 };
             cell.count++;
@@ -388,6 +399,9 @@ export class VentasUnificadasService {
             totalArsLike: byCurrency.size === 1 ? (arsCell?.amount ?? 0) : null,
             count: Array.from(byCurrency.values()).reduce((s, c) => s + c.count, 0),
           });
+          if (cancelledCount > 0) {
+            notes.push(`${label}: ${cancelledCount} pedido${cancelledCount === 1 ? '' : 's'} cancelado/inválido${cancelledCount === 1 ? '' : 's'} restado${cancelledCount === 1 ? '' : 's'} del total.`);
+          }
         } catch (err: any) {
           notes.push(`${label}: ${err.message?.slice(0, 120) ?? 'error desconocido'}.`);
           mlCells.push({
@@ -402,17 +416,31 @@ export class VentasUnificadasService {
     }
 
     // Local orders — TN + MANUAL via the shared Order table.
-    const localOrders = await this.prisma.order.findMany({
+    // Marcos 2026-06-20: las CANCELLED se restan del headline para
+    // que el reporte sea de ventas reales, no de carritos que después
+    // se cayeron. Contamos cuántas se excluyeron para mostrarlo como
+    // nota al pie por source.
+    const localOrdersAll = await this.prisma.order.findMany({
       where: {
         createdAt: { gte: from, lte: to },
         source: { in: [OrderSource.TIENDANUBE, OrderSource.MANUAL] },
       },
       select: {
         source: true,
+        status: true,
         currency: true,
         amount: true,
         createdAt: true,
       },
+    });
+    const localCancelledBySource = new Map<VentasSource, number>();
+    const localOrders = localOrdersAll.filter((o) => {
+      if (o.status === OrderStatus.CANCELLED) {
+        const key: VentasSource = o.source === OrderSource.TIENDANUBE ? 'TIENDANUBE' : 'MANUAL';
+        localCancelledBySource.set(key, (localCancelledBySource.get(key) ?? 0) + 1);
+        return false;
+      }
+      return true;
     });
     const localBuckets = new Map<
       VentasSource,
@@ -465,6 +493,14 @@ export class VentasUnificadasService {
         };
       },
     );
+
+    // Marcos 2026-06-20: footer notes con cuántas filas se restaron
+    // por canceladas en cada source local. ML emite su nota desde
+    // arriba en el loop por cuenta.
+    for (const [source, count] of localCancelledBySource.entries()) {
+      const label = source === 'TIENDANUBE' ? 'TiendaNube' : 'Manual / WhatsApp';
+      notes.push(`${label}: ${count} pedido${count === 1 ? '' : 's'} cancelado${count === 1 ? '' : 's'} restado${count === 1 ? '' : 's'} del total.`);
+    }
 
     // Combine daily buckets for the trend chart.
     const dailyKeys = new Set<string>();
