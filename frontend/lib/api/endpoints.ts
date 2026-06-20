@@ -2682,6 +2682,37 @@ export const dailyLogisticaApi = {
     });
     return r.data?.data ?? r.data;
   },
+
+  /**
+   * Marcos 2026-06-20: upload del mapping CP -> zona del courier.
+   * El panel de despachos lo usa como ultimo fallback en la cadena
+   * de derivacion de zona cuando el label de TN no trae zona
+   * embebida.
+   */
+  uploadPostalCodeZones: async (file: File): Promise<{
+    parsedRows: number;
+    inserted: number;
+    updated: number;
+    unchanged: number;
+    invalid: number;
+    invalidSamples: Array<{ rowIndex: number; reason: string }>;
+  }> => {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await apiClient.post<any>('/admin/postal-code-zones/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return r.data?.data ?? r.data;
+  },
+  listPostalCodeZones: async (opts?: { activeOnly?: boolean; limit?: number }): Promise<Array<{
+    cp: string; zone: string; locality: string | null; province: string | null; active: boolean;
+  }>> => {
+    const qs = new URLSearchParams();
+    if (opts?.activeOnly) qs.set('activeOnly', 'true');
+    if (opts?.limit) qs.set('limit', String(opts.limit));
+    const r = await apiClient.get<any>(`/admin/postal-code-zones?${qs.toString()}`);
+    return r.data?.data ?? r.data ?? [];
+  },
   /**
    * Marcos 2026-06-10: stamp the flex courier on one or many rows.
    * `courier=null` clears the field.

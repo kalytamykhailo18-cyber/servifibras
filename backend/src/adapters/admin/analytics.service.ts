@@ -2,10 +2,11 @@
  * ADAPTERS LAYER - Analytics Service
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prisma/client';
 import { UserRole } from '../../domain/entities/auth.entity';
 import { DispatchTariffService } from './dispatch-tariff.service';
+import { PostalCodeZoneService } from './postal-code-zone.service';
 
 /**
  * Compute the per-role `where` clause for conversation aggregates so a
@@ -41,7 +42,13 @@ export class AnalyticsService implements IAnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
   private readonly prisma: PrismaClient;
 
-  constructor(private readonly tariffs: DispatchTariffService) {
+  constructor(
+    private readonly tariffs: DispatchTariffService,
+    // Marcos 2026-06-20: lookup CP → zona como último fallback en la
+    // cadena de derivación. @Optional para que tests legacy que
+    // construyen AnalyticsService sin contenedor sigan funcionando.
+    @Optional() private readonly postalZones?: PostalCodeZoneService,
+  ) {
     this.prisma = new PrismaClient();
     this.logger.log('✅ Analytics service initialized');
   }
@@ -802,7 +809,11 @@ export class AnalyticsService implements IAnalyticsService {
             currency: true,
             shippingCost: true,
             shippingZone: true,
-            contact: { select: { name: true } },
+            // Marcos 2026-06-20: contact.metadata.postalCode es el
+            // fallback final de la cadena de derivación de zona —
+            // cuando ni el TN label ni el rawCarrier dieron zona,
+            // buscamos en el mapping CP → zona que el admin cargó.
+            contact: { select: { name: true, metadata: true } },
           },
         })
       : [];
@@ -844,11 +855,21 @@ export class AnalyticsService implements IAnalyticsService {
       // mensajería elegida + zona inferida resuelven la tarifa correcta.
       const rawCarrierHint = (row as any).rawCarrier ?? null;
       const shippingLabelHint = (row as any).shippingLabel ?? null;
+      const cpHint = (row as any).postalCode ?? null;
       delete (row as any).rawCarrier;
       delete (row as any).shippingLabel;
+      delete (row as any).postalCode;
+      // Marcos 2026-06-20: la cadena de derivación ahora arranca
+      // intentando con el label TN/ML (que tiene zona embebida en
+      // los carriers gratuitos), después con rawCarrier por
+      // compatibilidad, después con el CP del comprador contra el
+      // mapping cargado por admin, y finalmente con la provincia.
+      // Es un orden de "más específico → más genérico" así un CP
+      // mapeado nunca pierde contra el fallback de provincia.
       const derivedZone =
         this.deriveZoneFromShippingLabel(shippingLabelHint) ??
         this.deriveZoneFromShippingLabel(rawCarrierHint) ??
+        (this.postalZones ? this.postalZones.resolveZoneFromCache(cpHint, cpZoneCache) : null) ??
         this.provinceToZone(row.shippingZone) ??
         (typeof row.shippingZone === 'string' && row.shippingZone.length > 0 ? row.shippingZone : null);
       const zoneLabel: string = derivedZone ?? 'Sin zona';
@@ -860,6 +881,12 @@ export class AnalyticsService implements IAnalyticsService {
       if (b.orders.length < 200) b.orders.push(row);
       groups.set(carrier, b);
     };
+    // Marcos 2026-06-20: pre-cargo el cache de CP → zona una sola
+    // vez por request. Lookup in-memory (Map.get) en bumpGroup, sin
+    // round-trips por fila. Si el servicio no está disponible (legacy
+    // wiring) el cache queda vacío y la cadena de derivación cae al
+    // comportamiento previo.
+    const cpZoneCache = this.postalZones ? await this.postalZones.loadFullCache() : new Map();
     for (const s of stamps) {
       if (!s.manuallyDispatchedAt) continue;
       let rawCarrier: string | null = null;
@@ -869,6 +896,7 @@ export class AnalyticsService implements IAnalyticsService {
       let currency: string | null = null;
       let shippingCost: number | null = null;
       let shippingZone: string | null = null;
+      let postalCode: string | null = null;
       // Per-rowKey routing.
       // Marcos 2026-06-20: shippingLabel preserva el label original
       // (TN/ML), separado de rawCarrier (que puede ser override del
@@ -894,6 +922,14 @@ export class AnalyticsService implements IAnalyticsService {
           currency = o.currency;
           shippingCost = o.shippingCost ?? null;
           shippingZone = o.shippingZone ?? null;
+          // Marcos 2026-06-20: CP del comprador desde contact.metadata
+          // (set en quick-create / contact-edit / TN sync). Llega al
+          // zone derivation como último fallback.
+          const meta = (o.contact?.metadata ?? null) as any;
+          if (meta && typeof meta === 'object') {
+            const cp = meta.postalCode ?? meta.codigoPostal ?? meta.cp ?? meta.zip ?? null;
+            if (cp != null) postalCode = String(cp);
+          }
         }
       } else if (/^ml:[12](:|$)/.test(s.rowKey)) {
         rawCarrier = s.flexCourier?.trim() || 'Mercado Libre';
@@ -917,6 +953,7 @@ export class AnalyticsService implements IAnalyticsService {
         shippingZone,
         rawCarrier,
         shippingLabel,
+        postalCode,
       });
     }
     // Marcos 2026-06-15: load the tariff table once and index by

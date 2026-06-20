@@ -980,6 +980,32 @@ model PrfvPlaca {
   @@map("prfv_placas")
 }
 
+// Marcos 2026-06-20: CP -> zona del courier (CABA / GBA 1/2/3 /
+// Nacional). Sirve de fallback en la cadena de derivacion de zona
+// del panel de despachos: cuando el label de TN no trae zona
+// embebida ("CABA GRATUITO" / "GBA 1 GRATIS" derivan solos; un
+// label custom de TN no), miramos el CP del comprador contra esta
+// tabla. La carga es via upload de Excel/CSV con columnas (cp, zona,
+// localidad?, provincia?).
+model PostalCodeZone {
+  /// CP exacto. Aceptamos formato libre (1428 / C1428 / B1768XAF)
+  /// porque TN/ML lo guardan en distintos formatos segun el seller.
+  cp        String   @id
+  /// Zona canonica del courier — debe coincidir con el `zone` que
+  /// usa dispatch_tariffs (CABA, GBA 1, GBA 2, GBA 3, Nacional, etc).
+  zone      String
+  /// Opcional, solo display en el panel admin.
+  locality  String?
+  province  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([zone])
+  @@index([active])
+  @@map("postal_code_zones")
+}
+
 enum PrfvPlacaState {
   PENDIENTE
   LISTA_CORTADA

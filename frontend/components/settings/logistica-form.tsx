@@ -281,6 +281,46 @@ export function LogisticaForm() {
         />
       </div>
 
+      {/* Marcos 2026-06-20: POSTAL-CODE → ZONE CARD — bulk upload
+          un mapping (cp, zona, localidad?, provincia?) para que el
+          panel de despachos pueda asignar zona automáticamente cuando
+          el label de TN no la trae embebida. Acepta .xlsx o .csv.
+          Devuelve un resumen con inserted/updated/unchanged + las
+          filas que rechazó por estar incompletas. */}
+      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] space-y-3">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-900">Mapeo CP → Zona</h4>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Subí una planilla con columnas <code className="rounded bg-slate-100 px-1">cp</code> y <code className="rounded bg-slate-100 px-1">zona</code> (CABA / GBA 1 / GBA 2 / GBA 3 / Nacional). Opcional: <code className="rounded bg-slate-100 px-1">localidad</code> y <code className="rounded bg-slate-100 px-1">provincia</code> para referencia. Cuando un envío entra con un label custom de TiendaNube que no trae la zona embebida, el panel de despachos resuelve la zona mirando el CP del comprador contra este mapping.
+          </p>
+        </div>
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+          data-testid="postal-code-zones-input"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              const r = await api.dailyLogistica.uploadPostalCodeZones(file);
+              const bits = [
+                `${r.inserted} nuevos`,
+                `${r.updated} actualizados`,
+                `${r.unchanged} sin cambios`,
+              ];
+              if (r.invalid > 0) bits.push(`${r.invalid} con error`);
+              toast.success(`Mapeo cargado — ${bits.join(' · ')} de ${r.parsedRows} filas`);
+            } catch (err: any) {
+              toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo procesar el archivo");
+            } finally {
+              e.target.value = "";
+            }
+          }}
+          disabled={saving}
+          className="block w-full cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-3 text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-amber-800 hover:border-amber-300 hover:bg-amber-50 disabled:opacity-60"
+        />
+      </div>
+
       {/* Marcos 2026-06-10: CUTOFF HOURS CARD — when does each
           carrier family pick up for the day. Past the cutoff, the
           daily panel draws an amber divider inside the section
