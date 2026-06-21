@@ -100,6 +100,13 @@ export class OrderManagementService implements IOrderManagementService {
             type: true,
           },
         },
+        // Marcos 2026-06-21: surface el ciclo completo del pedido —
+        // quien lo dio de alta + quien lo cancelo (si aplica) + quien
+        // marco el regreso si fue devolucion. El detail page renderiza
+        // todos para que la trazabilidad este a la vista.
+        createdBy: { select: { id: true, name: true, email: true } },
+        cancelledBy: { select: { id: true, name: true, email: true } },
+        returnedBy: { select: { id: true, name: true, email: true } },
       },
     });
 
@@ -546,6 +553,62 @@ export class OrderManagementService implements IOrderManagementService {
    * the courier physically brought the wrong package back. Drops
    * the row from the "Pendientes de regreso" panel. Idempotent.
    */
+  /**
+   * Marcos 2026-06-21: cancelar un pedido en lugar de eliminarlo.
+   * Los operadores no pueden borrar pedidos (esa accion queda
+   * reservada a ADMIN); en su lugar usan esta ruta que stampea
+   * cancelledAt + cancelledById + cancellationReason para que quede
+   * registro completo. Idempotente — re-cancelar un pedido ya
+   * cancelado actualiza el motivo pero preserva el primer timestamp.
+   *
+   * Razon obligatoria (mas de 4 chars utiles); el controller la
+   * trimea antes de pasarla, asi vacios se rechazan en la capa de
+   * presentacion.
+   */
+  async cancelOrder(orderId: string, reason: string, userId: string | null): Promise<{
+    id: string;
+    orderNumber: string;
+    status: OrderStatus;
+    cancelledAt: Date | null;
+    cancelledById: string | null;
+    cancellationReason: string | null;
+  } | null> {
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length < 5) {
+      throw new Error('motivo de cancelacion requerido (min 5 caracteres)');
+    }
+    try {
+      const existing = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { cancelledAt: true },
+      });
+      if (!existing) return null;
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancellationReason: trimmed,
+          cancelledById: userId,
+          // Solo stampear cancelledAt en el PRIMER cancel; re-cancelar
+          // preserva el momento original aunque se modifique el motivo.
+          ...(existing.cancelledAt ? {} : { cancelledAt: new Date() }),
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          cancelledAt: true,
+          cancelledById: true,
+          cancellationReason: true,
+        },
+      });
+      return updated;
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      throw err;
+    }
+  }
+
   async markReturned(orderId: string, returned: boolean, userId: string | null): Promise<{ id: string; orderNumber: string; returnedAt: Date | null } | null> {
     try {
       const updated = await this.prisma.order.update({

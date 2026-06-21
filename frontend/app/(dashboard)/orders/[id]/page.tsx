@@ -37,6 +37,7 @@ import PhoneIcon from "@mui/icons-material/Phone";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import NotesIcon from "@mui/icons-material/Notes";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import CancelIcon from "@mui/icons-material/Cancel";
 import { OrderFormDialog } from "@/components/orders/order-form-dialog";
 import { toast } from "sonner";
 import { safeFormatDate } from "@/lib/date";
@@ -242,6 +243,44 @@ export default function OrderDetailPage() {
         </div>
         <OrderStatusBadge status={order.status} />
       </div>
+
+      {/* Marcos 2026-06-21: banner de cancelación con audit completo
+         cuando el pedido está cancelado por accion del operador
+         (cancelledAt populated). Si está cancelado por TN-sync u otra
+         fuente sin audit, el banner igual marca el estado pero sin
+         los campos opcionales. */}
+      {order.status === 'CANCELLED' && (order.cancelledAt || order.cancellationReason) && (
+        <div
+          data-testid="order-cancelled-banner"
+          className="rounded-2xl border border-rose-200/70 bg-rose-50/60 p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
+        >
+          <div className="mb-1 flex items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-rose-600 text-white">
+              <CancelIcon sx={{ fontSize: 14 }} />
+            </span>
+            <h4 className="text-sm font-semibold text-rose-900">Pedido cancelado</h4>
+            <span className="ml-auto text-[11px] text-rose-700">
+              {order.cancelledAt ? safeFormatDate(order.cancelledAt, "PPP p") : ''}
+              {order.cancelledBy?.name ? ` · por ${order.cancelledBy.name}` : ''}
+            </span>
+          </div>
+          {order.cancellationReason && (
+            <p className="rounded-lg bg-white/60 px-3 py-2 text-xs leading-relaxed text-rose-950">
+              <span className="font-semibold">Motivo:</span> {order.cancellationReason}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Marcos 2026-06-21: trazabilidad de quien dio de alta el
+         pedido (cuando vino por el flow MANUAL — TN/ML sync no
+         tienen createdBy). Pill chiquito para no saturar el header. */}
+      {order.createdBy?.name && (
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+          <PersonIcon sx={{ fontSize: 12 }} className="text-emerald-600" />
+          Cargado por <span className="font-semibold text-slate-900">{order.createdBy.name}</span>
+        </div>
+      )}
 
       {/* MAIN GRID */}
       <div className="grid gap-6 md:grid-cols-3">

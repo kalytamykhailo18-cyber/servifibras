@@ -54,6 +54,12 @@ export default function OrdersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
+  // Marcos 2026-06-21: cancelar es la accion primaria para
+  // operadores. Modal aparte del delete porque pide un motivo
+  // obligatorio que queda registrado en la auditoria.
+  const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSaving, setCancelSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   // Marcos 2026-06-18: free-text search por número de pedido o
   // nombre de cliente. El input renderiza inmediato; el fetch
@@ -139,6 +145,34 @@ export default function OrdersPage() {
       toast.error(error.message || "Error al eliminar pedido");
     } finally {
       setDeletingOrder(null);
+    }
+  };
+
+  // Marcos 2026-06-21: cancel handlers — el modal pide motivo
+  // obligatorio (min 5 chars; mismo gating que el backend para que el
+  // boton se vea consistentemente disabled hasta tener uno escrito).
+  const handleCancel = (order: Order) => {
+    setCancellingOrder(order);
+    setCancelReason("");
+  };
+  const confirmCancel = async () => {
+    if (!cancellingOrder) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 5) {
+      toast.error("Escribí el motivo de cancelación (mínimo 5 caracteres)");
+      return;
+    }
+    setCancelSaving(true);
+    try {
+      await api.orders.cancel(cancellingOrder.id, reason);
+      toast.success(`Pedido ${cancellingOrder.orderNumber} cancelado`);
+      setCancellingOrder(null);
+      setCancelReason("");
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo cancelar el pedido");
+    } finally {
+      setCancelSaving(false);
     }
   };
 
@@ -365,7 +399,7 @@ export default function OrdersPage() {
         onPageSizeChange={pg.setPageSize}
       />
 
-      <OrderTable orders={pg.slice} onEdit={handleEdit} onDelete={handleDelete} />
+      <OrderTable orders={pg.slice} onEdit={handleEdit} onDelete={handleDelete} onCancel={handleCancel} />
 
       <div className="mt-3">
         <Pagination
@@ -389,6 +423,71 @@ export default function OrdersPage() {
           handleFormClose();
         }}
       />
+
+      {/* Marcos 2026-06-21: cancel modal — motivo obligatorio (min
+         5 chars), boton 'Confirmar cancelación' disabled hasta tener
+         uno escrito. La accion stampea cancelledAt + cancelledById +
+         cancellationReason + status=CANCELLED en el backend. */}
+      <AlertDialog
+        open={!!cancellingOrder}
+        onOpenChange={(open) => { if (!open && !cancelSaving) { setCancellingOrder(null); setCancelReason(""); } }}
+      >
+        <AlertDialogContent
+          data-testid="order-cancel-dialog"
+          className="rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150"
+        >
+          <AlertDialogHeader className="space-y-3">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(245_158_11/0.45)]">
+              <DeleteIcon sx={{ fontSize: 22 }} />
+            </span>
+            <AlertDialogTitle className="text-xl font-bold tracking-tight text-slate-900">
+              ¿Cancelar pedido?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-slate-600">
+              Vas a cancelar el pedido{" "}
+              <strong className="font-semibold text-slate-900">{cancellingOrder?.orderNumber}</strong>.
+              Queda registrado quién lo canceló, cuándo y el motivo — el pedido NO se borra, sólo cambia el estado a Cancelado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="mt-2 space-y-2">
+            <label className="block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+              Motivo (obligatorio)
+            </label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              disabled={cancelSaving}
+              data-testid="order-cancel-reason"
+              placeholder='Ej: "Cliente arrepentido", "Pago rechazado", "Sin stock confirmado", "Error de carga"…'
+              className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-sm leading-relaxed placeholder:text-slate-400 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-500/15 disabled:opacity-60"
+            />
+            <p className="text-[10px] text-slate-400">
+              Mínimo 5 caracteres. Va al panel de auditoría con tu usuario.
+            </p>
+          </div>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel
+              disabled={cancelSaving}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+            >
+              Volver
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmCancel(); }}
+              disabled={cancelSaving || cancelReason.trim().length < 5}
+              data-testid="order-cancel-confirm"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-500 px-5 text-sm font-medium text-white shadow-[0_8px_20px_-6px_rgb(245_158_11/0.5)] transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
+            >
+              {cancelSaving ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : null}
+              Confirmar cancelación
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={!!deletingOrder}

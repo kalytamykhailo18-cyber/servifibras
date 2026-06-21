@@ -74,6 +74,16 @@ export interface UpdateOrderData {
   notes?: string;
 }
 
+/**
+ * Marcos 2026-06-21: input para la cancelacion de pedido. Razon
+ * obligatoria (min 5 chars) para que quede registro de POR QUE se
+ * canceló — el panel se rehúsa a aceptar reasons vacios.
+ */
+export interface CancelOrderData {
+  reason: string;
+  userId: string | null;
+}
+
 export interface UpdateTrackingData {
   trackingNumber: string;
   carrier: string;

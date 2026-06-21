@@ -1258,6 +1258,24 @@ export const ordersApi = {
     return r.data?.data ?? r.data;
   },
 
+  /**
+   * Marcos 2026-06-21: cancelar un pedido (en vez de eliminar). El
+   * motivo es obligatorio (min 5 chars; el backend lo rechaza vacio).
+   * Stampea cancelledAt + cancelledById + cancellationReason para
+   * que quede registro de quien lo cancelo y por que.
+   */
+  cancel: async (id: string, reason: string): Promise<{
+    id: string;
+    orderNumber: string;
+    status: string;
+    cancelledAt: string | null;
+    cancelledById: string | null;
+    cancellationReason: string | null;
+  }> => {
+    const r = await apiClient.post<any>(`/admin/orders/${id}/cancel`, { reason });
+    return r.data?.data ?? r.data;
+  },
+
   /** Marcos 2026-06-15: render an order as a printable PDF (same
    *  letterhead as Presupuestos) including the shipping block.
    *  Returns a Blob URL the browser can open in a new tab. */

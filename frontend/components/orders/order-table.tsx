@@ -21,6 +21,7 @@ import type { Order } from "@/types";
 import { UserRole } from "@/types";
 import { useAuthStore } from "@/lib/store/auth-store";
 import DeleteIcon from "@mui/icons-material/Delete";
+import CancelIcon from "@mui/icons-material/Cancel";
 import EditIcon from "@mui/icons-material/Edit";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -36,6 +37,13 @@ interface OrderTableProps {
   orders: Order[];
   onEdit: (order: Order) => void;
   onDelete: (order: Order) => void;
+  /**
+   * Marcos 2026-06-21: cancelar (NO eliminar) un pedido. La pagina
+   * padre abre un modal pidiendo motivo y dispara la mutacion. La
+   * accion es visible para todos los roles operadores; eliminar
+   * queda reservada a ADMIN.
+   */
+  onCancel: (order: Order) => void;
 }
 
 const AVATAR_GRADIENTS = [
@@ -59,7 +67,7 @@ const gradientFor = (name: string | null | undefined) =>
 
 const ADMIN_ONLY_DELETE_TOOLTIP = "Solo Administrador puede eliminar pedidos";
 
-export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
+export function OrderTable({ orders, onEdit, onDelete, onCancel }: OrderTableProps) {
   const router = useRouter();
   // Backend matrix: DELETE /admin/orders/:id is ADMIN-only. All other
   // CRUD is open to LOGISTICA/VENTAS/ATENCION at their respective
@@ -286,30 +294,44 @@ export function OrderTable({ orders, onEdit, onDelete }: OrderTableProps) {
                       Descargar PDF
                     </DropdownMenuItem>
                     <DropdownMenuSeparator className="my-1.5 bg-slate-200/70" />
-                    <DropdownMenuItem
-                      onClick={canDelete ? (e) => {
-                        e.stopPropagation();
-                        onDelete(order);
-                      } : undefined}
-                      disabled={!canDelete}
-                      title={canDelete ? undefined : ADMIN_ONLY_DELETE_TOOLTIP}
-                      className={
-                        "group rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 " +
-                        (canDelete
-                          ? "cursor-pointer text-slate-700 focus:bg-red-50 focus:text-red-700"
-                          : "cursor-not-allowed text-slate-400 opacity-60")
-                      }
-                    >
-                      <span className={
-                        "mr-2.5 grid h-7 w-7 place-items-center rounded-md text-white " +
-                        (canDelete
-                          ? "bg-gradient-to-br from-red-500 to-rose-500"
-                          : "bg-slate-300")
-                      }>
-                        <DeleteIcon sx={{ fontSize: 14 }} />
-                      </span>
-                      Eliminar
-                    </DropdownMenuItem>
+                    {/* Marcos 2026-06-21: cancelar es la accion
+                       primaria para operadores. Eliminar se queda
+                       reservada a ADMIN. Si el pedido ya esta
+                       CANCELLED, el item de cancelar se esconde para
+                       no permitir re-cancelar accidentalmente. */}
+                    {order.status !== 'CANCELLED' && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCancel(order);
+                        }}
+                        data-testid={`order-row-${order.id}-cancel`}
+                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-amber-50 focus:text-amber-800"
+                      >
+                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-amber-500 to-orange-500 text-white">
+                          <CancelIcon sx={{ fontSize: 14 }} />
+                        </span>
+                        Cancelar pedido
+                      </DropdownMenuItem>
+                    )}
+                    {/* Marcos 2026-06-21: Eliminar solo se renderiza
+                       para ADMIN. El operador no debe ver el boton
+                       siquiera (antes salia disabled+tooltip; ahora
+                       se oculta para evitar confusion). */}
+                    {canDelete && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(order);
+                        }}
+                        className="group cursor-pointer rounded-lg px-2.5 py-2 text-sm font-medium text-slate-700 focus:bg-red-50 focus:text-red-700"
+                      >
+                        <span className="mr-2.5 grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-red-500 to-rose-500 text-white">
+                          <DeleteIcon sx={{ fontSize: 14 }} />
+                        </span>
+                        Eliminar
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>

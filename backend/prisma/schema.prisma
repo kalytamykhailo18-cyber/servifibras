@@ -54,6 +54,7 @@ model User {
   // Marcos 2026-06-18: per-user team-performance analytics.
   ordersCreated      Order[]            @relation("OrderCreatedBy")
   ordersReturned     Order[]            @relation("OrderReturnedBy")
+  ordersCancelled    Order[]            @relation("OrderCancelledBy")
   prfvPlacasCreated  PrfvPlaca[]        @relation("PrfvPlacaCreatedBy")
   // Marcos 2026-06-18: librería de respuestas rápidas (chips reusables).
   quickRepliesAuthored QuickReply[]     @relation("QuickReplyCreatedBy")
@@ -411,6 +412,15 @@ model Order {
   labelPrintedAt   DateTime?
   labelPrintedById String?
   labelPrintCount  Int       @default(0)
+  /// Marcos 2026-06-21: cancelacion con auditoria. Los operadores no
+  /// pueden ELIMINAR pedidos (solo ADMIN); en su lugar cancelan con
+  /// motivo obligatorio que queda registrado junto a quien lo
+  /// cancelo y cuando. El panel muestra ambos createdBy + cancelledBy
+  /// para que se vea el ciclo completo del pedido.
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancelledBy        User?     @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancellationReason String?
   returnedBy   User?      @relation("OrderReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
   // Marcos 2026-06-18: operator who loaded this order. The team-
   // performance analytics counts a MANUAL sale toward whoever

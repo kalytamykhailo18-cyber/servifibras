@@ -242,6 +242,16 @@ export interface Order {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  // Marcos 2026-06-21: trazabilidad de cancelacion. Vienen
+  // populados cuando la fila esta CANCELLED por la accion del
+  // operador (no por TN-sync que tambien marca CANCELLED pero
+  // sin estos campos).
+  cancelledAt?: string | null;
+  cancelledById?: string | null;
+  cancellationReason?: string | null;
+  cancelledBy?: { id: string; name: string; email: string } | null;
+  createdBy?: { id: string; name: string; email: string } | null;
+  returnedBy?: { id: string; name: string; email: string } | null;
   // Optional relations (when fetched with includes)
   contact?: Contact;
 }

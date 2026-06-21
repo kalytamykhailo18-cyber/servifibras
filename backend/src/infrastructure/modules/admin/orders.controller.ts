@@ -11,6 +11,7 @@ import {
   Req,
   Res,
   UseGuards,
+  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -75,6 +76,41 @@ export class OrdersController {
    * courier physically returned the package. Idempotent;
    *   body { returned: false } reverts the stamp.
    */
+  /**
+   * Marcos 2026-06-21: cancelar pedido (no eliminar). Los operadores
+   * no pueden borrar pedidos; en su lugar usan esta ruta que stampea
+   * cancelledAt + cancelledById + cancellationReason. Razon
+   * obligatoria (min 5 chars) — la valida el service. ADMIN +
+   * LOGISTICA + VENTAS + ATENCION pueden cancelar.
+   */
+  @Post(':id/cancel')
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  async cancelOrder(
+    @Param('id') id: string,
+    @Body() body: { reason?: string } = {},
+    @Request() req: any,
+  ) {
+    try {
+      const data = await this.orderManagement.cancelOrder(id, body?.reason ?? '', req.user?.id ?? null);
+      if (!data) throw new NotFoundException('Pedido no encontrado');
+      const ctx = this.auditCtx(req);
+      await this.audit.log({
+        userId: req.user.id,
+        userEmail: req.user.email,
+        action: 'order.cancel',
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { orderId: id, orderNumber: data.orderNumber, reason: data.cancellationReason },
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      if (err?.message?.includes('motivo de cancelacion requerido')) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+  }
+
   @Post(':id/mark-returned')
   @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
   async markReturned(
