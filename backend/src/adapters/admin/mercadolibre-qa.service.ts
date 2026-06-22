@@ -19,7 +19,7 @@
  * — those rows still let Marcos open the conversation and correct it.
  */
 
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Channel, MessageSender, PrismaClient } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
@@ -53,6 +53,7 @@ export interface MlQaRow {
 
 @Injectable()
 export class MercadolibreQaService {
+  private readonly logger = new Logger(MercadolibreQaService.name);
   private readonly prisma = new PrismaClient();
 
   constructor(
@@ -836,6 +837,119 @@ export class MercadolibreQaService {
           result.notes.push(`claim ${claimId}: ${err?.message ?? err}`);
         }
       }
+    }
+    return result;
+  }
+
+  /**
+   * Marcos 2026-06-22: reconcile nuestra DB contra la lista canónica
+   * de reclamos abiertos de ML. El webhook tiene gaps — reclamos que
+   * se cerraron en ML sin notificarnos quedan con
+   * needsHumanAttention=true en nuestra base, inflando el panel
+   * 'Reclamos abiertos'. Smoke real 2026-06-22: nuestra base mostraba
+   * 58 abiertos, ML tiene 11. 47 stale.
+   *
+   * Flujo:
+   *   1. fetchOpenClaimIds() en cuenta 1 + cuenta 2 → set canónico
+   *   2. Para cada conversación con needsHumanAttention=true cuyo
+   *      último ml_claim.mlResourceId NO está en el set, limpiar el
+   *      flag (mark resolved).
+   *   3. Loggear mismatches: claims en ML pero no en DB (= webhook
+   *      perdido — los reportamos sin auto-ingestar; el operador o
+   *      el próximo webhook los traerá).
+   *
+   * Idempotente.
+   */
+  async syncOpenClaimsWithMl(): Promise<{
+    mlOpen: number;
+    dbOpen: number;
+    resolved: number;
+    missingInDb: string[];
+    notes: string[];
+  }> {
+    const result = {
+      mlOpen: 0,
+      dbOpen: 0,
+      resolved: 0,
+      missingInDb: [] as string[],
+      notes: [] as string[],
+    };
+    if (!this.mercadolibre) {
+      result.notes.push('MercadoLibreService no conectado — no se puede sync.');
+      return result;
+    }
+    // 1. set canónico (cuenta 1 + cuenta 2)
+    const mlOpen = new Set<string>();
+    for (const cuenta of ['mercadolibre', 'mercadolibre_cuenta2'] as const) {
+      try {
+        const ids = await this.mercadolibre.fetchOpenClaimIds(cuenta);
+        for (const id of ids) mlOpen.add(id);
+        result.notes.push(`${cuenta}: ${ids.length} abiertos`);
+      } catch (err: any) {
+        result.notes.push(`${cuenta}: error ${err?.message ?? err}`);
+      }
+    }
+    result.mlOpen = mlOpen.size;
+
+    // 2. rows abiertos en nuestra DB con su mlResourceId. Filtra al
+    //    último ml_claim de cada conversación con needsHumanAttention.
+    const openConvs = await this.prisma.conversation.findMany({
+      where: {
+        needsHumanAttention: true,
+        channel: Channel.MERCADOLIBRE,
+      },
+      select: { id: true },
+    });
+    result.dbOpen = openConvs.length;
+
+    for (const conv of openConvs) {
+      // Último msg con kind=ml_claim para esa conversación
+      const last = await this.prisma.message.findFirst({
+        where: {
+          conversationId: conv.id,
+          metadata: { path: ['kind'], equals: 'ml_claim' } as any,
+        },
+        orderBy: { timestamp: 'desc' },
+        select: { metadata: true },
+      });
+      if (!last) continue;
+      const meta = (last.metadata as Record<string, unknown> | null) ?? {};
+      const claimId = typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null;
+      if (!claimId) continue;
+      if (!mlOpen.has(claimId)) {
+        // ML lo dio por cerrado — limpiamos el flag.
+        try {
+          await this.prisma.conversation.update({
+            where: { id: conv.id },
+            data: { needsHumanAttention: false, escalatedAt: null },
+          });
+          result.resolved++;
+        } catch {
+          /* ignore — sigue */
+        }
+      }
+    }
+
+    // 3. detectar claims que ML reporta abiertos pero nosotros no
+    //    tenemos. Los listamos para visibilidad sin auto-ingestar.
+    const dbClaimIds = new Set<string>();
+    const allOurClaims = await this.prisma.message.findMany({
+      where: { metadata: { path: ['kind'], equals: 'ml_claim' } as any },
+      select: { metadata: true },
+    });
+    for (const m of allOurClaims) {
+      const meta = (m.metadata as Record<string, unknown> | null) ?? {};
+      const id = typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null;
+      if (id) dbClaimIds.add(id);
+    }
+    for (const mid of mlOpen) {
+      if (!dbClaimIds.has(mid)) result.missingInDb.push(mid);
+    }
+    if (result.missingInDb.length > 0) {
+      this.logger.warn(
+        `syncOpenClaimsWithMl: ${result.missingInDb.length} reclamos abiertos en ML que NO están en nuestra DB ` +
+        `(probable webhook perdido): ${result.missingInDb.slice(0, 10).join(', ')}${result.missingInDb.length > 10 ? '…' : ''}`,
+      );
     }
     return result;
   }

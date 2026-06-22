@@ -390,6 +390,58 @@ export class MercadoLibreService implements IMercadoLibreService {
     }
   }
 
+  /**
+   * Marcos 2026-06-22: lista canónica de reclamos abiertos en ML
+   * para una cuenta. Sirve para reconciliar nuestra DB contra la
+   * verdad de ML — el flujo de webhooks tiene gaps (webhook perdido,
+   * reclamo cerrado en ML sin que nos avisen), así que cada N minutos
+   * pedimos el set completo y ajustamos. Endpoint:
+   *   GET /post-purchase/v1/claims/search?status=opened&limit=50
+   * Devuelve un array; pagina hasta agotar.
+   */
+  async fetchOpenClaimIds(
+    accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' = 'mercadolibre',
+  ): Promise<string[]> {
+    const cred = await this.credentials.getFresh(accountKey, (refreshToken) =>
+      this.refreshAccessToken(refreshToken),
+    );
+    if (!cred?.accessToken) return [];
+    const out: string[] = [];
+    let offset = 0;
+    const perPage = 50;
+    const maxPages = 20; // safety cap — 1000 abiertos es muchísimo
+    for (let page = 0; page < maxPages; page++) {
+      try {
+        const url = `${this.apiUrl}/post-purchase/v1/claims/search?status=opened&limit=${perPage}&offset=${offset}`;
+        const r = await fetch(url, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${cred.accessToken}` },
+        });
+        if (!r.ok) {
+          this.logger.warn(`Open-claims search HTTP ${r.status} on ${accountKey} (offset=${offset})`);
+          break;
+        }
+        const j: any = await r.json().catch(() => ({}));
+        // El payload viene como array al root O bajo `data` / `results`.
+        const arr: any[] = Array.isArray(j)
+          ? j
+          : Array.isArray(j?.data) ? j.data
+          : Array.isArray(j?.results) ? j.results
+          : [];
+        if (arr.length === 0) break;
+        for (const c of arr) {
+          if (c?.id != null) out.push(String(c.id));
+        }
+        if (arr.length < perPage) break;
+        offset += arr.length;
+      } catch (err: any) {
+        this.logger.warn(`Open-claims search threw on ${accountKey}: ${err?.message ?? err}`);
+        break;
+      }
+    }
+    return out;
+  }
+
   async fetchClaimDetails(
     claimId: string,
     accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' = 'mercadolibre',

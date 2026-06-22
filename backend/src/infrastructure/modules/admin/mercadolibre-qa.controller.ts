@@ -115,6 +115,19 @@ export class MercadolibreQaController {
    * ADMIN-only — la operación itera ~400 claims contra ML y puede
    * tardar minutos.
    */
+  /**
+   * Marcos 2026-06-22: reconcile contra la verdad de ML — el panel
+   * de reclamos abiertos se llenaba con stale-positives porque los
+   * webhooks no siempre nos avisan cuando ML cierra el reclamo del
+   * lado de ellos. Esta ruta cierra los stale + lista los que ML
+   * tiene como abiertos pero nos faltan (webhook perdido).
+   */
+  @Post('qa/sync-claims')
+  async syncClaims() {
+    const data = await this.svc.syncOpenClaimsWithMl();
+    return { success: true, data };
+  }
+
   @Post('qa/refresh-claims')
   async refreshClaims(@Query('limit') limitRaw?: string) {
     const limit = limitRaw != null ? Number(limitRaw) : undefined;
