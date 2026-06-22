@@ -1805,6 +1805,17 @@ IMPORTANTE sobre precios:
       { name: 'estoy en la publicación', re: /^\s*(?:Bueno,?\s*)?[Ee]stoy en (?:la|esta) publicación[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'estoy mirando la publicación', re: /^\s*(?:Bueno,?\s*)?[Ee]stoy mirando (?:la|esta) publicación[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'veo que el cliente', re: /^\s*(?:Bueno,?\s*)?[Vv]eo que (?:el|este|la) (?:cliente|comprador|usuario)[^,.!?\n]*[,.!?\n]+\s*/g },
+      // Marcos 2026-06-22 (MLA660365549 — "Hola Catalanoantito, Veo
+      // que preguntás cómo se usa la Resina Cristal Vidrio Líquido.
+      // Asumo que con '2x1' te referís..."): preámbulo de
+      // reformular-la-pregunta antes de responder. Es ruido — el
+      // comprador ya sabe qué preguntó.
+      { name: 'veo que <verbo-2p>', re: /^\s*(?:Bueno,?\s*)?[Vv]eo que (?:pregunt[aá]s|quer[eé]s|necesit[aá]s|busc[aá]s|est[aá]s|me pregunt|me ped[ií]s|mencion[aá]s|consult[aá]s|comentas)[^,.!?\n]*[,.!?\n]+\s*/g },
+      { name: 'asumo que', re: /^\s*(?:Bueno,?\s*)?[Aa]sumo que[^,.!?\n]*[,.!?\n]+\s*/g },
+      { name: 'entiendo que', re: /^\s*(?:Bueno,?\s*)?[Ee]ntiendo que[^,.!?\n]*[,.!?\n]+\s*/g },
+      { name: 'interpreto que', re: /^\s*(?:Bueno,?\s*)?[Ii]nterpreto que[^,.!?\n]*[,.!?\n]+\s*/g },
+      { name: 'noto que', re: /^\s*(?:Bueno,?\s*)?[Nn]oto que[^,.!?\n]*[,.!?\n]+\s*/g },
+      { name: 'parece que', re: /^\s*(?:Bueno,?\s*)?[Pp]arece que[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'voy a responder', re: /^\s*(?:Bueno,?\s*)?[Vv]oy a (?:responder|contestar|decirle|explicarle)[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'le voy a responder', re: /^\s*(?:Bueno,?\s*)?[Ll]e voy a (?:responder|contestar|decir|explicar)[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'mi respuesta sería', re: /^\s*(?:Bueno,?\s*)?[Mm]i respuesta (?:sería|va a ser|debería ser)[^,.!?\n]*[,.!?\n]+\s*/g },
