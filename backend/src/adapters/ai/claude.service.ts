@@ -1859,6 +1859,10 @@ IMPORTANTE sobre precios:
       { name: 'interpreto que', re: /^\s*(?:Bueno,?\s*)?[Ii]nterpreto que[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'noto que', re: /^\s*(?:Bueno,?\s*)?[Nn]oto que[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'parece que', re: /^\s*(?:Bueno,?\s*)?[Pp]arece que[^,.!?\n]*[,.!?\n]+\s*/g },
+      // Marcos 2026-06-22 (caso MLA1500591407 — "Ah, entendido — es una reparación.\nNo, esta resina..."): aperturas pseudo-conversacionales tipo chatbot que reconocen al comprador como si la conversación viniera de antes. En ML cada pregunta es one-shot — no hay nada que "acabar de entender". Estas aperturas son ruido.
+      { name: 'ah / entendido / claro', re: /^\s*(?:Ah[,!.]?\s*)?(?:entendido|entiendo|claro|perfecto|listo|ok|okay|de acuerdo|comprendo|ya veo)\s*[—\-,!.]?\s*(?:[^\n.!?]{0,80}[—,.!?\n])?\s*/i },
+      { name: 'ah, ...', re: /^\s*Ah[,!]\s*[^\n.!?]{0,60}[,.!?\n]\s*/i },
+      { name: 'gracias por (la pregunta / consultarnos / preguntar)', re: /^\s*(?:Muchas\s+)?[Gg]racias\s+por\s+(?:la\s+pregunta|consultarnos|consultar|tu\s+pregunta|preguntar|escribirnos)[^\n.!?]*[,.!?\n]\s*/i },
       { name: 'voy a responder', re: /^\s*(?:Bueno,?\s*)?[Vv]oy a (?:responder|contestar|decirle|explicarle)[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'le voy a responder', re: /^\s*(?:Bueno,?\s*)?[Ll]e voy a (?:responder|contestar|decir|explicar)[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'mi respuesta sería', re: /^\s*(?:Bueno,?\s*)?[Mm]i respuesta (?:sería|va a ser|debería ser)[^,.!?\n]*[,.!?\n]+\s*/g },
