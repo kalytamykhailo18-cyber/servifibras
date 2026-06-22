@@ -71,11 +71,14 @@ const navigationItems = [
     activeBg: "bg-gradient-to-r from-green-600 via-emerald-500 to-green-600 shadow-[0_8px_20px_-6px_rgb(34_197_94/0.55)]",
     wash: "bg-gradient-to-r from-green-500/10 via-emerald-400/10 to-transparent",
     rail: "bg-gradient-to-b from-green-500 to-emerald-400",
-    // Marcos 2026-06-11: lifted into Atención so the attention desk
-    // can see + load orders alongside chats. Logística still has its
-    // own dedicated "Armado" section under Logística.
+    // Marcos 2026-06-22 (Bloque C — menú reubicación pendiente del
+    // dispute 06-11): Pedidos baja de Atención a Logística para que
+    // el flujo operativo viva junto (Pedidos → Armado → Laminados
+    // PRFV). El equipo de atención ya tiene acceso vía el ítem (los
+    // roles abajo no cambiaron), sólo cambia el grupo visual donde
+    // se ubica.
     roles: [UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ATENCION, UserRole.ENCARGADO],
-    category: 'atencion' as Category,
+    category: 'logistica' as Category,
   },
   {
     // Marcos 2026-06-15: align sidebar visibility with the page-level

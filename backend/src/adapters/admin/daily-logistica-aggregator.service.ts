@@ -961,11 +961,23 @@ export class DailyLogisticaAggregatorService {
     // verificación de armado del equipo. Es la señal que Marcos pidió
     // para no perder paquetes — la UI muestra un badge rojo en la tab
     // Despachadas y la cuenta en el chip de la tab.
+    //
+    // Marcos 2026-06-22: agregamos cutoff por createdAt para no
+    // contaminar el contador con pedidos viejos donde el equipo
+    // probablemente hizo el armado físicamente pero no tildó el
+    // panel (la feature recién se shippeó 2026-06-20). Sin esto el
+    // operador abría Despachadas y veía 1.045 badges retroactivos
+    // que no son alertas útiles. .env knob para que Marcos pueda
+    // moverlo si quiere ver más histórico o resetar.
+    const sinArmarSinceIso = (process.env.LOGISTICA_SIN_ARMAR_SINCE_ISO || '2026-06-20T00:00:00Z').trim();
+    const sinArmarCutoff = new Date(sinArmarSinceIso);
+    const sinArmarCutoffMs = Number.isFinite(sinArmarCutoff.getTime()) ? sinArmarCutoff.getTime() : 0;
     for (const s of SECTION_ORDER) {
       for (const r of out.sections[s]) {
-        if (r.isDispatched && r.state === 'PENDIENTE' && !r.isCancelled) {
-          r.autoDispatchedWithoutArmado = true;
-        }
+        if (!r.isDispatched || r.state !== 'PENDIENTE' || r.isCancelled) continue;
+        const createdAtMs = r.createdAtIso ? new Date(r.createdAtIso).getTime() : 0;
+        if (createdAtMs < sinArmarCutoffMs) continue;
+        r.autoDispatchedWithoutArmado = true;
       }
     }
 
