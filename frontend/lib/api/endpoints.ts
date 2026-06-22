@@ -2709,6 +2709,7 @@ export const dailyLogisticaApi = {
    */
   uploadPostalCodeZones: async (file: File): Promise<{
     parsedRows: number;
+    expandedRows: number;
     inserted: number;
     updated: number;
     unchanged: number;
@@ -2723,13 +2724,37 @@ export const dailyLogisticaApi = {
     return r.data?.data ?? r.data;
   },
   listPostalCodeZones: async (opts?: { activeOnly?: boolean; limit?: number }): Promise<Array<{
-    cp: string; zone: string; locality: string | null; province: string | null; active: boolean;
+    id: string;
+    cp: string;
+    locality: string;
+    localityNormalized: string;
+    zone: string;
+    province: string | null;
+    active: boolean;
   }>> => {
     const qs = new URLSearchParams();
     if (opts?.activeOnly) qs.set('activeOnly', 'true');
     if (opts?.limit) qs.set('limit', String(opts.limit));
     const r = await apiClient.get<any>(`/admin/postal-code-zones?${qs.toString()}`);
     return r.data?.data ?? r.data ?? [];
+  },
+  postalCodeZoneStats: async (): Promise<{
+    total: number;
+    byZone: Array<{ zone: string; count: number }>;
+  }> => {
+    const r = await apiClient.get<any>('/admin/postal-code-zones/stats');
+    return r.data?.data ?? r.data;
+  },
+  resolvePostalCodeZone: async (input: { locality?: string; cp?: string }): Promise<{
+    zone: string | null;
+    locality: string | null;
+    source: 'locality_exact' | 'locality_normalized' | 'cp' | 'default' | 'none';
+  }> => {
+    const qs = new URLSearchParams();
+    if (input.locality) qs.set('locality', input.locality);
+    if (input.cp) qs.set('cp', input.cp);
+    const r = await apiClient.get<any>(`/admin/postal-code-zones/resolve?${qs.toString()}`);
+    return r.data?.data ?? r.data;
   },
   /**
    * Marcos 2026-06-10: stamp the flex courier on one or many rows.

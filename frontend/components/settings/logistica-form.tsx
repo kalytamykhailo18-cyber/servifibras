@@ -281,17 +281,18 @@ export function LogisticaForm() {
         />
       </div>
 
-      {/* Marcos 2026-06-20: POSTAL-CODE → ZONE CARD — bulk upload
-          un mapping (cp, zona, localidad?, provincia?) para que el
-          panel de despachos pueda asignar zona automáticamente cuando
-          el label de TN no la trae embebida. Acepta .xlsx o .csv.
-          Devuelve un resumen con inserted/updated/unchanged + las
-          filas que rechazó por estar incompletas. */}
+      {/* Marcos 2026-06-22: TARIFAS DE ENVÍO — upload de la tabla
+          maestra (localidad, cp, zona, provincia?). El panel resuelve
+          zona en cascada: localidad exacta → localidad normalizada
+          (sin tildes/case) → CP → default. Cuando localidad y CP
+          devuelven zonas distintas, gana la del tier más alto. Range
+          CPs (ej. "1000-1499" para CABA) se expanden a una fila por
+          CP al cargar. */}
       <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] space-y-3">
         <div>
-          <h4 className="text-sm font-semibold text-slate-900">Mapeo CP → Zona</h4>
+          <h4 className="text-sm font-semibold text-slate-900">Tarifas de envío (localidad + CP)</h4>
           <p className="mt-0.5 text-xs text-slate-500">
-            Subí una planilla con columnas <code className="rounded bg-slate-100 px-1">cp</code> y <code className="rounded bg-slate-100 px-1">zona</code> (CABA / GBA 1 / GBA 2 / GBA 3 / Nacional). Opcional: <code className="rounded bg-slate-100 px-1">localidad</code> y <code className="rounded bg-slate-100 px-1">provincia</code> para referencia. Cuando un envío entra con un label custom de TiendaNube que no trae la zona embebida, el panel de despachos resuelve la zona mirando el CP del comprador contra este mapping.
+            Subí la planilla con columnas <code className="rounded bg-slate-100 px-1">localidad</code>, <code className="rounded bg-slate-100 px-1">cp</code>, <code className="rounded bg-slate-100 px-1">zona</code> (CABA / GBA1 / GBA2 / GBA3 / Nacional). Opcional: <code className="rounded bg-slate-100 px-1">provincia</code>. CABA va como rango (<code className="rounded bg-slate-100 px-1">1000-1499</code>) y se expande al cargar. El panel resuelve por localidad primero, después por CP — si los dos resultados difieren, gana la zona más cara. La carga reemplaza la tabla anterior (siempre subís el archivo completo).
           </p>
         </div>
         <input
@@ -304,12 +305,12 @@ export function LogisticaForm() {
             try {
               const r = await api.dailyLogistica.uploadPostalCodeZones(file);
               const bits = [
-                `${r.inserted} nuevos`,
-                `${r.updated} actualizados`,
-                `${r.unchanged} sin cambios`,
+                `${r.parsedRows} filas leídas`,
+                `${r.expandedRows} expandidas`,
+                `${r.inserted} guardadas`,
               ];
               if (r.invalid > 0) bits.push(`${r.invalid} con error`);
-              toast.success(`Mapeo cargado — ${bits.join(' · ')} de ${r.parsedRows} filas`);
+              toast.success(`Tarifas cargadas — ${bits.join(' · ')}`);
             } catch (err: any) {
               toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo procesar el archivo");
             } finally {

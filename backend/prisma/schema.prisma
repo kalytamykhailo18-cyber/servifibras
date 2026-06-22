@@ -990,27 +990,36 @@ model PrfvPlaca {
   @@map("prfv_placas")
 }
 
-// Marcos 2026-06-20: CP -> zona del courier (CABA / GBA 1/2/3 /
-// Nacional). Sirve de fallback en la cadena de derivacion de zona
-// del panel de despachos: cuando el label de TN no trae zona
-// embebida ("CABA GRATUITO" / "GBA 1 GRATIS" derivan solos; un
-// label custom de TN no), miramos el CP del comprador contra esta
-// tabla. La carga es via upload de Excel/CSV con columnas (cp, zona,
-// localidad?, provincia?).
+// Marcos 2026-06-22: localidad+CP -> zona del courier. Cadena de
+// resolucion: localidad exacta -> localidad normalizada (sin
+// tildes/case) -> CP -> default config. Marcos pidio matchear por
+// localidad Y CP porque el CP argentino de 4 digitos es impreciso y
+// hay CPs compartidos entre localidades de distinto precio; el
+// matcheo solo-CP cobraba mal. Cuando los dos paths matchean con
+// zonas distintas, gana la mas cara (tier mas alto). Range CPs
+// (ej. CABA "1000-1499") se expanden en applyMapping a una fila por
+// CP individual asi el lookup queda O(1) por hash.
 model PostalCodeZone {
-  /// CP exacto. Aceptamos formato libre (1428 / C1428 / B1768XAF)
-  /// porque TN/ML lo guardan en distintos formatos segun el seller.
-  cp        String   @id
-  /// Zona canonica del courier — debe coincidir con el `zone` que
-  /// usa dispatch_tariffs (CABA, GBA 1, GBA 2, GBA 3, Nacional, etc).
-  zone      String
-  /// Opcional, solo display en el panel admin.
-  locality  String?
-  province  String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  cp                 String
+  /// Locality del file (case y tildes preservados para display admin).
+  locality           String
+  /// Locality normalizada (lowercase + sin tildes + un solo espacio
+  /// entre palabras). El resolver hace dos passes — uno contra
+  /// `locality` exacta y otro contra `localityNormalized` para
+  /// tolerar typos chicos de mayusculas/tildes que TN devuelve.
+  localityNormalized String
+  /// Zona del courier — matchea contra el `zone` de dispatch_tariffs
+  /// (CABA, GBA1, GBA2, GBA3, etc).
+  zone               String
+  province           String?
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
+  @@unique([cp, localityNormalized])
+  @@index([cp])
+  @@index([localityNormalized])
   @@index([zone])
   @@index([active])
   @@map("postal_code_zones")

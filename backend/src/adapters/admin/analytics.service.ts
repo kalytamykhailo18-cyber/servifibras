@@ -856,20 +856,27 @@ export class AnalyticsService implements IAnalyticsService {
       const rawCarrierHint = (row as any).rawCarrier ?? null;
       const shippingLabelHint = (row as any).shippingLabel ?? null;
       const cpHint = (row as any).postalCode ?? null;
+      const localityHint = (row as any).locality ?? null;
       delete (row as any).rawCarrier;
       delete (row as any).shippingLabel;
       delete (row as any).postalCode;
-      // Marcos 2026-06-20: la cadena de derivación ahora arranca
-      // intentando con el label TN/ML (que tiene zona embebida en
-      // los carriers gratuitos), después con rawCarrier por
-      // compatibilidad, después con el CP del comprador contra el
-      // mapping cargado por admin, y finalmente con la provincia.
-      // Es un orden de "más específico → más genérico" así un CP
-      // mapeado nunca pierde contra el fallback de provincia.
+      delete (row as any).locality;
+      // Marcos 2026-06-22: cadena de derivacion
+      //   1) zona embebida en el label TN/ML (carriers gratuitos)
+      //   2) rawCarrier label (override del operador)
+      //   3) resolver de PostalCodeZoneService (localidad exacta →
+      //      localidad normalizada → CP → default)
+      //   4) provincia → zona (heuristica vieja Capital Federal→CABA)
+      //   5) provincia cruda como ultimo recurso
+      // El resolver internamente hace tie-break por tier mas alto
+      // cuando localidad y CP devuelven zonas distintas.
+      const postalResolved = (this.postalZones && cpZoneCache)
+        ? this.postalZones.resolveZone({ locality: localityHint, cp: cpHint }, cpZoneCache)
+        : null;
       const derivedZone =
         this.deriveZoneFromShippingLabel(shippingLabelHint) ??
         this.deriveZoneFromShippingLabel(rawCarrierHint) ??
-        (this.postalZones ? this.postalZones.resolveZoneFromCache(cpHint, cpZoneCache) : null) ??
+        (postalResolved && postalResolved.zone ? postalResolved.zone : null) ??
         this.provinceToZone(row.shippingZone) ??
         (typeof row.shippingZone === 'string' && row.shippingZone.length > 0 ? row.shippingZone : null);
       const zoneLabel: string = derivedZone ?? 'Sin zona';
@@ -881,12 +888,12 @@ export class AnalyticsService implements IAnalyticsService {
       if (b.orders.length < 200) b.orders.push(row);
       groups.set(carrier, b);
     };
-    // Marcos 2026-06-20: pre-cargo el cache de CP → zona una sola
-    // vez por request. Lookup in-memory (Map.get) en bumpGroup, sin
-    // round-trips por fila. Si el servicio no está disponible (legacy
-    // wiring) el cache queda vacío y la cadena de derivación cae al
-    // comportamiento previo.
-    const cpZoneCache = this.postalZones ? await this.postalZones.loadFullCache() : new Map();
+    // Marcos 2026-06-20: pre-cargo el cache de CP/localidad → zona
+    // una sola vez por request. Lookup in-memory en bumpGroup, sin
+    // round-trips por fila. Marcos 2026-06-22: el cache ahora trae
+    // tres mapas (byLocalityExact / byLocalityNormalized / byCp)
+    // para la cascada nueva del resolver.
+    const cpZoneCache = this.postalZones ? await this.postalZones.loadCache() : null;
     for (const s of stamps) {
       if (!s.manuallyDispatchedAt) continue;
       let rawCarrier: string | null = null;
@@ -897,6 +904,7 @@ export class AnalyticsService implements IAnalyticsService {
       let shippingCost: number | null = null;
       let shippingZone: string | null = null;
       let postalCode: string | null = null;
+      let locality: string | null = null;
       // Per-rowKey routing.
       // Marcos 2026-06-20: shippingLabel preserva el label original
       // (TN/ML), separado de rawCarrier (que puede ser override del
@@ -922,13 +930,16 @@ export class AnalyticsService implements IAnalyticsService {
           currency = o.currency;
           shippingCost = o.shippingCost ?? null;
           shippingZone = o.shippingZone ?? null;
-          // Marcos 2026-06-20: CP del comprador desde contact.metadata
-          // (set en quick-create / contact-edit / TN sync). Llega al
-          // zone derivation como último fallback.
+          // Marcos 2026-06-20: CP del comprador desde contact.metadata.
+          // Marcos 2026-06-22: localidad tambien — es el matcher
+          // PRIMARIO del resolver (porque varios CPs comparten
+          // codigo entre localidades de distinto precio).
           const meta = (o.contact?.metadata ?? null) as any;
           if (meta && typeof meta === 'object') {
             const cp = meta.postalCode ?? meta.codigoPostal ?? meta.cp ?? meta.zip ?? null;
             if (cp != null) postalCode = String(cp);
+            const loc = meta.locality ?? meta.localidad ?? meta.city ?? meta.ciudad ?? null;
+            if (loc != null) locality = String(loc);
           }
         }
       } else if (/^ml:[12](:|$)/.test(s.rowKey)) {
@@ -954,6 +965,7 @@ export class AnalyticsService implements IAnalyticsService {
         rawCarrier,
         shippingLabel,
         postalCode,
+        locality,
       });
     }
     // Marcos 2026-06-15: load the tariff table once and index by

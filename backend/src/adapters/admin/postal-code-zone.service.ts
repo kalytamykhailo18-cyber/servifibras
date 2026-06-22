@@ -1,21 +1,28 @@
 /**
- * ADAPTERS LAYER — Postal-code → courier-zone mapping.
+ * ADAPTERS LAYER — localidad+CP → zona del courier.
  *
- * Marcos 2026-06-20: cuando un envío TN llega con un label custom
- * (no "CABA GRATUITO" / "GBA 1 GRATIS" / etc), el aggregator no
- * puede derivar la zona del courier del label porque la zona no
- * está embebida. Esas filas terminaban en "Sin zona" y no
- * matcheaban tarifa.
+ * Marcos 2026-06-22 (revised spec): cuando un envio TN llega con un
+ * label custom que no trae zona embebida, derivamos zona desde la
+ * direccion del comprador. La cadena de resolucion es:
  *
- * Marcos propuso cargar un Excel con (cp → zona). Este servicio
- * parsea el archivo, lo upsertea en `postal_code_zones`, y expone
- * un lookup barato `getZoneByCp(cp)` que se enchufa como último
- * fallback en la cadena de derivación de zona del panel de
- * despachos.
+ *   1) localidad exacta (case-insensitive)
+ *   2) localidad normalizada (sin tildes + lowercase + un espacio)
+ *   3) CP (4 digitos)
+ *   4) default config (env LOGISTICA_DEFAULT_ZONE)
  *
- * Mismo patrón que `WarehouseLocationsService` para que Marcos lo
- * use con el mismo workflow (export Excel, drop en el sistema, ver
- * el resultado).
+ * Si (1)/(2) y (3) devuelven zonas distintas, gana la mas cara segun
+ * el tier ordering del env LOGISTICA_ZONE_TIER_ORDER (default
+ * 'CABA,GBA1,GBA2,GBA3,Nacional' — ascendente por precio).
+ *
+ * Marcos's reasoning: el CP argentino de 4 digitos es impreciso —
+ * varios CPs comparten codigo entre localidades de distinto precio
+ * (ej. 1768 cubre Almirante Brown + La Matanza, distinta tarifa).
+ * Solo-CP cobraba mal en esos casos. Ahora la localidad es el
+ * matcher primario y el CP es validacion/fallback.
+ *
+ * Range CPs (formato 'NNNN-NNNN') se expanden en applyMapping a una
+ * fila por CP individual asi el lookup queda O(1) por hash. CABA
+ * llega como '1000-1499' (500 filas en DB despues del import).
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -24,6 +31,7 @@ import * as XLSX from 'xlsx';
 
 export interface PostalCodeZoneUploadResult {
   parsedRows: number;
+  expandedRows: number;
   inserted: number;
   updated: number;
   unchanged: number;
@@ -32,17 +40,60 @@ export interface PostalCodeZoneUploadResult {
   invalidSamples: Array<{ rowIndex: number; reason: string }>;
 }
 
-/**
- * Normaliza el CP a un formato consistente para comparar.
- * - mayúsculas
- * - sin espacios
- * - sin guiones intermedios (M5500-AAA → M5500AAA)
- * Devuelve null si queda vacío.
- */
+export interface ResolverInput {
+  locality?: string | null;
+  cp?: string | null;
+}
+
+export type ResolverSource = 'locality_exact' | 'locality_normalized' | 'cp' | 'default' | 'none';
+
+export interface ResolverResult {
+  zone: string | null;
+  locality: string | null;
+  source: ResolverSource;
+}
+
+export interface ZoneCache {
+  byLocalityExact: Map<string, PostalCodeZone>;
+  byLocalityNormalized: Map<string, PostalCodeZone>;
+  byCp: Map<string, PostalCodeZone>;
+}
+
+/** Normalizacion canonica para CPs — uppercase + sin guiones/espacios. */
 function normaliseCp(raw: string | number | null | undefined): string | null {
   if (raw == null) return null;
   const s = String(raw).trim().toUpperCase().replace(/[\s\-]/g, '');
   return s.length > 0 ? s : null;
+}
+
+/** Normalizacion para locality — lowercase + sin tildes + un espacio. */
+function normaliseLocality(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const s = String(raw)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * Si `raw` es un range del estilo '1000-1499' devuelve la lista de
+ * todos los CPs entre los extremos (inclusive). Sino devuelve null.
+ * Rangos con > 1000 elementos se rechazan para evitar bombas de
+ * datos por error de tipeo (ej. '1-9999').
+ */
+function expandCpRange(raw: string): string[] | null {
+  const m = /^(\d{3,5})\s*-\s*(\d{3,5})$/.exec(raw.trim());
+  if (!m) return null;
+  const from = Number(m[1]);
+  const to = Number(m[2]);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  if (to - from > 1000) return null;
+  const out: string[] = [];
+  for (let i = from; i <= to; i++) out.push(String(i));
+  return out;
 }
 
 @Injectable()
@@ -51,13 +102,33 @@ export class PostalCodeZoneService {
   private readonly prisma = new PrismaClient();
 
   /**
-   * Parsea el workbook (XLSX o CSV-as-XLSX — `xlsx` autodetecta) y
-   * devuelve filas (cp, zone, locality?, province?). Columnas se
-   * resuelven case-insensitive contra un set de alias para que
-   * Marcos no tenga que matchear nombres exactos.
+   * Marcos 2026-06-22: tier ordering del env. Cualquier zona no
+   * listada queda con tier=0 (fallback prioridad mas baja). El
+   * resolver pickea el tier MAS ALTO cuando hay multiples hits.
+   */
+  private zoneTier(zone: string): number {
+    const order = (process.env.LOGISTICA_ZONE_TIER_ORDER || 'CABA,GBA1,GBA2,GBA3,Nacional')
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    const idx = order.indexOf(zone.trim().toUpperCase());
+    return idx >= 0 ? idx + 1 : 0;
+  }
+
+  /** Zona default cuando nada matchea. null si no esta configurada. */
+  private defaultZone(): string | null {
+    const raw = (process.env.LOGISTICA_DEFAULT_ZONE || '').trim();
+    return raw.length > 0 ? raw : null;
+  }
+
+  /**
+   * Parsea el workbook (XLSX o CSV-as-XLSX). Devuelve filas
+   * (cp, locality, zone, province?). NO expande ranges aca — eso
+   * pasa en applyMapping para que el resumen muestre 'parsedRows: 133'
+   * + 'expandedRows: 632' separadamente.
    */
   parseBuffer(buf: Buffer): {
-    rows: Array<{ cp: string; zone: string; locality: string | null; province: string | null }>;
+    rows: Array<{ cp: string; locality: string; zone: string; province: string | null }>;
     invalid: Array<{ rowIndex: number; reason: string }>;
   } {
     const wb = XLSX.read(buf, { type: 'buffer', codepage: 65001 });
@@ -71,22 +142,24 @@ export class PostalCodeZoneService {
     const zoneCol = headers.findIndex((h) => h === 'zona' || h === 'zone');
     const locCol = headers.findIndex((h) => h === 'localidad' || h === 'locality' || h === 'ciudad' || h === 'partido');
     const provCol = headers.findIndex((h) => h === 'provincia' || h === 'province' || h === 'estado');
-    if (cpCol < 0 || zoneCol < 0) {
-      throw new Error(`columnas mínimas (cp, zona) no encontradas — headers leídos: ${headers.join(', ')}`);
+    if (cpCol < 0 || zoneCol < 0 || locCol < 0) {
+      throw new Error(`columnas minimas (localidad, cp, zona) no encontradas — headers leidos: ${headers.join(', ')}`);
     }
 
-    const rows: Array<{ cp: string; zone: string; locality: string | null; province: string | null }> = [];
+    const rows: Array<{ cp: string; locality: string; zone: string; province: string | null }> = [];
     const invalid: Array<{ rowIndex: number; reason: string }> = [];
     for (let i = 1; i < grid.length; i++) {
       const r = grid[i];
-      const cp = normaliseCp(r[cpCol]);
+      const cpRaw = String(r[cpCol] ?? '').trim();
+      const locality = String(r[locCol] ?? '').trim();
       const zone = String(r[zoneCol] ?? '').trim();
-      if (!cp) { invalid.push({ rowIndex: i + 1, reason: 'CP vacío o ilegible' }); continue; }
-      if (!zone) { invalid.push({ rowIndex: i + 1, reason: `CP ${cp} sin zona asignada` }); continue; }
+      if (!locality) { invalid.push({ rowIndex: i + 1, reason: 'Localidad vacia' }); continue; }
+      if (!cpRaw) { invalid.push({ rowIndex: i + 1, reason: `${locality} sin CP asignado` }); continue; }
+      if (!zone) { invalid.push({ rowIndex: i + 1, reason: `${locality} (${cpRaw}) sin zona asignada` }); continue; }
       rows.push({
-        cp,
+        cp: cpRaw,
+        locality: locality.slice(0, 120),
         zone: zone.slice(0, 40),
-        locality: locCol >= 0 ? (String(r[locCol] ?? '').trim().slice(0, 120) || null) : null,
         province: provCol >= 0 ? (String(r[provCol] ?? '').trim().slice(0, 120) || null) : null,
       });
     }
@@ -94,15 +167,18 @@ export class PostalCodeZoneService {
   }
 
   /**
-   * Upsert masivo del mapping. Si una fila con el mismo CP ya existe
-   * con la misma zona, no cuenta como update (`unchanged`).
+   * Wipe + reload del mapping completo. Marcos siempre carga el
+   * archivo entero (no patches), asi que la operacion es atomica:
+   * DELETE all → INSERT expanded. Si el insert falla a mitad, la
+   * transaccion roll-back y el panel sigue con el mapping anterior.
    */
   async applyMapping(
-    rows: Array<{ cp: string; zone: string; locality: string | null; province: string | null }>,
+    rows: Array<{ cp: string; locality: string; zone: string; province: string | null }>,
     invalid: Array<{ rowIndex: number; reason: string }> = [],
   ): Promise<PostalCodeZoneUploadResult> {
     const result: PostalCodeZoneUploadResult = {
       parsedRows: rows.length + invalid.length,
+      expandedRows: 0,
       inserted: 0,
       updated: 0,
       unchanged: 0,
@@ -110,81 +186,175 @@ export class PostalCodeZoneService {
       invalidSamples: invalid.slice(0, 10),
     };
     if (rows.length === 0) return result;
-    const cps = Array.from(new Set(rows.map((r) => r.cp)));
-    const existing = await this.prisma.postalCodeZone.findMany({
-      where: { cp: { in: cps } },
-      select: { cp: true, zone: true, locality: true, province: true },
-    });
-    const byCp = new Map(existing.map((e) => [e.cp, e]));
+
+    // Expandir ranges. CABA = '1000-1499' → 500 filas. Cada fila
+    // resultante hereda locality + zone + province del row origen.
+    type ExpandedRow = { cp: string; locality: string; localityNormalized: string; zone: string; province: string | null };
+    const expanded: ExpandedRow[] = [];
+    const seen = new Set<string>(); // (cp, localityNormalized) dedup
     for (const r of rows) {
-      const e = byCp.get(r.cp);
-      if (!e) {
-        await this.prisma.postalCodeZone.create({
-          data: { cp: r.cp, zone: r.zone, locality: r.locality, province: r.province, active: true },
+      const localityNormalized = normaliseLocality(r.locality);
+      if (!localityNormalized) {
+        result.invalid++;
+        result.invalidSamples.push({ rowIndex: -1, reason: `locality '${r.locality}' no normalizable` });
+        continue;
+      }
+      const cps = expandCpRange(r.cp) ?? [normaliseCp(r.cp) ?? r.cp];
+      for (const cp of cps) {
+        const key = `${cp}|${localityNormalized}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        expanded.push({
+          cp,
+          locality: r.locality,
+          localityNormalized,
+          zone: r.zone,
+          province: r.province,
         });
-        result.inserted++;
-        continue;
       }
-      const sameZone = e.zone === r.zone;
-      const sameLoc = (e.locality ?? null) === r.locality;
-      const sameProv = (e.province ?? null) === r.province;
-      if (sameZone && sameLoc && sameProv) {
-        result.unchanged++;
-        continue;
-      }
-      await this.prisma.postalCodeZone.update({
-        where: { cp: r.cp },
-        data: { zone: r.zone, locality: r.locality, province: r.province, active: true },
-      });
-      result.updated++;
     }
+    result.expandedRows = expanded.length;
+
+    // Wipe + bulk insert en transaccion. Si algo falla, el panel
+    // sigue funcionando con el mapping previo.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.postalCodeZone.deleteMany({});
+      // createMany es 1 round-trip para todos. ~600 filas entran
+      // bien en un solo INSERT.
+      await tx.postalCodeZone.createMany({
+        data: expanded.map((e) => ({
+          cp: e.cp,
+          locality: e.locality,
+          localityNormalized: e.localityNormalized,
+          zone: e.zone,
+          province: e.province,
+          active: true,
+        })),
+        skipDuplicates: true,
+      });
+    });
+    result.inserted = expanded.length;
+
     this.logger.log(
-      `postal-code-zones applied: parsed=${result.parsedRows} ` +
-      `inserted=${result.inserted} updated=${result.updated} ` +
-      `unchanged=${result.unchanged} invalid=${result.invalid}`,
+      `postal-code-zones reloaded: parsed=${result.parsedRows} expanded=${result.expandedRows} ` +
+      `inserted=${result.inserted} invalid=${result.invalid}`,
     );
     return result;
   }
 
-  /** Para el lookup en analytics — barato, indexed PK. */
-  async getZoneByCp(rawCp: string | null | undefined): Promise<string | null> {
-    const cp = normaliseCp(rawCp);
-    if (!cp) return null;
-    const row = await this.prisma.postalCodeZone.findUnique({
-      where: { cp },
-      select: { zone: true, active: true },
+  /**
+   * Pre-carga TODO el mapping en tres mapas indexados para que el
+   * resolver no haga round-trips. Llamala 1x por request en el
+   * caller (analytics aggregator).
+   */
+  async loadCache(): Promise<ZoneCache> {
+    const rows = await this.prisma.postalCodeZone.findMany({ where: { active: true } });
+    const cache: ZoneCache = {
+      byLocalityExact: new Map(),
+      byLocalityNormalized: new Map(),
+      byCp: new Map(),
+    };
+    for (const r of rows) {
+      const exactKey = r.locality.toLowerCase().trim();
+      cache.byLocalityExact.set(exactKey, r);
+      cache.byLocalityNormalized.set(r.localityNormalized, r);
+      // El CP puede aparecer N veces con localities distintas. Si
+      // hay multiples, dejamos en el cache la que tiene la zona mas
+      // alta — esto matchea el tie-break del resolver para no
+      // depender del orden de iteracion.
+      const existing = cache.byCp.get(r.cp);
+      if (!existing || this.zoneTier(r.zone) > this.zoneTier(existing.zone)) {
+        cache.byCp.set(r.cp, r);
+      }
+    }
+    return cache;
+  }
+
+  /**
+   * Cascada: locality_exact → locality_normalized → cp → default.
+   * Cuando varios paths matchean, gana la zona de tier mas alto.
+   */
+  resolveZone(input: ResolverInput, cache: ZoneCache): ResolverResult {
+    const hits: Array<{ row: PostalCodeZone; source: ResolverSource }> = [];
+
+    if (input.locality && input.locality.trim().length > 0) {
+      const exactKey = input.locality.trim().toLowerCase();
+      const exact = cache.byLocalityExact.get(exactKey);
+      if (exact) hits.push({ row: exact, source: 'locality_exact' });
+
+      const normKey = normaliseLocality(input.locality);
+      if (normKey) {
+        const norm = cache.byLocalityNormalized.get(normKey);
+        if (norm && (!exact || norm.id !== exact.id)) {
+          hits.push({ row: norm, source: 'locality_normalized' });
+        }
+      }
+    }
+    if (input.cp) {
+      const cpKey = normaliseCp(input.cp);
+      if (cpKey) {
+        const cpHit = cache.byCp.get(cpKey);
+        if (cpHit && !hits.some((h) => h.row.id === cpHit.id)) {
+          hits.push({ row: cpHit, source: 'cp' });
+        }
+      }
+    }
+
+    if (hits.length === 0) {
+      const def = this.defaultZone();
+      return def
+        ? { zone: def, locality: null, source: 'default' }
+        : { zone: null, locality: null, source: 'none' };
+    }
+
+    // Tie-break: tier mas alto gana. En caso de empate, gana
+    // locality_exact > locality_normalized > cp (orden de insercion).
+    hits.sort((a, b) => {
+      const ta = this.zoneTier(a.row.zone);
+      const tb = this.zoneTier(b.row.zone);
+      if (tb !== ta) return tb - ta;
+      const sourceOrder: Record<ResolverSource, number> = {
+        locality_exact: 0,
+        locality_normalized: 1,
+        cp: 2,
+        default: 3,
+        none: 4,
+      };
+      return sourceOrder[a.source] - sourceOrder[b.source];
     });
-    return row && row.active ? row.zone : null;
+    const winner = hits[0];
+    return { zone: winner.row.zone, locality: winner.row.locality, source: winner.source };
   }
 
-  /** Versión sync — recibe un cache pre-cargado para evitar N round-trips. */
-  resolveZoneFromCache(
-    rawCp: string | null | undefined,
-    cache: Map<string, { zone: string; active: boolean }>,
-  ): string | null {
-    const cp = normaliseCp(rawCp);
-    if (!cp) return null;
-    const hit = cache.get(cp);
-    return hit && hit.active ? hit.zone : null;
+  /** Lookup async on-demand — para callers fuera del aggregator. */
+  async resolveZoneAsync(input: ResolverInput): Promise<ResolverResult> {
+    const cache = await this.loadCache();
+    return this.resolveZone(input, cache);
   }
 
-  /** Lista para el admin panel — ordenada por zona + cp. */
+  /** Lista para el admin panel. Default 200 filas (operador
+   *  raramente necesita scrollear las 600+ expandidas). */
   async list(opts?: { activeOnly?: boolean; limit?: number }): Promise<PostalCodeZone[]> {
     return this.prisma.postalCodeZone.findMany({
       where: opts?.activeOnly ? { active: true } : undefined,
-      orderBy: [{ zone: 'asc' }, { cp: 'asc' }],
-      take: opts?.limit ? Math.max(1, Math.min(5000, opts.limit)) : 1000,
+      orderBy: [{ zone: 'asc' }, { locality: 'asc' }, { cp: 'asc' }],
+      take: opts?.limit ? Math.max(1, Math.min(5000, opts.limit)) : 200,
     });
   }
 
-  /** Pre-carga todo el mapping para que el aggregator haga lookups in-memory. */
-  async loadFullCache(): Promise<Map<string, { zone: string; active: boolean }>> {
-    const rows = await this.prisma.postalCodeZone.findMany({
-      select: { cp: true, zone: true, active: true },
+  async stats(): Promise<{ total: number; byZone: Array<{ zone: string; count: number }> }> {
+    const total = await this.prisma.postalCodeZone.count({ where: { active: true } });
+    const grouped = await this.prisma.postalCodeZone.groupBy({
+      by: ['zone'],
+      where: { active: true },
+      _count: { _all: true },
     });
-    const m = new Map<string, { zone: string; active: boolean }>();
-    for (const r of rows) m.set(r.cp, { zone: r.zone, active: r.active });
-    return m;
+    return {
+      total,
+      byZone: grouped
+        .map((g) => ({ zone: g.zone, count: g._count._all }))
+        .sort((a, b) => b.count - a.count),
+    };
   }
 
   async deleteAll(): Promise<number> {

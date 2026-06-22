@@ -47,6 +47,34 @@ export class PostalCodeZonesController {
     return { success: true, data: rows };
   }
 
+  /**
+   * Marcos 2026-06-22: count por zona — sirve para que el admin
+   * panel muestre 'GBA1: 43 · GBA2: 66 · GBA3: 24 · CABA-range: 500'
+   * despues del upload sin tener que listar las 600+ filas.
+   */
+  @Get('stats')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  async stats() {
+    const s = await this.svc.stats();
+    return { success: true, data: s };
+  }
+
+  /**
+   * Marcos 2026-06-22: resolver expuesto via API — util para probar
+   * que tal localidad/CP devuelve la zona esperada antes de
+   * configurar tarifas. Tambien util como debug endpoint cuando un
+   * pedido cobra mal y queres saber por que.
+   */
+  @Get('resolve')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  async resolve(@Query('locality') locality?: string, @Query('cp') cp?: string) {
+    const r = await this.svc.resolveZoneAsync({
+      locality: locality?.trim() || null,
+      cp: cp?.trim() || null,
+    });
+    return { success: true, data: r };
+  }
+
   @Post('upload')
   @Roles(UserRole.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
