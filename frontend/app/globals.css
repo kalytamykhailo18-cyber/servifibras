@@ -167,6 +167,31 @@
   scroll-behavior: smooth;
 }
 
+/* Marcos 2026-06-22: textareas del panel QA con scroll interno (cap
+   ~10 filas para mantener densidad de lista). El scrollbar nativo de
+   Mac/Chrome es muy fino y Marcos leyó la respuesta scrolleada como
+   "cortada". Estos estilos hacen visible el thumb + track con el
+   amber del panel para que se vea "hay más abajo" de un vistazo. */
+.ml-draft-textarea {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(217 119 6 / 0.55) rgb(241 245 249);
+}
+.ml-draft-textarea::-webkit-scrollbar {
+  width: 12px;
+}
+.ml-draft-textarea::-webkit-scrollbar-track {
+  background: rgb(241 245 249);
+  border-radius: 6px;
+}
+.ml-draft-textarea::-webkit-scrollbar-thumb {
+  background: rgb(217 119 6 / 0.55);
+  border-radius: 6px;
+  border: 2px solid rgb(241 245 249);
+}
+.ml-draft-textarea::-webkit-scrollbar-thumb:hover {
+  background: rgb(217 119 6 / 0.85);
+}
+
 /* ─── Motion ─────────────────────────────────────────────────────────
  * Pure CSS keyframes exposed as Tailwind v4 animation utilities.
  * Use as `animate-slide-down`, `animate-glow-pulse`, `animate-shimmer`, etc.

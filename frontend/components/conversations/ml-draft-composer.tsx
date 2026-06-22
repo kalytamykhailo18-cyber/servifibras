@@ -253,10 +253,10 @@ export function MlDraftComposer({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={onBlur}
-        rows={Math.max(3, Math.min(20, Math.ceil(value.length / 70)))}
+        rows={Math.max(3, Math.min(10, Math.ceil(value.length / 90)))}
         disabled={disabled}
         data-testid={`ml-draft-textarea-${draftId}`}
-        className="w-full resize-y rounded-lg border border-slate-200 bg-white p-2 text-sm leading-relaxed text-slate-900 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-500/15 disabled:opacity-60"
+        className="ml-draft-textarea w-full resize-y rounded-lg border border-slate-200 bg-white p-2 text-sm leading-relaxed text-slate-900 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-500/15 disabled:opacity-60"
         placeholder='Editá la respuesta. Tocá un chip o tipeá # para insertar el link de otra publicación.'
       />
 
