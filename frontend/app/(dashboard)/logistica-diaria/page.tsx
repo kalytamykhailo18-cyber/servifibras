@@ -1446,10 +1446,23 @@ export default function LogisticaDiariaPage() {
                         </div>
                         {expanded && hasItems && (() => {
                           // Bloque B item 3.7 — Marcos 2026-06-08.
-                          // Stable per-item keys (SKU when present
-                          // else "idx:N"), checked-set + counter.
-                          const itemKeyFor = (it: typeof row.items[number], idx: number) =>
-                            it.sku && it.sku.length > 0 ? it.sku : `idx:${idx}`;
+                          // Stable per-item keys. Marcos 2026-06-22:
+                          // antes la key era it.sku — cuando un mismo
+                          // SKU aparecía en dos items del pedido
+                          // (ej. dos 'Pigmento X10 Gm SKU 8012'),
+                          // ambos colisionaban en la misma entry del
+                          // Set y la cuenta nunca llegaba a 4/4. Ahora
+                          // siempre incluimos el índice posicional —
+                          // 'sku:0', 'sku:1' — para que items
+                          // duplicados sean entidades distintas. El
+                          // costo: pedidos en vuelo con keys viejas
+                          // se ven como no-tildados y el armador
+                          // re-tilda una vez (los que tenían el bug
+                          // estaban trabados en 3/4 igual).
+                          const itemKeyFor = (it: typeof row.items[number], idx: number) => {
+                            const base = it.sku && it.sku.length > 0 ? it.sku : 'item';
+                            return `${base}:${idx}`;
+                          };
                           const checkedSet = new Set(row.itemsChecked ?? []);
                           const totalItems = row.items.length;
                           const checkedCount = row.items.reduce(
