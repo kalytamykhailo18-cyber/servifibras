@@ -469,6 +469,24 @@ export class MercadoLibreService implements IMercadoLibreService {
         players.find((p: any) => String(p?.user_id) !== sellerId) ??
         null;
       const buyerId = buyer?.user_id != null ? String(buyer.user_id) : 'unknown';
+      // Marcos 2026-06-22: pendingFor — quién tiene el próximo turno.
+      // Reglas (más prioritario primero):
+      //   seller (Servifibras) tiene available_actions → 'seller'
+      //   buyer (comprador) tiene available_actions    → 'buyer'
+      //   sino                                          → 'ml'
+      // El panel agrupa por este flag y prioriza 'seller'.
+      const sellerPlayer = players.find(
+        (p: any) => p?.type === 'seller' || p?.role === 'respondent',
+      );
+      const buyerPlayer = players.find(
+        (p: any) => p?.type === 'buyer' || p?.role === 'complainant',
+      );
+      const sellerHasActions =
+        Array.isArray(sellerPlayer?.available_actions) && sellerPlayer.available_actions.length > 0;
+      const buyerHasActions =
+        Array.isArray(buyerPlayer?.available_actions) && buyerPlayer.available_actions.length > 0;
+      const pendingFor: 'seller' | 'buyer' | 'ml' =
+        sellerHasActions ? 'seller' : buyerHasActions ? 'buyer' : 'ml';
       const summaryParts: string[] = [];
       if (c?.type) summaryParts.push(`Tipo: ${c.type}`);
       if (c?.status) summaryParts.push(`Estado: ${c.status}`);
@@ -557,6 +575,7 @@ export class MercadoLibreService implements IMercadoLibreService {
         MercadoLibreStatus.UNANSWERED,
         c?.date_created ? new Date(c.date_created) : new Date(),
         accountKey,
+        pendingFor,
       );
     } catch (err: any) {
       this.logger.error(`Claim fetch errored for ${claimId}: ${err.message}`);

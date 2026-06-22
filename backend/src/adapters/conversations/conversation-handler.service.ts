@@ -906,6 +906,10 @@ export class ConversationHandlerService implements IConversationHandler {
               kind: message.type === MercadoLibreMessageType.REVIEW ? 'ml_review' : 'ml_claim',
               mlResourceId: message.id,
               mlAccountKey: message.mlAccountKey ?? null,
+              // Marcos 2026-06-22: 'seller' | 'buyer' | 'ml' — quién tiene
+              // el próximo turno según players[].available_actions. El panel
+              // de Reclamos segmenta por este campo y prioriza 'seller'.
+              pendingFor: (message as any).pendingFor ?? null,
             },
           },
         });

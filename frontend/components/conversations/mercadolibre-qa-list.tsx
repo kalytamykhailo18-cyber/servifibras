@@ -117,6 +117,7 @@ type OpenClaim = {
   mlResourceId: string | null;
   createdAt: string;
   messageCount: number;
+  pendingFor: 'seller' | 'buyer' | 'ml' | null;
 };
 
 export function MercadolibreQaList() {
@@ -138,6 +139,10 @@ export function MercadolibreQaList() {
   // to whichever section has content on first load so the operator
   // sees something useful immediately even when Preguntas is empty.
   const [mlSubTab, setMlSubTab] = useState<'questions' | 'messages' | 'claims'>('questions');
+  // Marcos 2026-06-22: dentro de la tab Reclamos, segmentar por
+  // quién tiene el próximo turno. Default 'seller' (nosotros) —
+  // prioridad máxima.
+  const [claimsBucket, setClaimsBucket] = useState<'seller' | 'buyer' | 'ml'>('seller');
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
@@ -471,11 +476,72 @@ export function MercadolibreQaList() {
       </div>
       {mlSubTab === 'claims' ? (
         <div className="rounded-2xl border border-rose-200/80 bg-rose-50/60 p-4 space-y-3" data-testid="ml-pending-claims">
-          {claims.length === 0 ? (
-            <p className="text-center text-xs text-rose-700/80">No hay reclamos abiertos en este momento.</p>
-          ) : (
+          {/* Marcos 2026-06-22: sub-segmentación de Reclamos por
+             quién tiene el próximo turno. 'Nuestros' (seller) es
+             prioridad máxima — el equipo tiene acciones disponibles
+             en ML que sólo se resuelven respondiendo desde el panel
+             o desde la pestaña de ML. */}
+          {(() => {
+            const sellerCount = claims.filter((c) => c.pendingFor === 'seller').length;
+            const buyerCount = claims.filter((c) => c.pendingFor === 'buyer').length;
+            const mlCount = claims.filter((c) => c.pendingFor === 'ml').length;
+            const unknownCount = claims.filter((c) => c.pendingFor == null).length;
+            return (
+              <div className="grid grid-cols-3 gap-1 rounded-xl border border-rose-200 bg-white/60 p-1" data-testid="ml-claims-buckets">
+                {([
+                  { id: 'seller' as const, label: 'Nuestros',  count: sellerCount + unknownCount, activeBg: 'bg-rose-600 text-white' },
+                  { id: 'buyer'  as const, label: 'Cliente',   count: buyerCount,  activeBg: 'bg-slate-700 text-white' },
+                  { id: 'ml'     as const, label: 'ML',        count: mlCount,     activeBg: 'bg-amber-600 text-white' },
+                ]).map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setClaimsBucket(b.id)}
+                    data-testid={`ml-claims-bucket-${b.id}`}
+                    className={
+                      'flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ' +
+                      (claimsBucket === b.id ? b.activeBg : 'text-slate-700 hover:text-slate-900')
+                    }
+                  >
+                    {b.label}
+                    {b.count > 0 && (
+                      <span
+                        className={
+                          'inline-flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums ' +
+                          (claimsBucket === b.id ? 'bg-white/25 text-white' : 'bg-rose-600 text-white')
+                        }
+                      >
+                        {b.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+          {(() => {
+            // Reclamos viejos pre-feature tienen pendingFor=null —
+            // los agrupamos en 'Nuestros' por defecto para que no se
+            // pierdan; el primer refresh-claims les seteará el valor.
+            const filtered = claims.filter((c) =>
+              claimsBucket === 'seller'
+                ? c.pendingFor === 'seller' || c.pendingFor == null
+                : c.pendingFor === claimsBucket
+            );
+            if (filtered.length === 0) {
+              return (
+                <p className="text-center text-xs text-rose-700/80">
+                  {claimsBucket === 'seller'
+                    ? 'Sin reclamos pendientes de nuestra parte.'
+                    : claimsBucket === 'buyer'
+                      ? 'Sin reclamos esperando respuesta del comprador.'
+                      : 'Sin reclamos en revisión por Mercado Libre.'}
+                </p>
+              );
+            }
+            return (
             <ul className="space-y-2">
-              {claims.map((c) => (
+              {filtered.map((c) => (
                 <li
                   key={c.messageId}
                   className="rounded-xl border border-rose-200 bg-white p-3"
@@ -527,7 +593,8 @@ export function MercadolibreQaList() {
                 </li>
               ))}
             </ul>
-          )}
+            );
+          })()}
         </div>
       ) : null}
       </>

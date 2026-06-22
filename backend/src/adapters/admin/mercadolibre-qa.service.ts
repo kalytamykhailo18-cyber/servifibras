@@ -710,6 +710,13 @@ export class MercadolibreQaService {
      *  conversation (ML often sends 3-5 webhooks for one reclamo).
      *  Surfaced as a count so the operator knows there's a thread. */
     messageCount: number;
+    /**
+     * Marcos 2026-06-22: 'seller' = nosotros tenemos el turno (máxima
+     * prioridad), 'buyer' = pendiente del comprador, 'ml' = en
+     * revisión de ML, null = no se pudo determinar (claim viejo
+     * pre-feature). El panel agrupa por este campo.
+     */
+    pendingFor: 'seller' | 'buyer' | 'ml' | null;
   }>> {
     // Marcos 2026-06-18: only the last 30 days of claims surface in
     // the Reclamos panel — older ones that ML already closed but
@@ -762,6 +769,9 @@ export class MercadolibreQaService {
       .slice(0, Math.max(1, Math.min(200, limit)))
       .map(({ latest: m, count }) => {
         const meta = (m.metadata as Record<string, unknown> | null) ?? {};
+        const pf = meta.pendingFor;
+        const pendingFor: 'seller' | 'buyer' | 'ml' | null =
+          pf === 'seller' || pf === 'buyer' || pf === 'ml' ? pf : null;
         return {
           conversationId: m.conversationId,
           messageId: m.id,
@@ -772,6 +782,7 @@ export class MercadolibreQaService {
           mlResourceId: typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null,
           createdAt: m.timestamp,
           messageCount: count,
+          pendingFor,
         };
       });
   }
@@ -825,10 +836,18 @@ export class MercadolibreQaService {
         );
         if (!fresh) { result.skipped++; continue; }
         const newCipher = cipher.encrypt(fresh.text);
-        if (newCipher === m.content) { result.skipped++; continue; }
+        // Marcos 2026-06-22: además del texto, actualizamos
+        // metadata.pendingFor (seller/buyer/ml) — el campo nuevo que
+        // segmenta el panel por prioridad. Aunque el texto no haya
+        // cambiado, el pendingFor sí puede haberse movido (el
+        // comprador respondió, ML emitió decisión, etc).
+        const currentMeta = (m.metadata as Record<string, unknown> | null) ?? {};
+        const nextMeta = { ...currentMeta, pendingFor: (fresh as any).pendingFor ?? null };
+        const metaChanged = currentMeta.pendingFor !== nextMeta.pendingFor;
+        if (newCipher === m.content && !metaChanged) { result.skipped++; continue; }
         await this.prisma.message.update({
           where: { id: m.id },
-          data: { content: newCipher },
+          data: { content: newCipher, metadata: nextMeta as any },
         });
         result.updated++;
       } catch (err: any) {

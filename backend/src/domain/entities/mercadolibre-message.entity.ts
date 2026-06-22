@@ -39,6 +39,16 @@ export class MercadoLibreIncomingMessage {
     // handler stamps it on the persisted Conversation so analytics
     // can split metrics per store.
     public readonly mlAccountKey: string | null = null,
+    /**
+     * Marcos 2026-06-22: para reclamos — de quién es el próximo turno
+     * según los `available_actions` de los players[] en el payload de
+     * /post-purchase/v1/claims/{id}. Sirve para segmentar el panel
+     * de reclamos por prioridad: 'seller' es lo que el equipo de
+     * Servifibras tiene que accionar (máxima prioridad), 'buyer' es
+     * pendiente del comprador, 'ml' está en revisión por la
+     * mediación de Mercado Libre.
+     */
+    public readonly pendingFor: 'seller' | 'buyer' | 'ml' | null = null,
   ) {}
 
   isQuestion(): boolean {

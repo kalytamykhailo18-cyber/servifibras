@@ -2306,6 +2306,9 @@ export const mercadolibreApi = {
     mlResourceId: string | null;
     createdAt: string;
     messageCount: number;
+    /** Marcos 2026-06-22: 'seller' (nosotros), 'buyer' (comprador),
+     *  'ml' (mediación), null (no determinado). El panel segmenta. */
+    pendingFor: 'seller' | 'buyer' | 'ml' | null;
   }>> => {
     const url = `/admin/mercadolibre/qa/open-claims${limit ? `?limit=${limit}` : ''}`;
     const r = await apiClient.get<any>(url);
