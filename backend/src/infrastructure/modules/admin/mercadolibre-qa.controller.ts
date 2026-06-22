@@ -107,6 +107,23 @@ export class MercadolibreQaController {
    * section. Claims escalate to human handoff without an AI draft, so
    * they're not in pending-drafts — this endpoint surfaces them.
    */
+  /**
+   * Marcos 2026-06-22: backfill — re-fetch del contenido de los
+   * reclamos abiertos contra la API de ML. Sirve para que las filas
+   * existentes (que tienen sólo el summary metadata) levanten el
+   * texto real del comprador después del cambio de fetchClaimDetails.
+   * ADMIN-only — la operación itera ~400 claims contra ML y puede
+   * tardar minutos.
+   */
+  @Post('qa/refresh-claims')
+  async refreshClaims(@Query('limit') limitRaw?: string) {
+    const limit = limitRaw != null ? Number(limitRaw) : undefined;
+    const data = await this.svc.refreshOpenClaims({
+      limit: Number.isFinite(limit) ? limit : undefined,
+    });
+    return { success: true, data };
+  }
+
   @Get('qa/open-claims')
   async openClaims(@Query('limit') limit?: string) {
     const limitNum = limit != null ? Number(limit) : 50;

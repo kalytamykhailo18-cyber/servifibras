@@ -776,6 +776,71 @@ export class MercadolibreQaService {
   }
 
   /**
+   * Marcos 2026-06-22: re-pull el contenido real de los reclamos
+   * abiertos. Diseñado para correrse una vez después del deploy que
+   * cambia el formato de fetchClaimDetails — las 425 filas viejas
+   * tienen el summary metadata stub, este refresh las actualiza con
+   * el texto del comprador. Idempotente: si volves a correrlo no
+   * rompe nada, sólo trae mensajes más recientes si los hubo.
+   *
+   * Usa fetchClaimDetails per row (que internamente hace 2 calls a
+   * la API de ML por reclamo). ~200ms cada uno × N rows. Devuelve
+   * counts de updated/skipped/errored para que el caller sepa el
+   * resultado.
+   */
+  async refreshOpenClaims(opts?: { limit?: number }): Promise<{
+    scanned: number;
+    updated: number;
+    skipped: number;
+    errored: number;
+    notes: string[];
+  }> {
+    const result = { scanned: 0, updated: 0, skipped: 0, errored: 0, notes: [] as string[] };
+    if (!this.mercadolibre) {
+      result.notes.push('MercadoLibreService no conectado — no se puede refrescar.');
+      return result;
+    }
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        timestamp: { gte: since },
+        metadata: { path: ['kind'], equals: 'ml_claim' } as any,
+      },
+      orderBy: { timestamp: 'desc' },
+      take: Math.max(1, Math.min(1000, opts?.limit ?? 500)),
+      select: { id: true, content: true, metadata: true },
+    });
+    const cipher = getMessageCipher();
+    for (const m of rows) {
+      result.scanned++;
+      const meta = (m.metadata as Record<string, unknown> | null) ?? {};
+      const claimId = typeof meta.mlResourceId === 'string' ? meta.mlResourceId : null;
+      const accountKey = typeof meta.mlAccountKey === 'string' ? meta.mlAccountKey : 'mercadolibre';
+      if (!claimId) { result.skipped++; continue; }
+      try {
+        const fresh = await this.mercadolibre.fetchClaimDetails(
+          claimId,
+          accountKey === 'mercadolibre_cuenta2' ? 'mercadolibre_cuenta2' : 'mercadolibre',
+        );
+        if (!fresh) { result.skipped++; continue; }
+        const newCipher = cipher.encrypt(fresh.text);
+        if (newCipher === m.content) { result.skipped++; continue; }
+        await this.prisma.message.update({
+          where: { id: m.id },
+          data: { content: newCipher },
+        });
+        result.updated++;
+      } catch (err: any) {
+        result.errored++;
+        if (result.notes.length < 5) {
+          result.notes.push(`claim ${claimId}: ${err?.message ?? err}`);
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
    * Marcos 2026-06-18: clear the needsHumanAttention flag on a
    * conversation so the Reclamos panel drops it. Used by the
    * "Marcar como resuelto" button on each claim card.

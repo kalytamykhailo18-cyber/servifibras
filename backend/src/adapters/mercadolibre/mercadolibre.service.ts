@@ -346,10 +346,50 @@ export class MercadoLibreService implements IMercadoLibreService {
    *   id, type, status, stage, reason_id, resolution, players[]
    *   (each with role + user_id)
    *
-   * The MESSAGES sub-thread (/messages) is left for the human
-   * operator to view in the ML seller panel — copying the whole
-   * thread into the CRM doesn't add operational value at this stage.
+   * Marcos 2026-06-22: el panel de Reclamos mostraba sólo el
+   * summary metadata (`[Reclamo ML id] Tipo: mediations · Estado:
+   * opened · Etapa: claim · Motivo (id): PDD9943`) y Marcos no podía
+   * leer qué dice el comprador realmente. Ahora hacemos un segundo
+   * fetch a `/post-purchase/v1/claims/{id}/messages` para traer el
+   * mensaje más reciente del comprador y lo ponemos arriba; el
+   * summary queda como pie chiquito para el contexto. Si la API
+   * rechaza el sub-fetch (403 / paywall) caemos al summary solo.
    */
+  private reasonDetailCache = new Map<string, { detail: string | null; at: number }>();
+
+  /**
+   * Marcos 2026-06-22: ML expone el texto legible del motivo en
+   * `/post-purchase/v1/claims/reasons/{reason_id}` (campo `detail`,
+   * ej "Llegó lo que compré en buenas condiciones pero no lo quiero"
+   * para PDD9939). El catálogo cambia poco — cacheo en memoria por
+   * 24h para no refetchear el mismo reason por cada reclamo.
+   */
+  private async fetchClaimReasonDetail(
+    reasonId: string,
+    accessToken: string,
+  ): Promise<string | null> {
+    const cached = this.reasonDetailCache.get(reasonId);
+    if (cached && Date.now() - cached.at < 24 * 60 * 60 * 1000) {
+      return cached.detail;
+    }
+    try {
+      const r = await fetch(`${this.apiUrl}/post-purchase/v1/claims/reasons/${reasonId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!r.ok) {
+        this.reasonDetailCache.set(reasonId, { detail: null, at: Date.now() });
+        return null;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      const detail = typeof j?.detail === 'string' && j.detail.trim().length > 0 ? j.detail.trim() : null;
+      this.reasonDetailCache.set(reasonId, { detail, at: Date.now() });
+      return detail;
+    } catch {
+      return null;
+    }
+  }
+
   async fetchClaimDetails(
     claimId: string,
     accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' = 'mercadolibre',
@@ -381,13 +421,80 @@ export class MercadoLibreService implements IMercadoLibreService {
       if (c?.type) summaryParts.push(`Tipo: ${c.type}`);
       if (c?.status) summaryParts.push(`Estado: ${c.status}`);
       if (c?.stage) summaryParts.push(`Etapa: ${c.stage}`);
-      if (c?.reason_id) summaryParts.push(`Motivo (id): ${c.reason_id}`);
-      if (c?.resolution?.reason) summaryParts.push(`Razón resolución: ${c.resolution.reason}`);
+      // Razón legible — fetch al catálogo de reasons de ML
+      // (/claims/reasons/{id}) que devuelve `detail` en español ej.
+      // 'Llegó lo que compré en buenas condiciones pero no lo
+      // quiero' para PDD9939. Cacheado 24h en memoria así N reclamos
+      // con el mismo reason no fan-out a N requests.
+      let reasonLabel: string | null = null;
+      if (typeof c?.reason_id === 'string' && c.reason_id) {
+        reasonLabel = await this.fetchClaimReasonDetail(c.reason_id, cred.accessToken);
+      }
+      // Si reasonLabel viene de la API la mostramos limpia + el id
+      // entre paréntesis para el operador que quiera buscar en la
+      // doc; si no, fallback al payload o al id solo.
+      if (reasonLabel && c?.reason_id) summaryParts.push(`Motivo: ${reasonLabel} (${c.reason_id})`);
+      else if (reasonLabel) summaryParts.push(`Motivo: ${reasonLabel}`);
+      else if (c?.reason_id) summaryParts.push(`Motivo (id): ${c.reason_id}`);
+      if (c?.resolution?.reason) summaryParts.push(`Resolución: ${c.resolution.reason}`);
       if (c?.resolution?.benefited?.length) summaryParts.push(`Beneficiado: ${c.resolution.benefited.join(', ')}`);
-      const text =
-        summaryParts.length > 0
-          ? `[Reclamo ML ${claimId}] ${summaryParts.join(' · ')}`
-          : `[Reclamo ML ${claimId}]`;
+
+      // Marcos 2026-06-22: segundo fetch al thread de mensajes del
+      // reclamo. Devuelve los últimos N mensajes con sender + text.
+      // Filtramos los que mandó el comprador (sender_role !== seller)
+      // y tomamos el más reciente para mostrar al operador.
+      let buyerText: string | null = null;
+      try {
+        const mr = await fetch(`${this.apiUrl}/post-purchase/v1/claims/${claimId}/messages`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${cred.accessToken}` },
+        });
+        if (mr.ok) {
+          const mj: any = await mr.json().catch(() => ({}));
+          const arr = Array.isArray(mj?.messages) ? mj.messages : (Array.isArray(mj) ? mj : []);
+          // ML usa `sender_role` ('respondent' = seller, 'complainant' = buyer)
+          // OR `from.user_id` que comparamos contra sellerId. Tomamos
+          // el más reciente del comprador con texto no-vacío.
+          const buyerMsgs = arr
+            .filter((m: any) => {
+              const role = String(m?.sender_role ?? '').toLowerCase();
+              const fromId = String(m?.from?.user_id ?? m?.sender_id ?? '');
+              if (role === 'complainant' || role === 'buyer') return true;
+              if (role === 'respondent' || role === 'seller') return false;
+              return fromId && fromId !== sellerId;
+            })
+            .map((m: any) => ({
+              text: String(m?.message ?? m?.text ?? '').trim(),
+              dateRaw: m?.date_created ?? m?.created_at ?? m?.last_updated ?? null,
+            }))
+            .filter((m: { text: string }) => m.text.length > 0)
+            .sort((a: any, b: any) => {
+              const da = a.dateRaw ? new Date(a.dateRaw).getTime() : 0;
+              const db = b.dateRaw ? new Date(b.dateRaw).getTime() : 0;
+              return db - da;
+            });
+          if (buyerMsgs.length > 0) buyerText = buyerMsgs[0].text;
+        } else if (mr.status !== 404 && mr.status !== 403) {
+          this.logger.warn(`Claim messages fetch HTTP ${mr.status} for ${claimId}`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Claim messages fetch threw for ${claimId}: ${err?.message ?? err}`);
+      }
+
+      const summary = summaryParts.length > 0 ? summaryParts.join(' · ') : null;
+      // Format final: texto del comprador arriba, summary como
+      // contexto debajo. Si no hay texto, dejamos sólo el summary
+      // (mejor que un placeholder vacío).
+      let text: string;
+      if (buyerText && summary) {
+        text = `${buyerText}\n\n— Reclamo ML ${claimId} · ${summary}`;
+      } else if (buyerText) {
+        text = `${buyerText}\n\n— Reclamo ML ${claimId}`;
+      } else if (summary) {
+        text = `[Reclamo ML ${claimId}] ${summary}`;
+      } else {
+        text = `[Reclamo ML ${claimId}]`;
+      }
       return new MercadoLibreIncomingMessage(
         claimId,
         MercadoLibreMessageType.CLAIM,
