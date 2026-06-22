@@ -38,6 +38,29 @@ function isEnabled(): boolean {
   return raw.trim().toLowerCase() === 'true';
 }
 
+/**
+ * Marcos 2026-06-22 — kill switch separado para el atajo ML.
+ *
+ * Root cause de un patrón de bugs recurrente: tryMlReply matcheaba
+ * `tenés` (intent=stock) y devolvía "Sí, [PUBLICACIÓN ACTUAL] está
+ * con stock disponible" — Claude nunca veía la pregunta. Funcionaba
+ * bien para "¿tenés stock?" pero rompía en "¿tenés alcohol
+ * isopropílico?" (MLA2602955662) y otros patrones donde el comprador
+ * pide un PRODUCTO DIFERENTE. La regla BLOQUEO ABSOLUTO del prompt
+ * habría manejado esto correctamente vía buscar_producto si el atajo
+ * no lo hubiera interceptado.
+ *
+ * Ahorro de costo del atajo: marginal (Haiku $0.012/q × ~30 calls/día
+ * = $0.36/mes). Costo de cada falso positivo: confianza del operador
+ * + pérdida de venta. Default OFF; reactivable vía env si Marcos lo
+ * pide después con reglas más estrictas.
+ */
+function isMlShortcutEnabled(): boolean {
+  const raw = process.env.PRODUCT_LOOKUP_SHORTCUT_ML_ENABLED;
+  if (raw == null || raw.trim().length === 0) return false;
+  return raw.trim().toLowerCase() === 'true';
+}
+
 // Lightweight intent detector. Targets the high-frequency one-liner
 // shapes Marcos sees most: "precio?", "¿cuánto sale?", "tenés stock?".
 // Anything that hints at extra reasoning (cantidad, dimensiones,
@@ -104,6 +127,11 @@ export class ProductLookupShortcutService {
       currencyId: string | null;
     } | null;
   }): Promise<string | null> {
+    // Marcos 2026-06-22: kill switch separado. El atajo intercepta
+    // preguntas que parecen "stock?" pero son cross-producto y rompe
+    // la respuesta. Hasta que tengamos un classifier más estricto se
+    // queda OFF y Claude maneja todo el tráfico ML.
+    if (!isMlShortcutEnabled()) return null;
     if (!isEnabled()) return null;
     if (!args.listing) return null;
     const intent = classifyIntent(args.text);
