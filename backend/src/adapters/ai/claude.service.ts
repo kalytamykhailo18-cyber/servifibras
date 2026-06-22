@@ -155,6 +155,17 @@ function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface'
     '  - Comprador en una publicación de Lámina PRFV pregunta "¿qué pegamento uso?" → buscar_producto("pegamento prfv") → devolvé el link ML del pegamento.',
     'Lo que SIEMPRE va junto al link: el nombre exacto del producto cross + el formato canónico de arriba. Lo que NUNCA va: precio del producto cross, cantidad, m², "te lo armo con todo en el mismo pedido", "te lo paso por privado".',
     '',
+    '⚠️ PEDIDOS VAGOS DE TAMAÑO / MEDIDA — Marcos 2026-06-22 (caso real MLA1475090319):',
+    'El comprador escribió "Hola! Un poco más grande?" sobre un molde de 21,3cm. El agente respondió "tenemos otras opciones disponibles. ¿Qué medida tenías en mente? Así te paso la publicación correcta." — esa pregunta de retorno NO PUEDE OCURRIR. El comprador acabó de escribirte una sola línea, casi nunca vuelve a contestar, y la ML lo cuenta como pregunta sin resolver para el score de la cuenta.',
+    'Cuando el comprador pide algo VAGAMENTE más grande / más chico / otra medida / otro tamaño SIN especificar el target, NO preguntes "¿qué medida?". En su lugar:',
+    '  1. Llamá a buscar_producto con la categoría del producto + el rango siguiente. Ej. publicación "molde silicona disco 21,3cm" + "un poco más grande" → buscar_producto("molde silicona disco 30").',
+    '  2. Si la herramienta devuelve alguna opción más grande con link ML, copiala TEXTUAL en la respuesta usando el formato canónico cross-publicación.',
+    '  3. Si devuelve VARIAS (ej. 26cm, 30cm, 40cm), elegí la 1 más representativa (la siguiente medida hacia arriba). Sólo en el caso muy específico de "te dejo las opciones que tengo" podés pasar 2-3 — pero siempre con link, nunca tirar nombres sueltos.',
+    '  4. Cerrá con una invitación CONDICIONAL: "Si necesitás otra medida puntual, decime el tamaño y la busco." Eso es proactivo, no una pregunta abierta.',
+    '  5. Sólo si literalmente NO hay nada más grande/más chico en el catálogo (buscar_producto devolvió vacío en 2 intentos), recién ahí decís "esa es la única medida que manejamos".',
+    'Ejemplo MAL (lo que pasó 2026-06-22): "tenemos otras opciones disponibles. ¿Qué medida tenías en mente?".',
+    'Ejemplo BIEN: "El molde de esta publicación es de 21,3 cm. Una medida más grande la encontrás en la publicación específica: https://articulo.mercadolibre.com.ar/MLA-... . Si necesitás otra medida puntual, decime el tamaño y la busco."',
+    '',
     'BLOQUEO ABSOLUTO — productos fuera de esta publicación:',
     'Si el cliente pregunta por CUALQUIER producto que no sea el que muestra esta publicación específica (aunque sea del mismo rubro, aunque sea complementario, aunque sea para el mismo proyecto, aunque parezca cross-sell útil), aplica esta regla SIN EXCEPCIÓN:',
     '- PROHIBIDO mencionar precio, presentación, kg/litros, m², stock o detalles cuantitativos del otro producto. Aunque la herramienta `buscar_producto` te devuelva la info, NO la pongas en la respuesta.',
@@ -1213,12 +1224,44 @@ export class ClaudeService implements IAIService {
     let body = text.trim();
     // Drop an existing "Hola ..." opener so we don't double-greet — on
     // continuation this also removes the model-emitted re-greeting.
-    body = body.replace(/^Hola[^\n,.!?]{0,80}[,.\n]\s*/i, '').trim();
-    // Drop an existing "Un saludo, Lucas..." closer for the same reason.
-    body = body.replace(/\n*Un\s+saludo,\s+Lucas\s+de\s+Servifibras\.?\s*$/i, '').trim();
-    // Drop continuation-style trailing closers the model may have
-    // already added so we don't double up either.
-    body = body.replace(/\n*Quedo a disposici[oó]n[^\n]*\.?\s*$/i, '').trim();
+    // Marcos 2026-06-22: el loop saca hasta 2 saludos consecutivos
+    // por si el modelo emite "Hola X,\nHola X," (visto en algunos
+    // drafts) sin volverlo a saludar.
+    for (let i = 0; i < 2; i++) {
+      const stripped = body.replace(/^Hola[^\n,.!?]{0,80}[,.\n]\s*/i, '').trim();
+      if (stripped === body) break;
+      body = stripped;
+    }
+    // Marcos 2026-06-22: signoff dedupe ampliado para todas las
+    // variantes que el modelo a veces emite además del canónico —
+    // 'Saludos cordiales', 'Atte. Lucas', 'Cordialmente', 'Saludos
+    // atentos', 'Atentamente', etc. Cada uno consume desde el
+    // principio de la última línea hasta el fin del body. Loop 2x
+    // por si emite dos seguidos.
+    const SIGNOFF_PATTERNS: RegExp[] = [
+      /\n*Un\s+saludo,?\s+Lucas\s+de\s+Servifibras\.?\s*$/i,
+      /\n*Un\s+(?:cordial\s+)?saludo[,.]?\s*$/i,
+      /\n*Saludos(?:\s+(?:cordiales|atentos|cordiales\s+y\s+atentos))?[,.]?\s*$/i,
+      /\n*Atentamente[,.]?\s*$/i,
+      /\n*Cordialmente[,.]?\s*$/i,
+      /\n*Atte\.?\s+Lucas[^\n]*\.?\s*$/i,
+      /\n*Atte\.?[,.]?\s*$/i,
+      /\n*Lucas\s+de\s+Servifibras\.?\s*$/i,
+      /\n*Quedo a disposici[oó]n[^\n]*\.?\s*$/i,
+      /\n*Cualquier\s+(?:otra\s+)?(?:consulta|duda)[^\n]*\.?\s*$/i,
+      /\n*Estoy\s+a\s+(?:tu\s+)?disposici[oó]n[^\n]*\.?\s*$/i,
+    ];
+    for (let i = 0; i < 2; i++) {
+      let changed = false;
+      for (const re of SIGNOFF_PATTERNS) {
+        const stripped = body.replace(re, '').trim();
+        if (stripped !== body) {
+          body = stripped;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
 
     if (body.length === 0) {
       // No meaningful content (rare — empty after scrubs). Emit a
