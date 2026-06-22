@@ -104,6 +104,16 @@ export function OrderFormDialog({
   // valores iniciales salen del pedido origen. Marcos 2026-06-18.
   const initialSource: Order | undefined = order ?? seedFromOrder;
   const [contacts, setContacts] = useState<Contact[]>([]);
+  // Marcos 2026-06-22: el picker antes mostraba los primeros 200 sin
+  // filtro server-side. Ahora hay input de búsqueda con debounce —
+  // matchea name / phone / email / DNI / CUIT contra toda la base.
+  const [contactSearch, setContactSearch] = useState<string>("");
+  const [contactSearchDebounced, setContactSearchDebounced] = useState<string>("");
+  const [contactSearchLoading, setContactSearchLoading] = useState(false);
+  // Cache del contacto seleccionado para mostrar su nombre cuando la
+  // lista de resultados ya no lo contiene (el usuario buscó otra cosa
+  // pero la selección sigue válida).
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [contactId, setContactId] = useState<string>(initialSource?.contactId ?? "");
@@ -248,22 +258,40 @@ export function OrderFormDialog({
 
   // Contacts only fetched when the dialog opens — keeps the /orders
   // page light when nobody's adding anything.
+  // Marcos 2026-06-22: debounce del input → query backend cada 300ms.
+  useEffect(() => {
+    const t = window.setTimeout(() => setContactSearchDebounced(contactSearch.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [contactSearch]);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.contacts.list({ limit: 200 });
+        setContactSearchLoading(true);
+        const params: any = { limit: 50 };
+        if (contactSearchDebounced.length > 0) params.search = contactSearchDebounced;
+        const res = await api.contacts.list(params);
         const arr = Array.isArray((res as any)?.contacts)
           ? ((res as any).contacts as Contact[])
           : (Array.isArray(res as any) ? (res as unknown as Contact[]) : []);
         if (!cancelled) setContacts(arr);
       } catch {
         if (!cancelled) setContacts([]);
+      } finally {
+        if (!cancelled) setContactSearchLoading(false);
       }
-      // Marcos 2026-06-17: tariff table for the REPOSICIÓN form
-      // (carrier + zone → cost). Failures are non-fatal — the cost
-      // input stays manual.
+    })();
+    return () => { cancelled = true; };
+  }, [open, contactSearchDebounced]);
+
+  // Tariffs sólo se cargan al abrir el diálogo — no dependen del
+  // search del cliente.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
       try {
         const tr = await (api as any).dispatchTariffs?.list?.();
         if (!cancelled && Array.isArray(tr)) {
@@ -273,6 +301,21 @@ export function OrderFormDialog({
     })();
     return () => { cancelled = true; };
   }, [open]);
+
+  // Marcos 2026-06-22: cuando el form se abre en modo edición /
+  // seed, hidratamos el contacto pre-seleccionado con su .name
+  // explícito en lugar de depender del .find en la lista. Esto evita
+  // que el chip vaya a "[contactId]" cuando el operador busca otra
+  // cosa y el seleccionado deja de estar en la página actual.
+  useEffect(() => {
+    if (!open || !contactId) { setSelectedContact(null); return; }
+    if (initialSource && (initialSource as any).contact?.id === contactId) {
+      setSelectedContact((initialSource as any).contact as Contact);
+      return;
+    }
+    const hit = contacts.find((c) => c.id === contactId);
+    if (hit) setSelectedContact(hit);
+  }, [open, contactId, initialSource, contacts]);
 
   // Marcos 2026-06-17: auto-fill the shipping cost when carrier+zone
   // match a tariff row. Operator can still edit the value manually
@@ -465,20 +508,24 @@ export function OrderFormDialog({
               </div>
             ) : (
               <div className="space-y-2">
+                {/* Marcos 2026-06-22: picker buscable. El input dispara
+                   búsqueda server-side debounced contra toda la base
+                   de contactos (name / phone / email / DNI / CUIT). El
+                   chip verde de abajo muestra el seleccionado actual
+                   y se puede limpiar con la X. */}
                 <div className="flex items-center gap-2">
-                  <select
-                    value={contactId}
-                    onChange={(e) => setContactId(e.target.value)}
-                    data-testid="order-form-contact-select"
-                    className="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  >
-                    <option value="">Seleccioná un cliente…</option>
-                    {contacts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name || c.phone || c.email || c.id}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative flex-1">
+                    <Input
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      placeholder="Buscar por nombre, teléfono, email, DNI o CUIT…"
+                      data-testid="order-form-contact-search"
+                      className="h-11"
+                    />
+                    {contactSearchLoading && (
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">…</span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setNewContactOpen((s) => !s)}
@@ -490,6 +537,70 @@ export function OrderFormDialog({
                     Nuevo
                   </button>
                 </div>
+                {/* Chip del seleccionado actual — siempre visible
+                   cuando hay contactId, incluso si el operador busca
+                   otra cosa después. */}
+                {contactId && selectedContact && (
+                  <div
+                    data-testid="order-form-contact-selected"
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
+                  >
+                    <span className="truncate max-w-[280px]">
+                      {selectedContact.name || selectedContact.phone || selectedContact.email || contactId}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setContactId(""); setSelectedContact(null); }}
+                      title="Limpiar selección"
+                      className="grid h-5 w-5 place-items-center rounded-full text-emerald-700 hover:bg-emerald-200"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                {/* Resultados — sólo se muestran si hay search OR no
+                   hay nada seleccionado todavía. Cap 50; el operador
+                   refina el search si hay muchos. */}
+                {(contactSearchDebounced.length > 0 || !contactId) && contacts.length > 0 && (
+                  <ul
+                    data-testid="order-form-contact-results"
+                    className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white"
+                  >
+                    {contacts.map((c) => {
+                      const isSel = c.id === contactId;
+                      const meta = (c as any).metadata as any;
+                      const fiscalId = meta?.fiscalId ?? meta?.cuit ?? meta?.dni ?? null;
+                      return (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactId(c.id);
+                              setSelectedContact(c);
+                              setContactSearch("");
+                            }}
+                            className={
+                              "flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition-colors " +
+                              (isSel ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50")
+                            }
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{c.name || "(sin nombre)"}</span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {[c.phone, c.email, fiscalId].filter(Boolean).join(" · ") || c.id}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {contactSearchDebounced.length > 0 && !contactSearchLoading && contacts.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    Sin coincidencias para "{contactSearchDebounced}". Probá con otro criterio o tocá "Nuevo" para crearlo.
+                  </p>
+                )}
                 {newContactOpen && (
                   <div
                     data-testid="order-form-new-contact-form"

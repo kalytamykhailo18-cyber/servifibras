@@ -74,10 +74,19 @@ export class ContactManagementService implements IContactManagementService {
       }
 
       if (filter.search) {
+        // Marcos 2026-06-22: el picker del form de pedidos sólo
+        // mostraba los últimos 200 contactos y filtraba in-memory por
+        // nombre. Ahora la búsqueda viaja al backend y matchea contra
+        // name / phone / email + DNI / CUIT que viven en contact.metadata
+        // (string_contains case-sensitive en JSON, pero los DNIs son
+        // numéricos así que no afecta).
         where.OR = [
           { name: { contains: filter.search, mode: 'insensitive' } },
           { phone: { contains: filter.search, mode: 'insensitive' } },
           { email: { contains: filter.search, mode: 'insensitive' } },
+          { metadata: { path: ['fiscalId'], string_contains: filter.search } as any },
+          { metadata: { path: ['cuit'], string_contains: filter.search } as any },
+          { metadata: { path: ['dni'], string_contains: filter.search } as any },
         ];
       }
 
