@@ -43,7 +43,7 @@ export class PrfvPlacaController {
   constructor(private readonly svc: PrfvPlacaService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async list(
     @Query('state') state?: string,
     @Query('search') search?: string,
@@ -60,14 +60,14 @@ export class PrfvPlacaController {
   }
 
   @Get('counts')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async counts() {
     const counts = await this.svc.countsByState();
     return { success: true, data: counts };
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async getById(@Param('id') id: string) {
     const row = await this.svc.getById(id);
     if (!row) throw new NotFoundException('placa not found');
@@ -75,7 +75,7 @@ export class PrfvPlacaController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async create(@Body() body: any, @Request() req: any) {
     try {
       const row = await this.svc.create({
@@ -94,7 +94,7 @@ export class PrfvPlacaController {
   }
 
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
     if (body?.state && !VALID_STATES.has(body.state)) {
       throw new BadRequestException(`invalid state: ${body.state}`);
@@ -111,7 +111,7 @@ export class PrfvPlacaController {
    * walk backwards (typo correction) use PUT `:id` with explicit state.
    */
   @Post(':id/advance')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async advance(@Param('id') id: string, @Request() req: any) {
     const row = await this.svc.advanceState(id);
     if (!row) {

@@ -29,7 +29,7 @@ import { ORDER_STATUS_LABELS, UserRole, type OrderFulfillmentStats } from "@/typ
 import { formatNumber } from "@/lib/format";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
 
-const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
 const CHART_COLORS = ["#3b82f6", "#f59e0b", "#8b5cf6", "#10b981", "#ef4444"];
 

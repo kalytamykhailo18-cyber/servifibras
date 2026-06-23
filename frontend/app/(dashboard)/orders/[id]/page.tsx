@@ -25,7 +25,8 @@ import { useAuthStore } from "@/lib/store/auth-store";
 //   PUT  /:id/tracking → ADMIN + LOGISTICA
 //   DELETE             → ADMIN only
 // So we open the route to VENTAS but disable status/tracking writes for them.
-const ORDERS_DETAIL_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS];
+// Marcos 2026-06-23: ENCARGADO supervisa logística — incluido explícito.
+const ORDERS_DETAIL_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO];
 const ORDERS_ROLES = ORDERS_DETAIL_ROLES;
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
@@ -52,8 +53,11 @@ export default function OrderDetailPage() {
   const role = useAuthStore((s) => s.user?.role);
   // VENTAS can read this page (they may have created the order from a quote)
   // but cannot change status or tracking — those are LOGISTICA's
-  // responsibility per the backend matrix.
-  const canChangeStatus = role === UserRole.ADMIN || role === UserRole.LOGISTICA;
+  // responsibility per the backend matrix. Marcos 2026-06-23: ENCARGADO
+  // es supervisor de Logística y necesita las mismas acciones que LOGISTICA
+  // sobre pedidos (cambiar estado, cargar tracking, marcar facturado).
+  const canChangeStatus =
+    role === UserRole.ADMIN || role === UserRole.LOGISTICA || role === UserRole.ENCARGADO;
   const canEditTracking = canChangeStatus;
   const orderId = params.id as string;
   const [order, setOrder] = useState<Order | null>(null);

@@ -33,7 +33,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 
-const PRFV_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
+const PRFV_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
 const STATE_META: Record<PrfvPlacaState, { label: string; tint: string; chip: string; rail: string }> = {
   PENDIENTE: {

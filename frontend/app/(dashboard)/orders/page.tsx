@@ -23,7 +23,11 @@ import { useRoleGuard } from "@/lib/hooks/use-role-guard";
 import { useClientPagination } from "@/lib/hooks/use-client-pagination";
 import { Pagination } from "@/components/ui/pagination";
 
-const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
+// Marcos 2026-06-23: ENCARGADO supervisa logística — explicit en la lista
+// para que la lectura del código matchee el comportamiento (el useRoleGuard
+// igual lo auto-expandiría a partir de LOGISTICA, pero preferimos ser
+// explícitos para que no haya dudas).
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO];
 import AddIcon from "@mui/icons-material/Add";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";

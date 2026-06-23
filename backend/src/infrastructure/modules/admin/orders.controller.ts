@@ -39,7 +39,7 @@ export class OrdersController {
 
   // Get order statistics (must be before :id route)
   @Get('stats/summary')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async getOrderStatistics() {
     const data = await this.orderManagement.getOrderStatistics();
     return { success: true, data };
@@ -65,7 +65,7 @@ export class OrdersController {
    * the dynamic id route doesn't swallow it.
    */
   @Get('pending-returns')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async listPendingReturns() {
     const data = await this.orderManagement.listPendingReturns();
     return { success: true, data };
@@ -84,7 +84,7 @@ export class OrdersController {
    * LOGISTICA + VENTAS + ATENCION pueden cancelar.
    */
   @Post(':id/cancel')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async cancelOrder(
     @Param('id') id: string,
     @Body() body: { reason?: string } = {},
@@ -112,7 +112,7 @@ export class OrdersController {
   }
 
   @Post(':id/mark-returned')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async markReturned(
     @Param('id') id: string,
     @Body() body: { returned?: boolean } = {},
@@ -164,7 +164,7 @@ export class OrdersController {
 
   // List orders with filters.
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async listOrders(
     @Query('status') status?: OrderStatus,
     @Query('contactId') contactId?: string,
@@ -194,7 +194,7 @@ export class OrdersController {
    * dynamic route.
    */
   @Get(':id/pdf')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION, UserRole.ENCARGADO)
   async getOrderPdf(@Param('id') id: string, @Res() res: Response) {
     const buf = await this.orderManagement.renderPdf(id);
     if (!buf) throw new NotFoundException('Pedido no encontrado');
@@ -209,7 +209,7 @@ export class OrdersController {
    * One label per page, ready to print on the Zebra thermal.
    */
   @Get(':id/etiqueta')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION, UserRole.ENCARGADO)
   async getOrderEtiqueta(
     @Param('id') id: string,
     @Query('bultos') bultosRaw: string | undefined,
@@ -235,7 +235,7 @@ export class OrdersController {
    * un solo campo del Order, no toca el PDF.
    */
   @Get(':id/etiqueta/status')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ATENCION, UserRole.ENCARGADO)
   async getEtiquetaStatus(@Param('id') id: string) {
     const data = await this.orderManagement.getLabelPrintStatus(id);
     if (!data) throw new NotFoundException('Pedido no encontrado');
@@ -244,7 +244,7 @@ export class OrdersController {
 
   // Get order by ID
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO)
   async getOrderById(@Param('id') id: string) {
     const data = await this.orderManagement.getOrderById(id);
 
@@ -261,7 +261,7 @@ export class OrdersController {
   // same for mayoristas. Body may include `conversationId` so the order
   // back-links to the chat where it was registered.
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async createOrder(@Body() body: any, @Request() req: any) {
     const data = await this.orderManagement.createOrder({
       ...body,
@@ -290,7 +290,7 @@ export class OrdersController {
 
   // Update order
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async updateOrder(@Param('id') id: string, @Body() body: any) {
     const data = await this.orderManagement.updateOrder(id, body);
 
@@ -322,7 +322,7 @@ export class OrdersController {
 
   // Update order status (fulfillment lifecycle — logistics's domain)
   @Put(':id/status')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async updateOrderStatus(
     @Param('id') id: string,
     @Body() body: { status: OrderStatus },
@@ -348,7 +348,7 @@ export class OrdersController {
 
   // Update tracking info
   @Put(':id/tracking')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async updateTrackingInfo(
     @Param('id') id: string,
     @Body() body: { trackingNumber: string; carrier: string },

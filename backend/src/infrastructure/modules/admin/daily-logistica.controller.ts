@@ -91,7 +91,7 @@ export class DailyLogisticaController {
    * `date` defaults to today (server time).
    */
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async aggregate(@Query('date') dateParam?: string) {
     const date = parseDateParam(dateParam);
     const result = await this.aggregator.aggregate(date);
@@ -106,7 +106,7 @@ export class DailyLogisticaController {
    * sends it to the Zebra-side workflow.
    */
   @Get('excel')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async downloadExcel(
     @Query('date') dateParam: string | undefined,
     @Res() res: Response,
@@ -135,7 +135,7 @@ export class DailyLogisticaController {
    * each order.
    */
   @Post('armado')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async markArmado(
     @Body() body: { rowKey?: string; dayDate?: string },
     @Request() req: any,
@@ -159,7 +159,7 @@ export class DailyLogisticaController {
    * Undo a misclick — clears the row's armado tick.
    */
   @Delete('armado/:rowKey')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async unmarkArmado(@Param('rowKey') rowKey: string) {
     const cleared = await this.armado.unmark(rowKey);
     if (!cleared) {
@@ -177,7 +177,7 @@ export class DailyLogisticaController {
    * daily logística panel. Idempotent on LISTO.
    */
   @Post('advance')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async advanceState(
     @Body() body: { rowKey?: string; dayDate?: string },
     @Request() req: any,
@@ -220,7 +220,7 @@ export class DailyLogisticaController {
    * Capped at 500 chars server-side.
    */
   @Post('note')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async setNote(
     @Body() body: { rowKey?: string; dayDate?: string; note?: string },
     @Request() req: any,
@@ -250,7 +250,7 @@ export class DailyLogisticaController {
    * computes it from the items array and forwards on every call).
    */
   @Post('item-check')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async toggleItemCheck(
     @Body() body: {
       rowKey?: string;
@@ -295,7 +295,7 @@ export class DailyLogisticaController {
    * highlight any rowKey that didn't take.
    */
   @Post('bulk-state')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async bulkSetState(
     @Body()
     body: {
@@ -338,7 +338,7 @@ export class DailyLogisticaController {
    * tune the dropdown without a redeploy.
    */
   @Post('flex-courier')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async setFlexCourier(
     @Body()
     body: {
@@ -381,7 +381,7 @@ export class DailyLogisticaController {
    * env fallback (see resolveFlexCouriers).
    */
   @Get('flex-couriers')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async flexCouriers() {
     const list = await this.resolveFlexCouriers();
     return { success: true, data: { couriers: list } };
@@ -427,7 +427,7 @@ export class DailyLogisticaController {
    * section=null clears the override.
    */
   @Post('section-override')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async setSectionOverride(
     @Body() body: { rowKeys?: string[]; dayDate?: string; section?: string | null },
     @Request() req: any,
@@ -465,7 +465,7 @@ export class DailyLogisticaController {
    * Body: { rowKeys: string[], dayDate: 'YYYY-MM-DD', dispatched: boolean }
    */
   @Post('manual-dispatch')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async manualDispatch(
     @Body() body: { rowKeys?: string[]; dayDate?: string; dispatched?: boolean },
     @Request() req: any,
@@ -492,7 +492,7 @@ export class DailyLogisticaController {
   }
 
   @Post('archive-cancelled')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async archiveCancelled(
     @Body() body: { rowKeys?: string[]; dayDate?: string },
     @Request() req: any,

@@ -37,7 +37,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 
-const ROLES = [UserRole.ADMIN, UserRole.LOGISTICA];
+const ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
 const SECTION_ORDER: DailySection[] = [
   "COLECTA_1",
