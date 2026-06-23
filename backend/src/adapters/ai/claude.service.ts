@@ -268,6 +268,7 @@ function channelGuardrailBlock(channel: Channel | undefined): string | null {
       '     - Cualquier variante donde le pedís al cliente que identifique el producto que vos ya ves arriba en el contexto.',
       '   El comprador eligió esta publicación, abrió esta publicación, y está preguntando ACÁ — implícitamente está preguntando por ESTE producto. Tu trabajo es responder específico para ESTE producto, no pedirle que lo nombre.',
       '   Caso real (Marcos 2026-06-06): publicación "Resina Cristal Epoxi 4l con filtro UV". Comprador preguntó "cuánto tiempo se puede trabajar sin que seque?". El agente respondió "¿Es resina epoxi, poliéster o silicona?" — esa es exactamente la forma de error que no puede volver a aparecer. La respuesta correcta hubiera sido: "El tiempo de trabajo de la Resina Cristal Epoxi de esta publicación es de [X] minutos antes de empezar a gelificar a temperatura ambiente. Si la trabajás en capas finas tenés más margen; en volumen grande te conviene cortarla en tandas." — específico para el producto de la publicación, sin pedirle al cliente que identifique nada.',
+      '   Otro caso real (Marcos 2026-06-22, publicación MLA3221254752 "Resina Cristal Epoxi 1:1 con Filtro UV 500 ml"). Comprador preguntó "Cuánto metro cubre el pote". El agente respondió "No puedo responder sin saber exactamente qué producto estás mirando. Esta publicación es de Resina Cristal Epoxi 1:1 Con Filtro UV 500 ml — un kit que trae 250 ml de Parte A + 250 ml de Parte B. ¿Es para eso que preguntás? Si es así, te digo que el rendimiento depende del espesor..." — todo el preámbulo de "no puedo responder sin saber" + "¿es para eso que preguntás?" es violación directa de esta regla. La respuesta debió arrancar derecho con el rendimiento del kit de 500 ml de ESTA publicación. PROHIBIDO también los preámbulos "No puedo responder sin saber", "Necesito saber qué producto", "Antes de responder, contame", "¿Es para eso que preguntás?", "Si es así, te digo" — son todas variantes de pedir identificación que la regla prohíbe.',
       '',
       '6. Tono ML: más formal que en WhatsApp, respuesta completa, sin emojis, sin abreviaturas de chat. El comprador puede no conocer la marca — explicá lo justo para que entienda.',
       '',
@@ -1859,6 +1860,14 @@ IMPORTANTE sobre precios:
       { name: 'interpreto que', re: /^\s*(?:Bueno,?\s*)?[Ii]nterpreto que[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'noto que', re: /^\s*(?:Bueno,?\s*)?[Nn]oto que[^,.!?\n]*[,.!?\n]+\s*/g },
       { name: 'parece que', re: /^\s*(?:Bueno,?\s*)?[Pp]arece que[^,.!?\n]*[,.!?\n]+\s*/g },
+      // Marcos 2026-06-22 (MLA3221254752 — "No puedo responder sin
+      // saber exactamente qué producto estás mirando. Esta publicación
+      // es de Resina Cristal Epoxi..."): otra forma de pedir
+      // identificación de producto. La publicación YA es el producto;
+      // este preámbulo viola la regla 5.B. Strip primera oración.
+      { name: 'no puedo responder sin saber', re: /^\s*[Nn]o puedo responder (?:sin|hasta|si no)[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'necesito saber qu[eé]', re: /^\s*[Nn]ecesito saber (?:qu[eé]|cu[aá]l)[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'antes de responder', re: /^\s*[Aa]ntes de (?:responder|contestar|poder contestarte)[^.!?\n]*[.!?\n]+\s*/g },
       // Marcos 2026-06-22 (caso MLA1500591407 — "Ah, entendido — es una reparación.\nNo, esta resina..."): aperturas pseudo-conversacionales tipo chatbot que reconocen al comprador como si la conversación viniera de antes. En ML cada pregunta es one-shot — no hay nada que "acabar de entender". Estas aperturas son ruido.
       { name: 'ah / entendido / claro', re: /^\s*(?:Ah[,!.]?\s*)?(?:entendido|entiendo|claro|perfecto|listo|ok|okay|de acuerdo|comprendo|ya veo)\s*[—\-,!.]?\s*(?:[^\n.!?]{0,80}[—,.!?\n])?\s*/i },
       { name: 'ah, ...', re: /^\s*Ah[,!]\s*[^\n.!?]{0,60}[,.!?\n]\s*/i },
@@ -1890,6 +1899,23 @@ IMPORTANTE sobre precios:
         }
       }
       if (!passHit) break;
+    }
+    // Marcos 2026-06-22: scrub body-internal product-identification
+    // questions (no aparecen al inicio sino entre oraciones). Patrón:
+    // "¿Es (para/por) eso que preguntás?" / "Si es así, ..." opcional.
+    // Removemos la pregunta y dejamos lo que viene después (suele ser
+    // la respuesta real que ya estaba en el mismo bloque).
+    const BODY_CONFIRMATION_RES: RegExp[] = [
+      /\s*¿\s*[Ee]s (?:para|por) eso que pregunt[aá]s\??\s*\??\s*/g,
+      /\s*¿\s*[EeYy] es (?:para|por) eso[^.!?\n]*\??\s*/g,
+      /\s*[Ss]i es as[ií][,.\s]+(?:te|le)\s+(?:digo|cuento|explico|respondo)[^,.\n]*[,.]\s*/g,
+    ];
+    for (const re of BODY_CONFIRMATION_RES) {
+      if (re.test(cleaned)) {
+        cleaned = cleaned.replace(re, ' ');
+        hit = true;
+        this.logger.warn('Body confirmation question scrubbed');
+      }
     }
     if (!hit) return text;
     cleaned = cleaned.replace(/^[\s,;:]+/, '').replace(/\s{2,}/g, ' ');
