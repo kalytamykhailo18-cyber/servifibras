@@ -38,8 +38,10 @@ export class OrdersController {
   }
 
   // Get order statistics (must be before :id route)
+  // Marcos 2026-06-23: VENTAS también ve los counts del header del
+  // listado (mismas tabs que ADMIN/LOG ven).
   @Get('stats/summary')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS)
   async getOrderStatistics() {
     const data = await this.orderManagement.getOrderStatistics();
     return { success: true, data };
@@ -163,8 +165,10 @@ export class OrdersController {
   }
 
   // List orders with filters.
+  // Marcos 2026-06-23: VENTAS suma a la lista de pedidos para poder
+  // cargar nuevos pedidos (normales y laminados PRFV) desde el listado.
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS)
   async listOrders(
     @Query('status') status?: OrderStatus,
     @Query('contactId') contactId?: string,

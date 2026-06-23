@@ -26,8 +26,13 @@ import { Pagination } from "@/components/ui/pagination";
 // Marcos 2026-06-23: ENCARGADO supervisa logística — explicit en la lista
 // para que la lectura del código matchee el comportamiento (el useRoleGuard
 // igual lo auto-expandiría a partir de LOGISTICA, pero preferimos ser
-// explícitos para que no haya dudas).
-const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO];
+// explícitos para que no haya dudas). Marcos 2026-06-23 (segundo pedido):
+// VENTAS también carga pedidos (normales y laminados PRFV) — el botón
+// "Nuevo pedido" vive en esta página, así que VENTAS necesita entrar.
+// El backend POST /admin/orders ya admite VENTAS; sólo faltaba el gate
+// del listado. Las acciones de cambiar estado / tracking siguen
+// disabled para VENTAS desde el detalle (gate aparte en [id]/page.tsx).
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS];
 import AddIcon from "@mui/icons-material/Add";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";
