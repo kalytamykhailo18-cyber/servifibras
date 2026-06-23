@@ -434,6 +434,13 @@ model Order {
   lostAt             DateTime?
   lostById           String?
   lostBy             User?     @relation("OrderLostBy", fields: [lostById], references: [id], onDelete: SetNull)
+  /// Marcos 2026-06-23: descuento general aplicado al pedido (%).
+  /// Caso típico: cliente paga por transferencia y la lista
+  /// contempla un % off. Se persiste a fines de auditoría — el
+  /// `amount` ya viene calculado con el descuento aplicado.
+  /// Per-row discounts viven en cada elemento del JSON `products`
+  /// como discountPercent.
+  discountPercent    Float?
   /// Marcos 2026-06-20: timestamp del primer print de la etiqueta
   /// Zebra 10x15. Cuando es no-null, la UI muestra al operador
   /// "Esta etiqueta ya fue impresa - re-imprimir?" antes de generar

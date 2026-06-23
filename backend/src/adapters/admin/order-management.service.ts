@@ -172,6 +172,13 @@ export class OrderManagementService implements IOrderManagementService {
         responsibleId: typeof (data as any).responsibleId === 'string' && (data as any).responsibleId.length > 0
           ? (data as any).responsibleId
           : null,
+        // Marcos 2026-06-23: descuento general % — para auditoría /
+        // exhibición en el detalle. El `amount` ya viene calculado
+        // post-descuento desde el form.
+        discountPercent:
+          typeof (data as any).discountPercent === 'number' && Number.isFinite((data as any).discountPercent)
+            ? Math.max(0, Math.min(100, (data as any).discountPercent))
+            : null,
         // Marcos 2026-06-23: campos del "destino del producto" en
         // REPOSICION + estado del retorno. Inicialización:
         //   REPOSICION + withReturn=true  → PENDING

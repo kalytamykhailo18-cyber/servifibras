@@ -61,15 +61,22 @@ interface ProductRow {
   // warehouse UBI for the armado item list. Manually-typed product
   // names leave this empty.
   sku?: string;
+  // Marcos 2026-06-23: descuento % opcional aplicado a esta línea.
+  // Si el operador prefiere usar el descuento general del pedido,
+  // este campo queda vacío y el descuento global hace el efecto.
+  discountPercent?: string;
 }
 
-const EMPTY_ROW: ProductRow = { name: "", category: "", quantity: "1", unitPrice: "", sku: "" };
+const EMPTY_ROW: ProductRow = { name: "", category: "", quantity: "1", unitPrice: "", sku: "", discountPercent: "" };
 
 function lineTotal(row: ProductRow): number {
   const q = Number(row.quantity);
   const p = Number(row.unitPrice);
   if (!Number.isFinite(q) || !Number.isFinite(p) || q <= 0 || p < 0) return 0;
-  return Math.round(q * p * 100) / 100;
+  const gross = q * p;
+  const d = Number(row.discountPercent ?? '');
+  const disc = Number.isFinite(d) && d > 0 && d <= 100 ? d : 0;
+  return Math.round(gross * (1 - disc / 100) * 100) / 100;
 }
 
 function fmt(currency: string, amount: number): string {
@@ -88,6 +95,7 @@ function rowsFromOrder(o: Order | undefined): ProductRow[] {
     quantity: p?.quantity != null ? String(p.quantity) : "1",
     unitPrice: p?.unitPrice != null ? String(p.unitPrice) : "",
     sku: typeof p?.sku === "string" ? p.sku : "",
+    discountPercent: p?.discountPercent != null ? String(p.discountPercent) : "",
   }));
 }
 
@@ -120,6 +128,15 @@ export function OrderFormDialog({
   const [currency, setCurrency] = useState<"ARS" | "USD">((initialSource?.currency as "ARS" | "USD") ?? "ARS");
   const [rows, setRows] = useState<ProductRow[]>(rowsFromOrder(initialSource));
   const [notes, setNotes] = useState<string>((initialSource as any)?.notes ?? "");
+  // Marcos 2026-06-23: descuento general % aplicado al pedido entero.
+  // Caso típico: cliente paga por transferencia y la lista contempla
+  // 10/15%. Convive con el descuento por línea (cada row.discountPercent);
+  // el descuento general se aplica DESPUÉS del subtotal con descuentos
+  // por línea, así el operador puede combinar (ej. ítem específico con
+  // 5% extra y 10% general por transferencia).
+  const [discountPercent, setDiscountPercent] = useState<string>(
+    (initialSource as any)?.discountPercent != null ? String((initialSource as any).discountPercent) : ""
+  );
   const [amountOverride, setAmountOverride] = useState<string>(
     initialSource?.amount != null ? String(initialSource.amount) : "",
   );
@@ -196,6 +213,7 @@ export function OrderFormDialog({
     setRows(rowsFromOrder(src));
     setNotes((src as any)?.notes ?? "");
     setAmountOverride(src?.amount != null ? String(src.amount) : "");
+    setDiscountPercent((src as any)?.discountPercent != null ? String((src as any).discountPercent) : "");
     setSectionOverride(((src as any)?.sectionOverride as any) || 'MOTOS');
     setNewContactOpen(false);
     setNewName("");
@@ -360,7 +378,16 @@ export function OrderFormDialog({
     if (hit) setRepCost(String(hit.costPerPackage));
   }, [isReposicion, repCarrier, repZone, tariffs]);
 
-  const computedTotal = useMemo(() => rows.reduce((s, r) => s + lineTotal(r), 0), [rows]);
+  const subtotalAfterLineDiscounts = useMemo(() => rows.reduce((s, r) => s + lineTotal(r), 0), [rows]);
+  // Marcos 2026-06-23: descuento general aplicado AL SUBTOTAL (que ya
+  // tiene los descuentos por línea aplicados). Convive con override
+  // manual del monto a facturar; si el operador escribe un override,
+  // ese gana sobre todo el cálculo.
+  const orderDiscount = (() => {
+    const d = Number(discountPercent);
+    return Number.isFinite(d) && d > 0 && d <= 100 ? d : 0;
+  })();
+  const computedTotal = Math.round(subtotalAfterLineDiscounts * (1 - orderDiscount / 100) * 100) / 100;
   const finalTotal = amountOverride !== "" ? Number(amountOverride) || 0 : computedTotal;
   const overrideActive = amountOverride !== "" && Number(amountOverride) !== computedTotal;
 
@@ -451,13 +478,18 @@ export function OrderFormDialog({
     }
 
     const cleaned = rows
-      .map((r) => ({
-        name: r.name.trim(),
-        category: r.category.trim() || "General",
-        quantity: Number(r.quantity),
-        unitPrice: Number(r.unitPrice),
-        sku: (r.sku || '').trim() || undefined,
-      }))
+      .map((r) => {
+        const d = Number(r.discountPercent ?? '');
+        const lineDisc = Number.isFinite(d) && d > 0 && d <= 100 ? d : 0;
+        return {
+          name: r.name.trim(),
+          category: r.category.trim() || "General",
+          quantity: Number(r.quantity),
+          unitPrice: Number(r.unitPrice),
+          sku: (r.sku || '').trim() || undefined,
+          discountPercent: lineDisc > 0 ? lineDisc : undefined,
+        };
+      })
       .filter((r) => r.name.length > 0 && r.quantity > 0 && Number.isFinite(r.unitPrice) && r.unitPrice >= 0);
     if (cleaned.length === 0) {
       toast.error("Agregá al menos un producto con nombre, cantidad y precio.");
@@ -467,14 +499,19 @@ export function OrderFormDialog({
       toast.error("Monto total inválido");
       return;
     }
-    const products = cleaned.map((r) => ({
-      name: r.name,
-      category: r.category,
-      quantity: r.quantity,
-      unitPrice: r.unitPrice,
-      totalPrice: Math.round(r.quantity * r.unitPrice * 100) / 100,
-      ...(r.sku ? { sku: r.sku } : {}),
-    }));
+    const products = cleaned.map((r) => {
+      const gross = r.quantity * r.unitPrice;
+      const net = r.discountPercent ? gross * (1 - r.discountPercent / 100) : gross;
+      return {
+        name: r.name,
+        category: r.category,
+        quantity: r.quantity,
+        unitPrice: r.unitPrice,
+        totalPrice: Math.round(net * 100) / 100,
+        ...(r.sku ? { sku: r.sku } : {}),
+        ...(r.discountPercent ? { discountPercent: r.discountPercent } : {}),
+      };
+    });
     setSubmitting(true);
     try {
       if (isEditing && order) {
@@ -483,7 +520,8 @@ export function OrderFormDialog({
           currency,
           products,
           notes: notes.trim() || undefined,
-        });
+          discountPercent: orderDiscount > 0 ? orderDiscount : null,
+        } as any);
         toast.success("Pedido actualizado");
       } else {
         await api.orders.create({
@@ -493,6 +531,7 @@ export function OrderFormDialog({
           products,
           notes: notes.trim() || undefined,
           sectionOverride,
+          discountPercent: orderDiscount > 0 ? orderDiscount : null,
         } as any);
         toast.success("Pedido creado");
       }
@@ -626,7 +665,14 @@ export function OrderFormDialog({
                 {/* Resultados — sólo se muestran si hay search OR no
                    hay nada seleccionado todavía. Cap 50; el operador
                    refina el search si hay muchos. */}
-                {(contactSearchDebounced.length > 0 || !contactId) && contacts.length > 0 && (
+                {/* Marcos 2026-06-23: ocultar los primeros sugeridos
+                   hasta que el operador empiece a buscar. Antes
+                   abriamos el form y se llenaba la mitad del modal
+                   con una lista de los 50 ultimos contactos — innecesario
+                   porque el operador casi siempre llega con un nombre
+                   o un dni en la cabeza. Ahora la lista solo aparece
+                   despues de tipear (>=1 char). */}
+                {contactSearchDebounced.length > 0 && contacts.length > 0 && (
                   <ul
                     data-testid="order-form-contact-results"
                     className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white"
@@ -1039,7 +1085,7 @@ export function OrderFormDialog({
                 <li
                   key={idx}
                   data-testid={`order-form-row-${idx}`}
-                  className="grid grid-cols-[1fr_80px_1fr_110px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
+                  className="grid grid-cols-[1fr_70px_1fr_100px_70px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
                 >
                   <ProductPicker
                     value={row.name}
@@ -1082,6 +1128,19 @@ export function OrderFormDialog({
                     className="text-right"
                     data-testid={`order-form-row-price-${idx}`}
                   />
+                  {/* Marcos 2026-06-23: descuento % por línea (opcional). */}
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    value={row.discountPercent ?? ''}
+                    onChange={(e) => updateRow(idx, { discountPercent: e.target.value })}
+                    placeholder="Desc. %"
+                    className="text-right"
+                    data-testid={`order-form-row-discount-${idx}`}
+                    title="Descuento porcentual aplicado solo a esta línea"
+                  />
                   <button
                     type="button"
                     onClick={() => removeRow(idx)}
@@ -1098,6 +1157,33 @@ export function OrderFormDialog({
           </div>
           )}
 
+          {/* Marcos 2026-06-23: descuento general % aplicado al pedido
+             entero. Se cobra después de los descuentos por línea, así
+             el operador puede combinar ítem específico + transferencia. */}
+          {!isReposicion && (
+          <div className="grid grid-cols-[1fr_120px] gap-3 items-end">
+            <p className="text-[11px] text-slate-500">
+              <strong className="text-slate-700">Descuento general:</strong> aplicado al subtotal después de descuentos por línea. Útil para "paga por transferencia" sin tocar cada ítem.
+            </p>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Descuento %
+              </label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                value={discountPercent}
+                onChange={(e) => setDiscountPercent(e.target.value)}
+                placeholder="0"
+                data-testid="order-form-discount-percent"
+                className="h-10 text-right"
+              />
+            </div>
+          </div>
+          )}
+
           {/* Total + override — hidden in reposición mode (the cost
               from the carrier+zone tariff IS the total). */}
           {!isReposicion && (
@@ -1111,6 +1197,11 @@ export function OrderFormDialog({
                 data-testid="order-form-computed-total"
               >
                 {fmt(currency, computedTotal)}
+                {orderDiscount > 0 && (
+                  <span className="ml-2 text-[10px] text-emerald-700">
+                    (−{orderDiscount}%, subtotal {fmt(currency, subtotalAfterLineDiscounts)})
+                  </span>
+                )}
               </div>
             </div>
             <div>

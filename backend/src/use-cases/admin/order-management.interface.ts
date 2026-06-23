@@ -79,6 +79,12 @@ export interface CreateOrderData {
   productLabel?: string | null;
   returnCarrier?: string | null;
   returnShippingCost?: number | null;
+  // Marcos 2026-06-23: descuento general % aplicado al pedido (lista
+  // de precios con descuento por transferencia, etc). El backend lo
+  // persiste por auditoría; el `amount` ya viene calculado con el
+  // descuento aplicado por el form. Per-row discount vive en cada
+  // entry de products[] como `discountPercent`.
+  discountPercent?: number | null;
 }
 
 export interface UpdateOrderData {
