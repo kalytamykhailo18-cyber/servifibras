@@ -24,6 +24,10 @@ const ML_TAB_ROLES: UserRole[] = [
   UserRole.ADMIN,
   UserRole.ATENCION,
   UserRole.VENTAS,
+  // Marcos 2026-06-23: ENCARGADO supervisa atencion y necesita ver
+  // Reclamos / Preguntas / Mensajes de ML como los demas roles que
+  // operan el panel.
+  UserRole.ENCARGADO,
 ];
 
 export default function ConversationsPage() {
