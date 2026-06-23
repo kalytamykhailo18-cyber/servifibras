@@ -563,9 +563,21 @@ export class DailyLogisticaAggregatorService {
             // order means the whole pack was pulled by the buyer.
             // mlPermalink is built from the first item's itemId
             // (catalog redirects MLA-id → full canonical URL).
-            const isCancelled = ordersInGroup.some(
-              (g) => (g.shippingStatus ?? '').toLowerCase() === 'cancelled',
-            );
+            //
+            // Marcos 2026-06-23 (pack #2000017022488910 + #2000016728149670):
+            // shippingStatus a veces no se flipea a 'cancelled' cuando
+            // ML cancela el reclamo del lado de ellos — pero el
+            // order-level `status` SÍ ('cancelled' o 'invalid'). Sin
+            // chequear ese campo, packs cancelados volvían a aparecer
+            // en Armado con la nota manual "RECLAMO CERRADO". Ahora
+            // miramos ambos: shippingStatus OR order.status. Cualquier
+            // sibling con uno de los dos en 'cancelled'/'invalid' ya
+            // hace que el pack quede oculto del panel armado.
+            const isCancelled = ordersInGroup.some((g) => {
+              const ss = (g.shippingStatus ?? '').toLowerCase();
+              const os = (g.status ?? '').toLowerCase();
+              return ss === 'cancelled' || os === 'cancelled' || os === 'invalid';
+            });
             // Bloque B item 3.11 — dispatched flag. A pack is
             // dispatched when EVERY sibling order has been shipped.
             // Marcos 2026-06-09 (urgent): for cross-docking the
@@ -985,9 +997,18 @@ export class DailyLogisticaAggregatorService {
     // "Eliminar canceladas" action stamps archivedAt on the
     // LogisticaArmado row). They live in the cancelled-orders module
     // — out of the daily panel.
+    //
+    // Marcos 2026-06-23: además, filtrar automáticamente cualquier
+    // row que ya esté cancelado (isCancelled=true). Antes la fila
+    // mostraba un badge CANCELADA pero seguía en el panel — Marcos
+    // tenía que clickear manualmente "Eliminar canceladas" para
+    // archivarlas, y mientras tanto los pickers seguían viendo
+    // ordenes que ya no debían armar. Auto-hide elimina el ruido.
+    // La fila sigue accesible desde el modulo de canceladas para
+    // auditoria; solo se saca del flujo de armado.
     for (const s of SECTION_ORDER) {
       out.sections[s] = out.sections[s].filter(
-        (r) => !(r as { _archived?: boolean })._archived,
+        (r) => !(r as { _archived?: boolean })._archived && !r.isCancelled,
       );
       for (const r of out.sections[s]) {
         delete (r as { _archived?: boolean })._archived;
