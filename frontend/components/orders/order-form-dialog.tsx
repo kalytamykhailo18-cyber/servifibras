@@ -826,28 +826,58 @@ export function OrderFormDialog({
                 {orderMode === 'DEVOLUCION' ? 'Datos de la devolución' : 'Datos de la reposición'}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_140px]">
-                <select
+                {/* Marcos 2026-06-23: el picker de mensajería pasa a
+                   ser input libre + sugerencias (datalist). Cuando la
+                   reposición va por Uber / Didi / particular —
+                   couriers ad-hoc que NO están en la tabla de tarifas
+                   — el operador escribe el nombre y queda registrado
+                   en Order.carrier. No se cruza con la analitica de
+                   "deudas a mensajerías": el card de despachos solo
+                   muestra estimated cost cuando hay tarifa cargada;
+                   sin tarifa, esa columna queda en null para esa
+                   mensajería puntual. */}
+                <Input
+                  list="reposicion-carrier-suggestions"
                   value={repCarrier}
                   onChange={(e) => setRepCarrier(e.target.value)}
+                  placeholder="Mensajería (Andreani, Uber, Didi…)"
                   data-testid="order-form-reposicion-carrier"
-                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-                >
-                  <option value="">Mensajería…</option>
+                  className="h-10"
+                />
+                <datalist id="reposicion-carrier-suggestions">
                   {Array.from(new Set(tariffs.map((t) => t.carrier))).sort().map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c} />
                   ))}
-                </select>
-                <select
+                </datalist>
+                {/* Marcos 2026-06-23: zona también libre. Para
+                   carriers con tarifa, filtramos sugerencias por
+                   carrier; para carriers ad-hoc (Uber, etc) ofrecemos
+                   todas las zonas conocidas como sugerencia y el
+                   operador escribe lo que quiera. */}
+                <Input
+                  list="reposicion-zone-suggestions"
                   value={repZone}
                   onChange={(e) => setRepZone(e.target.value)}
+                  placeholder="Zona"
                   data-testid="order-form-reposicion-zone"
-                  className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-                >
-                  <option value="">Zona…</option>
-                  {Array.from(new Set(tariffs.filter((t) => !repCarrier || t.carrier === repCarrier).map((t) => t.zone))).sort().map((z) => (
-                    <option key={z} value={z}>{z}</option>
+                  className="h-10"
+                />
+                <datalist id="reposicion-zone-suggestions">
+                  {Array.from(new Set(
+                    tariffs
+                      .filter((t) => !repCarrier || t.carrier === repCarrier)
+                      .map((t) => t.zone)
+                      .concat(
+                        // Si el carrier no tiene tarifas, fallback a la
+                        // union de todas las zonas conocidas.
+                        repCarrier && !tariffs.some((t) => t.carrier === repCarrier)
+                          ? tariffs.map((t) => t.zone)
+                          : []
+                      )
+                  )).sort().map((z) => (
+                    <option key={z} value={z} />
                   ))}
-                </select>
+                </datalist>
                 <Input
                   type="number"
                   inputMode="decimal"
@@ -956,17 +986,22 @@ export function OrderFormDialog({
 
                   {withReturn && (
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_160px]">
-                      <select
+                      {/* Marcos 2026-06-23: mismo combobox libre que el
+                         carrier de salida — admite Uber/Didi/particular
+                         además de las mensajerías con tarifa cargada. */}
+                      <Input
+                        list="reposicion-return-carrier-suggestions"
                         value={returnCarrier}
                         onChange={(e) => setReturnCarrier(e.target.value)}
+                        placeholder="Mensajería del retorno (Andreani, Uber, Didi…)"
                         data-testid="order-form-reposicion-return-carrier"
-                        className="h-10 rounded-lg border border-amber-300 bg-white px-3 text-sm"
-                      >
-                        <option value="">Mensajería del retorno…</option>
+                        className="h-10"
+                      />
+                      <datalist id="reposicion-return-carrier-suggestions">
                         {Array.from(new Set(tariffs.map((t) => t.carrier))).sort().map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                          <option key={c} value={c} />
                         ))}
-                      </select>
+                      </datalist>
                       <Input
                         type="number"
                         inputMode="decimal"
