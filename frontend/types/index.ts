@@ -252,6 +252,19 @@ export interface Order {
   cancelledBy?: { id: string; name: string; email: string } | null;
   createdBy?: { id: string; name: string; email: string } | null;
   returnedBy?: { id: string; name: string; email: string } | null;
+  // Marcos 2026-06-23: campos del modulo Reposicion/Devolucion que el
+  // listado y el detalle leen para distinguir el tipo de operacion
+  // (chip REPOSICION/DEVOLUCION en la columna Monto) y para el flag
+  // "retirar paquete" en la etiqueta. Todos opcionales — SALE no los
+  // tiene en uso.
+  orderType?: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
+  isReposicion?: boolean;
+  returnState?: 'NONE' | 'PENDING' | 'RETURNED' | 'LOST';
+  productValue?: number | null;
+  productLabel?: string | null;
+  returnCarrier?: string | null;
+  returnShippingCost?: number | null;
+  responsibleId?: string | null;
   // Optional relations (when fetched with includes)
   contact?: Contact;
 }

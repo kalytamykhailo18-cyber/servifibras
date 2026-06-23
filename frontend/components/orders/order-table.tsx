@@ -148,9 +148,34 @@ export function OrderTable({ orders, onEdit, onDelete, onCancel }: OrderTablePro
               </TableCell>
 
               <TableCell className="px-4 py-3">
-                <span className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-400 px-2 py-1 text-xs font-semibold tabular-nums text-white shadow-[0_2px_8px_-2px_rgb(16_185_129/0.45)]">
-                  {formatMoney(order.amount, order.currency)}
-                </span>
+                {/* Marcos 2026-06-23: REPOSICION/DEVOLUCION mostraban
+                   "ARS $0" cuando el monto era el costo de logística
+                   y este venía vacío — confuso (parecía venta perdida).
+                   Ahora si el orderType ≠ SALE renderizamos un chip
+                   con el tipo de operación; el monto detallado queda
+                   en el detalle del pedido (logística + valor producto). */}
+                {(() => {
+                  const oType = (order as any).orderType;
+                  if (oType === 'REPOSICION') {
+                    return (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 px-2 py-1 text-xs font-semibold text-white shadow-[0_2px_8px_-2px_rgb(245_158_11/0.45)]">
+                        REPOSICIÓN
+                      </span>
+                    );
+                  }
+                  if (oType === 'DEVOLUCION') {
+                    return (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-br from-rose-500 to-pink-500 px-2 py-1 text-xs font-semibold text-white shadow-[0_2px_8px_-2px_rgb(244_63_94/0.45)]">
+                        DEVOLUCIÓN
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-400 px-2 py-1 text-xs font-semibold tabular-nums text-white shadow-[0_2px_8px_-2px_rgb(16_185_129/0.45)]">
+                      {formatMoney(order.amount, order.currency)}
+                    </span>
+                  );
+                })()}
               </TableCell>
 
               <TableCell className="px-4 py-3">

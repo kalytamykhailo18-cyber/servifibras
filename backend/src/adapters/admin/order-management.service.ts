@@ -805,6 +805,16 @@ export class OrderManagementService implements IOrderManagementService {
       postal ? `CP ${postal}` : null,
     ].filter(Boolean);
     const direccion = direccionParts.length > 0 ? direccionParts.join(' · ') : null;
+    // Marcos 2026-06-23: cuando el pedido es REPOSICION con devolución
+    // (toggle CON DEVOLUCION → returnState=PENDING), la mensajería
+    // tiene que ENTREGAR un paquete Y RETIRAR otro. Sin un aviso
+    // visible en la etiqueta, el courier solo entrega y se va. Pasamos
+    // un flag al builder para que estampe una banda destacada.
+    // DEVOLUCION pura no aplica (no hay entrega, solo retiro — la
+    // etiqueta no se usa en ese flujo, las DEVOLUCIONES se manejan
+    // con el pickup de la mensajería).
+    const retirarPaquete =
+      order.orderType === 'REPOSICION' && (order.returnState as any) === 'PENDING';
     const { buildEtiquetaPdf } = await import('./order-etiqueta-pdf.builder');
     return buildEtiquetaPdf({
       nombre: order.contact?.name ?? '',
@@ -812,6 +822,8 @@ export class OrderManagementService implements IOrderManagementService {
       localidad,
       telefono: order.contact?.phone ?? null,
       bultos: Math.max(1, Math.min(50, Math.floor(bultos))),
+      retirarPaquete,
+      retirarLabel: order.productLabel ?? null,
     });
   }
 

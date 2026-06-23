@@ -23,6 +23,18 @@ export interface EtiquetaPdfData {
   /** Total number of bultos for this order. When >1 the builder
    *  emits one page per bulto with "BULTO 1/N", "BULTO 2/N", etc. */
   bultos: number;
+  /**
+   * Marcos 2026-06-23: cuando este flag viene true (REPOSICION con
+   * devolución), la etiqueta estampa una banda destacada arriba
+   * indicando al courier que ADEMÁS de entregar el paquete tiene
+   * que RETIRAR otro. Sin esto el courier suele entregar y se va
+   * sin retirar nada, dejando el ciclo de devolución roto.
+   */
+  retirarPaquete?: boolean;
+  /** Etiqueta libre del producto a retirar — para que el courier
+   *  identifique qué está retirando ("Resina 4L de Pintura Cristal",
+   *  etc). Opcional; cuando es null se imprime sólo el aviso genérico. */
+  retirarLabel?: string | null;
 }
 
 interface CompanyConfig {
@@ -75,6 +87,10 @@ export function buildEtiquetaPdf(data: EtiquetaPdfData): Promise<Buffer> {
       for (let i = 1; i <= total; i++) {
         if (i > 1) doc.addPage({ size: [PAGE_WIDTH, PAGE_HEIGHT], margin: MARGIN });
         renderHeader(doc, company);
+        // Marcos 2026-06-23: banda "RETIRAR PAQUETE" cuando el pedido
+        // es REPOSICION con devolución — el courier tiene que llevarse
+        // un paquete además de entregar.
+        if (data.retirarPaquete) renderRetirarBanner(doc, data.retirarLabel ?? null);
         renderRows(doc, { ...data, bultos: total }, i);
       }
 
@@ -122,6 +138,38 @@ function renderHeader(doc: PDFKit.PDFDocument, c: CompanyConfig) {
       { width: textW, lineGap: 0.5 },
     );
   doc.y = top + headerH + 6;
+}
+
+/**
+ * Marcos 2026-06-23: banda destacada arriba del bloque de filas.
+ * Fondo amarillo fuerte + texto negro grande para que el courier no
+ * pueda no verlo. Mide ~50pt de alto; las filas debajo bajan
+ * automáticamente porque renderRows arranca desde doc.y.
+ */
+function renderRetirarBanner(doc: PDFKit.PDFDocument, productLabel: string | null) {
+  const left = MARGIN;
+  const innerW = PAGE_WIDTH - 2 * MARGIN;
+  const y = doc.y;
+  const bannerH = productLabel ? 48 : 36;
+  doc.save();
+  doc.rect(left, y, innerW, bannerH).fill('#FFEB3B');
+  doc.restore();
+  doc.lineWidth(1.5).strokeColor('#000000').rect(left, y, innerW, bannerH).stroke();
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#000000')
+    .text('⚠ RETIRAR PAQUETE EN EL DOMICILIO', left + 6, y + 4, {
+      width: innerW - 12,
+      align: 'center',
+    });
+  doc.font('Helvetica').fontSize(9).fillColor('#000000')
+    .text('Entregar + Retirar — no irse sin el paquete a devolver',
+      left + 6, y + 22, { width: innerW - 12, align: 'center' });
+  if (productLabel) {
+    doc.font('Helvetica-Bold').fontSize(9)
+      .text(`Retirar: ${productLabel}`, left + 6, y + 34, {
+        width: innerW - 12, align: 'center', ellipsis: true,
+      });
+  }
+  doc.y = y + bannerH + 6;
 }
 
 function renderRows(doc: PDFKit.PDFDocument, data: EtiquetaPdfData, currentBulto: number = 1) {
