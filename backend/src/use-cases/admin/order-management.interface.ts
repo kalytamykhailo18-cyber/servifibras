@@ -65,6 +65,10 @@ export interface CreateOrderData {
   // Marcos 2026-06-18: 'SALE' (default) / 'REPOSICION' / 'DEVOLUCION'.
   // The string takes precedence over the legacy isReposicion bool.
   orderType?: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
+  // Marcos 2026-06-22: responsable del paquete mal despachado
+  // (catalogo OperationalResponsible). Solo aplica a REPOSICION; el
+  // form valida que esté presente en ese tab.
+  responsibleId?: string | null;
 }
 
 export interface UpdateOrderData {
@@ -72,6 +76,7 @@ export interface UpdateOrderData {
   currency?: string;
   products?: any;
   notes?: string;
+  responsibleId?: string | null;
 }
 
 /**

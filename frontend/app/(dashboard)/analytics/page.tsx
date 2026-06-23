@@ -16,6 +16,7 @@ import { AIPerformanceChart } from "@/components/analytics/ai-performance-chart"
 import { MlAccountSplitCard } from "@/components/analytics/ml-account-split-card";
 import { VentasUnificadasCard } from "@/components/analytics/ventas-unificadas-card";
 import { DispatchStatsCard } from "@/components/analytics/dispatch-stats-card";
+import { ReposicionByResponsibleCard } from "@/components/analytics/reposicion-by-responsible-card";
 import { api } from "@/lib/api/endpoints";
 import { useRealtimeEvent } from "@/lib/realtime/use-realtime";
 import { useAuthStore, selectUserRole } from "@/lib/store/auth-store";
@@ -430,6 +431,13 @@ export default function AnalyticsPage() {
           drilldowns and benefits from horizontal room. */}
       {isAdmin && (
         <DispatchStatsCard />
+      )}
+
+      {/* Marcos 2026-06-22: costo de reposiciones por responsable —
+         "se contabiliza en dinero el valor del error segmentado por
+         semana, mes, personalizado". ADMIN-only. */}
+      {isAdmin && (
+        <ReposicionByResponsibleCard />
       )}
 
       {/* INSIGHTS — admin-only (contact + KB counts are global). */}

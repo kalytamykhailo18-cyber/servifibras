@@ -943,6 +943,32 @@ export const analyticsApi = {
     return r.data?.data ?? r.data;
   },
 
+  /**
+   * Marcos 2026-06-22: costo de reposiciones por responsable. ADMIN-
+   * only. Devuelve cuántos pedidos de reposición carga cada operador
+   * de depósito y la suma de shippingCost (= la plata que perdió
+   * Servifibras en re-despachos por errores de ese responsable).
+   */
+  getReposicionByResponsible: async (params: { from: string; to: string }): Promise<{
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalCost: number;
+    currency: string;
+    byResponsible: Array<{
+      responsibleId: string | null;
+      name: string;
+      count: number;
+      totalCost: number;
+    }>;
+  }> => {
+    const qs = new URLSearchParams();
+    qs.set('from', params.from);
+    qs.set('to', params.to);
+    const r = await apiClient.get<any>(`/admin/analytics/reposicion-by-responsible?${qs.toString()}`);
+    return r.data?.data ?? r.data;
+  },
+
   getMlAccountSplit: async (params?: { since?: string; until?: string }): Promise<{
     range: { since: string | null; until: string | null };
     accounts: Array<{
@@ -2960,6 +2986,39 @@ export const dispatchTariffsApi = {
   },
 };
 
+// Marcos 2026-06-22: catálogo de responsables operativos (personal
+// de depósito) editable desde ADMIN. Lo consume el form de pedidos
+// en el tab REPOSICIÓN y la card de costos por responsable en
+// /analytics.
+export type OperationalResponsible = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const operationalResponsiblesApi = {
+  list: async (opts?: { activeOnly?: boolean }): Promise<OperationalResponsible[]> => {
+    const url = opts?.activeOnly
+      ? '/admin/operational-responsibles?active=1'
+      : '/admin/operational-responsibles';
+    const r = await apiClient.get<any>(url);
+    return r.data?.data ?? r.data ?? [];
+  },
+  create: async (input: { name: string; active?: boolean }): Promise<OperationalResponsible> => {
+    const r = await apiClient.post<any>('/admin/operational-responsibles', input);
+    return r.data?.data ?? r.data;
+  },
+  update: async (id: string, patch: Partial<{ name: string; active: boolean }>): Promise<OperationalResponsible> => {
+    const r = await apiClient.put<any>(`/admin/operational-responsibles/${id}`, patch);
+    return r.data?.data ?? r.data;
+  },
+  archive: async (id: string): Promise<void> => {
+    await apiClient.delete(`/admin/operational-responsibles/${id}`);
+  },
+};
+
 export const competitorsApi = {
   list: async (productId: string, opts?: { force?: boolean }): Promise<CompetitorList> => {
     const params = new URLSearchParams();
@@ -3004,6 +3063,7 @@ export const api = {
   publicationFaqs: publicationFaqsApi,
   competitors: competitorsApi,
   dispatchTariffs: dispatchTariffsApi,
+  operationalResponsibles: operationalResponsiblesApi,
 };
 
 export default api;

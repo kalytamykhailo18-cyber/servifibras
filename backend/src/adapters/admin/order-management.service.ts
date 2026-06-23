@@ -165,6 +165,13 @@ export class OrderManagementService implements IOrderManagementService {
         // controller (with the user id) or by the TN sync service
         // (no user — falls back to null).
         createdById: typeof (data as any).createdById === 'string' ? (data as any).createdById : null,
+        // Marcos 2026-06-22: responsable del paquete mal despachado
+        // (solo aplica a REPOSICION). Lo elige el operador en el form
+        // desde el catalogo OperationalResponsible. El reporte de
+        // costo por responsable agrupa por este campo.
+        responsibleId: typeof (data as any).responsibleId === 'string' && (data as any).responsibleId.length > 0
+          ? (data as any).responsibleId
+          : null,
       },
       include: {
         contact: {

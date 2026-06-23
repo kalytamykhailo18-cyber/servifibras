@@ -429,6 +429,14 @@ model Order {
   // (no human input on import).
   createdById  String?
   createdBy    User?      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// Marcos 2026-06-22: solo aplica a REPOSICION — el responsable del
+  /// pedido mal despachado original. Es un nombre del catalogo
+  /// OperationalResponsible (CRUD desde Settings → Logistica), NO un
+  /// User de la app porque suelen ser personal de deposito sin
+  /// cuenta. Analytics agrupa los costos de logistica de reposicion
+  /// por este id para que ADMIN vea quien acumulo mas errores.
+  responsibleId    String?
+  responsible      OperationalResponsible? @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -448,8 +456,27 @@ model Order {
   @@index([createdById])
   @@index([orderType])
   @@index([returnedAt])
+  @@index([responsibleId])
   @@unique([source, externalId])
   @@map("orders")
+}
+
+/// Marcos 2026-06-22: catalogo de personas operativas que pueden ser
+/// marcadas como responsables de errores de armado/despacho. NO es un
+/// User — el personal de deposito no tiene cuenta en el CRM y aun asi
+/// debe aparecer en los reportes de "costo por responsable". ADMIN
+/// administra esta lista desde Settings → Logistica.
+model OperationalResponsible {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+
+  @@index([active])
+  @@map("operational_responsibles")
 }
 
 enum OrderSource {

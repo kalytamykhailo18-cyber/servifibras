@@ -13,6 +13,7 @@ import { IntegrationsForm } from "@/components/settings/integrations-form";
 import { LeadDetectionForm } from "@/components/settings/lead-detection-form";
 import { LogisticaForm } from "@/components/settings/logistica-form";
 import { DispatchTariffsForm } from "@/components/settings/dispatch-tariffs-form";
+import { OperationalResponsiblesForm } from "@/components/settings/operational-responsibles-form";
 import { QuickRepliesForm } from "@/components/settings/quick-replies-form";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
 import { UserRole } from "@/types";
@@ -146,6 +147,7 @@ export default function SettingsPage() {
         <TabsContent value="logistica" className="space-y-4">
           <LogisticaForm />
           <DispatchTariffsForm />
+          <OperationalResponsiblesForm />
         </TabsContent>
 
         <TabsContent value="quickReplies" className="space-y-4">

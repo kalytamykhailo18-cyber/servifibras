@@ -361,6 +361,30 @@ export class AnalyticsController {
     }
   }
 
+  /**
+   * Marcos 2026-06-22: costo de reposiciones agrupado por
+   * responsable del paquete mal despachado. ADMIN-only — métrica
+   * sensible (impacto económico personal del operador). El frontend
+   * pasa el rango (semana / mes / personalizado).
+   */
+  @Get('reposicion-by-responsible')
+  @Roles(UserRole.ADMIN)
+  async getReposicionByResponsible(
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+  ) {
+    const now = Date.now();
+    const fromIso = fromRaw?.trim() || new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+    const toIso = toRaw?.trim() || new Date(now).toISOString();
+    try {
+      const data = await this.analyticsService.getReposicionCostByResponsible({ fromIso, toIso });
+      return { success: true, data };
+    } catch (err: any) {
+      this.logger.error(`Error getting reposicion-by-responsible: ${err.message}`);
+      return { success: false, error: 'Failed to get reposicion-by-responsible' };
+    }
+  }
+
   @Get('ventas-unificadas')
   @Roles(UserRole.ADMIN, UserRole.VENTAS)
   async getVentasUnificadas(@Query('range') rangeRaw?: string) {

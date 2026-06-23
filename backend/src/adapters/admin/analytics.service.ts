@@ -1032,6 +1032,73 @@ export class AnalyticsService implements IAnalyticsService {
     };
   }
 
+  /**
+   * Marcos 2026-06-22: costo de reposiciones agrupado por
+   * responsable del paquete mal despachado. Sirve para que ADMIN vea
+   * cuánto dinero perdió cada operador del depósito en cada ventana
+   * de tiempo (semana / mes / personalizado).
+   *
+   * - Sólo cuenta pedidos con orderType=REPOSICION (los que tienen un
+   *   responsable cargado).
+   * - El "costo" es el shippingCost del pedido (la logística que
+   *   Servifibras paga porque hubo que re-despachar).
+   * - Reposiciones sin responsable cargado caen en bucket "(sin asignar)"
+   *   con responsibleId=null — Marcos las puede revisar y asignarlas
+   *   manualmente desde el detalle del pedido.
+   */
+  async getReposicionCostByResponsible(args: { fromIso: string; toIso: string }): Promise<{
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalCost: number;
+    currency: string;
+    byResponsible: Array<{
+      responsibleId: string | null;
+      name: string;
+      count: number;
+      totalCost: number;
+    }>;
+  }> {
+    const from = new Date(args.fromIso);
+    const to = new Date(args.toIso);
+    const rows = await this.prisma.order.findMany({
+      where: {
+        orderType: 'REPOSICION' as any,
+        createdAt: { gte: from, lte: to },
+      },
+      select: {
+        id: true,
+        shippingCost: true,
+        currency: true,
+        responsibleId: true,
+        responsible: { select: { name: true } },
+      },
+    });
+    const acc = new Map<string, { responsibleId: string | null; name: string; count: number; totalCost: number }>();
+    for (const r of rows) {
+      const key = r.responsibleId ?? '__none__';
+      const name = r.responsibleId
+        ? (r.responsible?.name ?? '(eliminado)')
+        : '(sin asignar)';
+      const prev = acc.get(key) ?? { responsibleId: r.responsibleId, name, count: 0, totalCost: 0 };
+      prev.count++;
+      prev.totalCost += typeof r.shippingCost === 'number' ? r.shippingCost : 0;
+      acc.set(key, prev);
+    }
+    const byResponsible = Array.from(acc.values())
+      .map((v) => ({ ...v, totalCost: Math.round(v.totalCost * 100) / 100 }))
+      .sort((a, b) => b.totalCost - a.totalCost);
+    const totalCost = byResponsible.reduce((s, r) => s + r.totalCost, 0);
+    return {
+      fromIso: args.fromIso,
+      toIso: args.toIso,
+      total: rows.length,
+      totalCost: Math.round(totalCost * 100) / 100,
+      currency: 'ARS',
+      byResponsible,
+    };
+  }
+
   async onModuleDestroy() {
     await this.prisma.$disconnect();
   }

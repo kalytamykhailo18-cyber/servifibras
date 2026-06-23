@@ -146,6 +146,11 @@ export function OrderFormDialog({
   const setIsReposicion = (v: boolean) => setOrderMode(v ? 'REPOSICION' : 'PEDIDO');
   const [repCarrier, setRepCarrier] = useState<string>((initialSource as any)?.carrier ?? '');
   const [repZone, setRepZone] = useState<string>((initialSource as any)?.shippingZone ?? '');
+  // Marcos 2026-06-22: responsable del paquete mal despachado.
+  // Required en REPOSICION — sin esto la card de costos por
+  // responsable en /analytics no puede atribuir el gasto.
+  const [responsibleId, setResponsibleId] = useState<string>((initialSource as any)?.responsibleId ?? '');
+  const [responsibles, setResponsibles] = useState<Array<{ id: string; name: string }>>([]);
   const [repCost, setRepCost] = useState<string>(
     (initialSource as any)?.shippingCost != null ? String((initialSource as any).shippingCost) : ''
   );
@@ -199,6 +204,7 @@ export function OrderFormDialog({
     );
     setRepCarrier((src as any)?.carrier ?? '');
     setRepZone((src as any)?.shippingZone ?? '');
+    setResponsibleId((src as any)?.responsibleId ?? '');
     setRepCost((src as any)?.shippingCost != null ? String((src as any).shippingCost) : '');
   }, [open, order, seedFromOrder, initialModeOverride]);
 
@@ -298,6 +304,14 @@ export function OrderFormDialog({
           setTariffs(tr.filter((t: any) => t.active !== false));
         }
       } catch {/* non-fatal */}
+      // Marcos 2026-06-22: catálogo de responsables (solo activos)
+      // para el picker del tab REPOSICION.
+      try {
+        const rs = await (api as any).operationalResponsibles?.list?.({ activeOnly: true });
+        if (!cancelled && Array.isArray(rs)) {
+          setResponsibles(rs.map((r: any) => ({ id: r.id, name: r.name })));
+        }
+      } catch {/* non-fatal — el picker queda vacío y el form bloquea */}
     })();
     return () => { cancelled = true; };
   }, [open]);
@@ -359,6 +373,13 @@ export function OrderFormDialog({
       if (!carrier) { toast.error(`Cargá la mensajería de la ${label}`); return; }
       if (!zone) { toast.error("Cargá la zona"); return; }
       if (!Number.isFinite(cost) || cost < 0) { toast.error("Cargá el costo de logística"); return; }
+      // Marcos 2026-06-22: REPOSICION requiere responsable cargado —
+      // sin esto el reporte de costo por responsable queda incompleto.
+      // DEVOLUCION no aplica.
+      if (orderMode === 'REPOSICION' && !responsibleId) {
+        toast.error("Elegí el responsable del paquete mal despachado");
+        return;
+      }
       setSubmitting(true);
       try {
         const prefix = orderMode === 'DEVOLUCION' ? 'Devolución' : 'Reposición';
@@ -373,6 +394,7 @@ export function OrderFormDialog({
           carrier,
           shippingZone: zone,
           shippingCost: cost,
+          responsibleId: orderMode === 'REPOSICION' ? responsibleId : null,
         } as any);
         toast.success(orderMode === 'DEVOLUCION' ? 'Devolución registrada' : 'Reposición registrada');
         onOpenChange(false);
@@ -799,8 +821,35 @@ export function OrderFormDialog({
               }>
                 {orderMode === 'DEVOLUCION'
                   ? 'Queda en "Pendientes de regreso" hasta marcar que volvió el paquete. No entra en facturación ni ventas.'
-                  : 'Esta fila no entra en facturación ni en métricas de ventas. Solo suma al cómputo de despachos.'}
+                  : 'Esta fila no entra en facturación ni en métricas de ventas, pero sí cuenta en métricas de logística por responsable.'}
               </p>
+              {/* Marcos 2026-06-22: responsable del paquete mal
+                 despachado — sólo en REPOSICION (no aplica a DEVOLUCION,
+                 donde el paquete vuelve pero no hay re-trabajo). El
+                 ADMIN administra la lista desde Settings → Logística. */}
+              {orderMode === 'REPOSICION' && (
+                <div className="mt-2">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-amber-800">
+                    Responsable <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={responsibleId}
+                    onChange={(e) => setResponsibleId(e.target.value)}
+                    data-testid="order-form-reposicion-responsible"
+                    className="block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  >
+                    <option value="">Seleccioná un responsable…</option>
+                    {responsibles.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                  {responsibles.length === 0 && (
+                    <p className="mt-1 text-[10px] text-rose-700">
+                      No hay responsables cargados. Pedile al admin que los configure en Settings → Logística.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
