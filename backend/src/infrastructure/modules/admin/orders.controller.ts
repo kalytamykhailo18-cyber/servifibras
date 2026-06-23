@@ -136,6 +136,29 @@ export class OrdersController {
   }
 
   /**
+   * Marcos 2026-06-23: cierre del retorno como PERDIDO. La mensajería
+   * no trajo el paquete; el valor del producto queda como monto a
+   * cobrar al courier. Se mantiene en /orders?view=pendientes-regreso
+   * con badge distinto y el cobro se materializa desde ahí.
+   */
+  @Post(':id/mark-lost')
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ATENCION, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  async markLost(@Param('id') id: string, @Request() req: any) {
+    const data = await this.orderManagement.markLost(id, req.user?.id ?? null);
+    if (!data) throw new NotFoundException('Pedido no encontrado');
+    const ctx = this.auditCtx(req);
+    await this.audit.log({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: 'order.return.lost',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { orderId: id, orderNumber: data.orderNumber },
+    });
+    return { success: true, data };
+  }
+
+  /**
    * Marcos 2026-06-12: stamp an order as invoiced. Idempotent —
    * re-marking an already-invoiced order is a no-op.
    *   POST /admin/orders/:id/mark-invoiced     → marks invoiced now

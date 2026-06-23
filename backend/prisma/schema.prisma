@@ -55,6 +55,7 @@ model User {
   ordersCreated      Order[]            @relation("OrderCreatedBy")
   ordersReturned     Order[]            @relation("OrderReturnedBy")
   ordersCancelled    Order[]            @relation("OrderCancelledBy")
+  ordersLost         Order[]            @relation("OrderLostBy")
   prfvPlacasCreated  PrfvPlaca[]        @relation("PrfvPlacaCreatedBy")
   // Marcos 2026-06-18: librería de respuestas rápidas (chips reusables).
   quickRepliesAuthored QuickReply[]     @relation("QuickReplyCreatedBy")
@@ -405,6 +406,34 @@ model Order {
   orderType    OrderType  @default(SALE)
   returnedAt   DateTime?
   returnedById String?
+  /// Marcos 2026-06-23: extiende REPOSICION + DEVOLUCION con la
+  /// noción de "destino del producto que estaba mal entregado".
+  ///   NONE     — no aplica (SALE) o reposición sin devolución
+  ///              (producto queda en cliente, valor al panel del
+  ///              responsable como costo del error)
+  ///   PENDING  — esperando que vuelva el paquete (aparece en
+  ///              /orders?view=pendientes-regreso)
+  ///   RETURNED — llegó de vuelta, reingresó a stock
+  ///   LOST     — la mensajería no lo trajo / lo perdió. El valor
+  ///              del producto queda como monto a cobrar al courier
+  ///              (returnCarrier).
+  returnState        ReturnState @default(NONE)
+  /// Valor del producto que estaba mal entregado. Opcional —
+  /// faltantes puros no lo cargan (no hay producto en el cliente).
+  productValue       Float?
+  /// Nombre/etiqueta libre del producto involucrado para que el
+  /// operador identifique qué quedó en el cliente / qué vuelve.
+  productLabel       String?
+  /// Mensajería que trae el producto de vuelta (CON DEVOLUCION).
+  /// Distinta de `carrier` que es la que llevó la reposición.
+  returnCarrier      String?
+  /// Costo de la mensajería del retorno (CON DEVOLUCION).
+  returnShippingCost Float?
+  /// Stamp del cierre como perdido (mark-lost). Análogo a returnedAt
+  /// pero la otra rama del cierre.
+  lostAt             DateTime?
+  lostById           String?
+  lostBy             User?     @relation("OrderLostBy", fields: [lostById], references: [id], onDelete: SetNull)
   /// Marcos 2026-06-20: timestamp del primer print de la etiqueta
   /// Zebra 10x15. Cuando es no-null, la UI muestra al operador
   /// "Esta etiqueta ya fue impresa - re-imprimir?" antes de generar
@@ -457,8 +486,20 @@ model Order {
   @@index([orderType])
   @@index([returnedAt])
   @@index([responsibleId])
+  @@index([returnState])
+  @@index([lostAt])
   @@unique([source, externalId])
   @@map("orders")
+}
+
+/// Marcos 2026-06-23: estado del retorno físico del producto mal
+/// entregado. Aplica principalmente a REPOSICION (toggle CON/SIN
+/// devolución) y a DEVOLUCION (siempre con retorno).
+enum ReturnState {
+  NONE
+  PENDING
+  RETURNED
+  LOST
 }
 
 /// Marcos 2026-06-22: catalogo de personas operativas que pueden ser

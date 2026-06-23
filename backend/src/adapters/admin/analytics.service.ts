@@ -1072,6 +1072,14 @@ export class AnalyticsService implements IAnalyticsService {
         currency: true,
         responsibleId: true,
         responsible: { select: { name: true } },
+        // Marcos 2026-06-23: SIN DEVOLUCION (returnState=NONE)
+        // suma productValue al panel del responsable porque el
+        // producto queda en el cliente y eso es costo del error.
+        // CON DEVOLUCION + RETURNED no suma (se recupera). CON
+        // DEVOLUCION + LOST tampoco — ese valor va a "cobrar a
+        // mensajería" (otro reporte, ver getLostProductsByCarrier).
+        returnState: true,
+        productValue: true,
       },
     });
     const acc = new Map<string, { responsibleId: string | null; name: string; count: number; totalCost: number }>();
@@ -1083,6 +1091,10 @@ export class AnalyticsService implements IAnalyticsService {
       const prev = acc.get(key) ?? { responsibleId: r.responsibleId, name, count: 0, totalCost: 0 };
       prev.count++;
       prev.totalCost += typeof r.shippingCost === 'number' ? r.shippingCost : 0;
+      // SIN DEVOLUCION → product value queda en cliente → costo del responsable
+      if ((r.returnState as any) === 'NONE' && typeof r.productValue === 'number') {
+        prev.totalCost += r.productValue;
+      }
       acc.set(key, prev);
     }
     const byResponsible = Array.from(acc.values())
@@ -1096,6 +1108,74 @@ export class AnalyticsService implements IAnalyticsService {
       totalCost: Math.round(totalCost * 100) / 100,
       currency: 'ARS',
       byResponsible,
+    };
+  }
+
+  /**
+   * Marcos 2026-06-23: productos perdidos (returnState=LOST) agrupados
+   * por la mensajería responsable del retorno. Sirve para que ADMIN
+   * vea cuánto dinero hay para reclamar a cada courier.
+   */
+  async getLostProductsByCarrier(args: { fromIso: string; toIso: string }): Promise<{
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalToCollect: number;
+    currency: string;
+    byCarrier: Array<{ carrier: string; count: number; totalToCollect: number }>;
+  }> {
+    const from = new Date(args.fromIso);
+    const to = new Date(args.toIso);
+    const rows = await this.prisma.order.findMany({
+      where: {
+        returnState: 'LOST' as any,
+        lostAt: { gte: from, lte: to },
+        status: { notIn: ['CANCELLED'] as any },
+      },
+      select: {
+        id: true,
+        carrier: true,
+        returnCarrier: true,
+        productValue: true,
+        amount: true,
+        products: true,
+        orderType: true,
+      },
+    });
+    const acc = new Map<string, { carrier: string; count: number; totalToCollect: number }>();
+    for (const r of rows) {
+      // Para REPOSICION usamos returnCarrier (la mensajería del retorno).
+      // Para DEVOLUCION usamos `carrier` (la única — es la que tenía
+      // que traer el paquete y no lo trajo).
+      const carrier = (r.orderType === 'REPOSICION' ? r.returnCarrier : r.carrier) || '(sin mensajería)';
+      // Valor preferido: productValue explicito; si no, suma de líneas; si no, amount.
+      let value = typeof r.productValue === 'number' && r.productValue > 0 ? r.productValue : 0;
+      if (value === 0) {
+        const products = Array.isArray(r.products) ? (r.products as any[]) : [];
+        const lineSum = products.reduce((sum, p: any) => {
+          const qty = Number(p?.quantity ?? 0);
+          const unit = Number(p?.unitPrice ?? 0);
+          if (!Number.isFinite(qty) || !Number.isFinite(unit)) return sum;
+          return sum + qty * unit;
+        }, 0);
+        value = lineSum > 0 ? lineSum : (typeof r.amount === 'number' && r.amount > 0 ? r.amount : 0);
+      }
+      const prev = acc.get(carrier) ?? { carrier, count: 0, totalToCollect: 0 };
+      prev.count++;
+      prev.totalToCollect += value;
+      acc.set(carrier, prev);
+    }
+    const byCarrier = Array.from(acc.values())
+      .map((v) => ({ ...v, totalToCollect: Math.round(v.totalToCollect * 100) / 100 }))
+      .sort((a, b) => b.totalToCollect - a.totalToCollect);
+    const totalToCollect = byCarrier.reduce((s, r) => s + r.totalToCollect, 0);
+    return {
+      fromIso: args.fromIso,
+      toIso: args.toIso,
+      total: rows.length,
+      totalToCollect: Math.round(totalToCollect * 100) / 100,
+      currency: 'ARS',
+      byCarrier,
     };
   }
 

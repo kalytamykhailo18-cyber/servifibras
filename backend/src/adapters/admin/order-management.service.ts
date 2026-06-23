@@ -172,6 +172,50 @@ export class OrderManagementService implements IOrderManagementService {
         responsibleId: typeof (data as any).responsibleId === 'string' && (data as any).responsibleId.length > 0
           ? (data as any).responsibleId
           : null,
+        // Marcos 2026-06-23: campos del "destino del producto" en
+        // REPOSICION + estado del retorno. Inicialización:
+        //   REPOSICION + withReturn=true  → PENDING
+        //   REPOSICION + withReturn=false → NONE (queda en cliente,
+        //     productValue suma al panel del responsable)
+        //   DEVOLUCION                     → PENDING (always)
+        //   SALE                           → NONE
+        ...(() => {
+          const raw = String((data as any).orderType ?? '').toUpperCase();
+          const oType: 'SALE' | 'REPOSICION' | 'DEVOLUCION' =
+            raw === 'REPOSICION' || raw === 'DEVOLUCION' || raw === 'SALE'
+              ? (raw as 'SALE' | 'REPOSICION' | 'DEVOLUCION')
+              : ((data as any).isReposicion ? 'REPOSICION' : 'SALE');
+          const withReturn = !!(data as any).withReturn;
+          const returnState =
+            oType === 'DEVOLUCION'
+              ? 'PENDING'
+              : oType === 'REPOSICION' && withReturn
+                ? 'PENDING'
+                : 'NONE';
+          const productValue =
+            typeof (data as any).productValue === 'number' && Number.isFinite((data as any).productValue)
+              ? (data as any).productValue
+              : null;
+          const productLabel =
+            typeof (data as any).productLabel === 'string' && (data as any).productLabel.trim().length > 0
+              ? (data as any).productLabel.trim()
+              : null;
+          const returnCarrier =
+            withReturn && typeof (data as any).returnCarrier === 'string' && (data as any).returnCarrier.trim().length > 0
+              ? (data as any).returnCarrier.trim()
+              : null;
+          const returnShippingCost =
+            withReturn && typeof (data as any).returnShippingCost === 'number'
+              ? (data as any).returnShippingCost
+              : null;
+          return {
+            returnState: returnState as any,
+            productValue,
+            productLabel,
+            returnCarrier,
+            returnShippingCost,
+          };
+        })(),
       },
       include: {
         contact: {
@@ -487,38 +531,63 @@ export class OrderManagementService implements IOrderManagementService {
   async listPendingReturns(): Promise<Array<{
     id: string;
     orderNumber: string;
+    orderType: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
+    /**
+     * Marcos 2026-06-23: 'PENDING' (esperando) o 'LOST' (perdido,
+     * a cobrar al carrier). RETURNED no aparece — el panel mostraba
+     * solo lo no-cerrado y eso sigue, pero LOST también pertenece al
+     * mismo panel con badge distinto.
+     */
+    returnState: 'PENDING' | 'LOST';
     contact: { id: string; name: string | null };
     carrier: string | null;
     shippingZone: string | null;
     shippingCost: number | null;
     /**
-     * Marcos 2026-06-18 PM: valor del producto (suma de
-     * line.unitPrice × quantity). Sirve para mostrar al lado del
-     * costo logístico cuánta plata representa la mercadería que está
-     * pendiente de regreso — el operador necesita verlo agrupado para
-     * priorizar a qué carrier llamarle primero.
+     * Marcos 2026-06-23: mensajería del retorno (solo aplica a
+     * REPOSICION con devolución; en DEVOLUCION pura es null porque
+     * usa la `carrier` principal). Cuando el estado es LOST, esta es
+     * la mensajería que tiene que devolver la plata.
+     */
+    returnCarrier: string | null;
+    returnShippingCost: number | null;
+    /**
+     * Marcos 2026-06-18 PM: valor del producto. En DEVOLUCION sale
+     * de la suma de líneas; en REPOSICION (Marcos 2026-06-23) sale
+     * del nuevo campo `productValue` que el operador carga aparte.
      */
     productCost: number | null;
+    productLabel: string | null;
     notes: string | null;
     createdAt: Date;
     createdBy: { id: string; name: string } | null;
   }>> {
+    // Marcos 2026-06-23: el panel ahora muestra todo lo que tenga
+    // returnState = PENDING (esperando que llegue) OR LOST (perdido,
+    // a cobrar al courier). REPOSICION con devolución entra acá igual
+    // que las DEVOLUCION históricas. PENDING aparece primero, LOST
+    // después agrupado.
     const rows = await this.prisma.order.findMany({
       where: {
-        orderType: 'DEVOLUCION',
-        returnedAt: null,
+        returnState: { in: ['PENDING', 'LOST'] as any },
         status: { notIn: ['CANCELLED'] as any },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ returnState: 'asc' }, { createdAt: 'desc' }],
       take: 200,
       select: {
         id: true,
         orderNumber: true,
+        orderType: true,
+        returnState: true,
         amount: true,
         products: true,
         carrier: true,
         shippingZone: true,
         shippingCost: true,
+        returnCarrier: true,
+        returnShippingCost: true,
+        productValue: true,
+        productLabel: true,
         notes: true,
         createdAt: true,
         contact: { select: { id: true, name: true } },
@@ -526,10 +595,10 @@ export class OrderManagementService implements IOrderManagementService {
       },
     });
     return rows.map((r) => {
-      // Preferimos sumar línea por línea (más resistente a casos
-      // donde `amount` se completó a mano sin los productos). Si la
-      // suma de líneas da 0 — productos sin precio — caemos a
-      // `amount` para no mostrar siempre cero.
+      // En REPOSICION con devolución el valor sale del campo
+      // explícito `productValue`. En DEVOLUCION histórica seguimos
+      // calculando a partir de las líneas (sigue siendo el shape
+      // existente). Si ambas existen, productValue tiene prioridad.
       const products = Array.isArray(r.products) ? (r.products as any[]) : [];
       const lineSum = products.reduce((sum, p: any) => {
         const qty = Number(p?.quantity ?? 0);
@@ -537,17 +606,25 @@ export class OrderManagementService implements IOrderManagementService {
         if (!Number.isFinite(qty) || !Number.isFinite(unit)) return sum;
         return sum + qty * unit;
       }, 0);
-      const productCost = lineSum > 0
-        ? Math.round(lineSum)
-        : (typeof r.amount === 'number' && r.amount > 0 ? Math.round(r.amount) : null);
+      const productCost =
+        typeof r.productValue === 'number' && r.productValue > 0
+          ? Math.round(r.productValue)
+          : lineSum > 0
+            ? Math.round(lineSum)
+            : (typeof r.amount === 'number' && r.amount > 0 ? Math.round(r.amount) : null);
       return {
         id: r.id,
         orderNumber: r.orderNumber,
+        orderType: r.orderType as any,
+        returnState: r.returnState as any,
         contact: { id: r.contact.id, name: r.contact.name },
         carrier: r.carrier,
         shippingZone: r.shippingZone,
         shippingCost: r.shippingCost,
+        returnCarrier: r.returnCarrier,
+        returnShippingCost: r.returnShippingCost,
         productCost,
+        productLabel: r.productLabel,
         notes: r.notes,
         createdAt: r.createdAt,
         createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name } : null,
@@ -621,9 +698,36 @@ export class OrderManagementService implements IOrderManagementService {
       const updated = await this.prisma.order.update({
         where: { id: orderId },
         data: returned
-          ? { returnedAt: new Date(), returnedById: userId }
-          : { returnedAt: null, returnedById: null },
+          ? { returnedAt: new Date(), returnedById: userId, returnState: 'RETURNED' as any, lostAt: null, lostById: null }
+          : { returnedAt: null, returnedById: null, returnState: 'PENDING' as any },
         select: { id: true, orderNumber: true, returnedAt: true },
+      });
+      return updated;
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Marcos 2026-06-23: cierre del retorno como "perdido" — la
+   * mensajería no trajo el paquete. El valor del producto queda
+   * registrado para cobrar al courier (visible en el panel de
+   * Pendientes de regreso con badge PERDIDO y, vía analytics,
+   * agrupado por mensajería responsable).
+   */
+  async markLost(orderId: string, userId: string | null): Promise<{ id: string; orderNumber: string; lostAt: Date | null } | null> {
+    try {
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          lostAt: new Date(),
+          lostById: userId,
+          returnedAt: null,
+          returnedById: null,
+          returnState: 'LOST' as any,
+        },
+        select: { id: true, orderNumber: true, lostAt: true },
       });
       return updated;
     } catch (err: any) {

@@ -385,6 +385,28 @@ export class AnalyticsController {
     }
   }
 
+  /**
+   * Marcos 2026-06-23: productos perdidos por mensajería — el monto
+   * a cobrar a cada courier por paquetes que no trajeron. ADMIN-only.
+   */
+  @Get('lost-by-carrier')
+  @Roles(UserRole.ADMIN)
+  async getLostByCarrier(
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+  ) {
+    const now = Date.now();
+    const fromIso = fromRaw?.trim() || new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+    const toIso = toRaw?.trim() || new Date(now).toISOString();
+    try {
+      const data = await this.analyticsService.getLostProductsByCarrier({ fromIso, toIso });
+      return { success: true, data };
+    } catch (err: any) {
+      this.logger.error(`Error getting lost-by-carrier: ${err.message}`);
+      return { success: false, error: 'Failed to get lost-by-carrier' };
+    }
+  }
+
   @Get('ventas-unificadas')
   @Roles(UserRole.ADMIN, UserRole.VENTAS)
   async getVentasUnificadas(@Query('range') rangeRaw?: string) {

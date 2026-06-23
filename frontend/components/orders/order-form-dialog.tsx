@@ -151,6 +151,17 @@ export function OrderFormDialog({
   // responsable en /analytics no puede atribuir el gasto.
   const [responsibleId, setResponsibleId] = useState<string>((initialSource as any)?.responsibleId ?? '');
   const [responsibles, setResponsibles] = useState<Array<{ id: string; name: string }>>([]);
+  // Marcos 2026-06-23: REPOSICION ahora tiene un toggle "Producto
+  // vuelve / Queda en cliente". Default = sin devolución (false).
+  // Si true se muestran los campos de la mensajería del retorno y
+  // se crea el pendiente en /orders?view=pendientes-regreso.
+  const [withReturn, setWithReturn] = useState<boolean>(((initialSource as any)?.returnState === 'PENDING') || ((initialSource as any)?.returnState === 'RETURNED') || ((initialSource as any)?.returnState === 'LOST'));
+  // Producto + valor opcional — disponible en ambos modos del toggle.
+  const [productLabel, setProductLabel] = useState<string>((initialSource as any)?.productLabel ?? '');
+  const [productValue, setProductValue] = useState<string>((initialSource as any)?.productValue != null ? String((initialSource as any).productValue) : '');
+  // Mensajería del retorno (solo aplica cuando withReturn=true).
+  const [returnCarrier, setReturnCarrier] = useState<string>((initialSource as any)?.returnCarrier ?? '');
+  const [returnShippingCost, setReturnShippingCost] = useState<string>((initialSource as any)?.returnShippingCost != null ? String((initialSource as any).returnShippingCost) : '');
   const [repCost, setRepCost] = useState<string>(
     (initialSource as any)?.shippingCost != null ? String((initialSource as any).shippingCost) : ''
   );
@@ -205,6 +216,11 @@ export function OrderFormDialog({
     setRepCarrier((src as any)?.carrier ?? '');
     setRepZone((src as any)?.shippingZone ?? '');
     setResponsibleId((src as any)?.responsibleId ?? '');
+    setWithReturn(((src as any)?.returnState === 'PENDING') || ((src as any)?.returnState === 'RETURNED') || ((src as any)?.returnState === 'LOST'));
+    setProductLabel((src as any)?.productLabel ?? '');
+    setProductValue((src as any)?.productValue != null ? String((src as any).productValue) : '');
+    setReturnCarrier((src as any)?.returnCarrier ?? '');
+    setReturnShippingCost((src as any)?.returnShippingCost != null ? String((src as any).returnShippingCost) : '');
     setRepCost((src as any)?.shippingCost != null ? String((src as any).shippingCost) : '');
   }, [open, order, seedFromOrder, initialModeOverride]);
 
@@ -380,6 +396,25 @@ export function OrderFormDialog({
         toast.error("Elegí el responsable del paquete mal despachado");
         return;
       }
+      // Marcos 2026-06-23: si el operador tildó "CON DEVOLUCION" tiene
+      // que dejar al menos un carrier del retorno; si no, se asume
+      // SIN DEVOLUCION y los campos de retorno se ignoran.
+      const pv = productValue.trim() === '' ? null : Number(productValue);
+      if (pv !== null && (!Number.isFinite(pv) || pv < 0)) {
+        toast.error("Valor del producto inválido");
+        return;
+      }
+      const rsc = returnShippingCost.trim() === '' ? null : Number(returnShippingCost);
+      if (orderMode === 'REPOSICION' && withReturn) {
+        if (!returnCarrier.trim()) {
+          toast.error("Cargá la mensajería del retorno (o destildá 'Producto vuelve')");
+          return;
+        }
+        if (rsc !== null && (!Number.isFinite(rsc) || rsc < 0)) {
+          toast.error("Costo del retorno inválido");
+          return;
+        }
+      }
       setSubmitting(true);
       try {
         const prefix = orderMode === 'DEVOLUCION' ? 'Devolución' : 'Reposición';
@@ -395,6 +430,14 @@ export function OrderFormDialog({
           shippingZone: zone,
           shippingCost: cost,
           responsibleId: orderMode === 'REPOSICION' ? responsibleId : null,
+          // Marcos 2026-06-23: nuevos campos del ciclo de retorno.
+          // En REPOSICION respetamos el toggle; en DEVOLUCION
+          // forzamos withReturn=true (el caso de uso ES devolver).
+          withReturn: orderMode === 'REPOSICION' ? withReturn : (orderMode === 'DEVOLUCION'),
+          productValue: pv,
+          productLabel: productLabel.trim() || null,
+          returnCarrier: orderMode === 'REPOSICION' && withReturn ? returnCarrier.trim() || null : null,
+          returnShippingCost: orderMode === 'REPOSICION' && withReturn ? rsc : null,
         } as any);
         toast.success(orderMode === 'DEVOLUCION' ? 'Devolución registrada' : 'Reposición registrada');
         onOpenChange(false);
@@ -847,6 +890,93 @@ export function OrderFormDialog({
                     <p className="mt-1 text-[10px] text-rose-700">
                       No hay responsables cargados. Pedile al admin que los configure en Settings → Logística.
                     </p>
+                  )}
+                </div>
+              )}
+
+              {/* Marcos 2026-06-23: toggle CON/SIN devolución + campos
+                 "qué producto" + "cuánto vale". Sólo se muestra en
+                 REPOSICION. El producto/valor son opcionales (faltante
+                 puro no se carga); cuando se llenan, el destino depende
+                 del toggle:
+                   SIN DEVOLUCION  → valor va al panel del responsable
+                   CON DEVOLUCION  → crea pendiente de regreso. Cierre
+                                     posterior con Volvió / No volvió. */}
+              {orderMode === 'REPOSICION' && (
+                <div className="mt-3 rounded-xl border border-amber-300/70 bg-white/70 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-amber-900">
+                        ¿El producto vuelve?
+                      </label>
+                      <p className="text-[10px] text-slate-500">
+                        {withReturn
+                          ? 'CON DEVOLUCIÓN — se crea un pendiente de regreso. Cargá la mensajería del retorno abajo.'
+                          : 'SIN DEVOLUCIÓN — el producto queda en el cliente. El valor (si lo cargás) suma al panel del responsable.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={withReturn}
+                      onClick={() => setWithReturn((v) => !v)}
+                      data-testid="order-form-reposicion-with-return-toggle"
+                      className={
+                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors " +
+                        (withReturn ? 'bg-amber-600' : 'bg-slate-300')
+                      }
+                    >
+                      <span
+                        className={
+                          "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform " +
+                          (withReturn ? 'translate-x-5' : 'translate-x-0.5') + ' translate-y-0.5'
+                        }
+                      />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_160px]">
+                    <Input
+                      value={productLabel}
+                      onChange={(e) => setProductLabel(e.target.value)}
+                      placeholder="Producto involucrado (opcional)"
+                      data-testid="order-form-reposicion-product-label"
+                      className="h-10"
+                    />
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      value={productValue}
+                      onChange={(e) => setProductValue(e.target.value)}
+                      placeholder="Valor (opcional)"
+                      data-testid="order-form-reposicion-product-value"
+                      className="h-10 text-right"
+                    />
+                  </div>
+
+                  {withReturn && (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_160px]">
+                      <select
+                        value={returnCarrier}
+                        onChange={(e) => setReturnCarrier(e.target.value)}
+                        data-testid="order-form-reposicion-return-carrier"
+                        className="h-10 rounded-lg border border-amber-300 bg-white px-3 text-sm"
+                      >
+                        <option value="">Mensajería del retorno…</option>
+                        {Array.from(new Set(tariffs.map((t) => t.carrier))).sort().map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        value={returnShippingCost}
+                        onChange={(e) => setReturnShippingCost(e.target.value)}
+                        placeholder="Costo del retorno"
+                        data-testid="order-form-reposicion-return-cost"
+                        className="h-10 text-right"
+                      />
+                    </div>
                   )}
                 </div>
               )}

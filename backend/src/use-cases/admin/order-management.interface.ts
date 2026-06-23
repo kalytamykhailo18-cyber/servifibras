@@ -69,6 +69,16 @@ export interface CreateOrderData {
   // (catalogo OperationalResponsible). Solo aplica a REPOSICION; el
   // form valida que esté presente en ese tab.
   responsibleId?: string | null;
+  // Marcos 2026-06-23: campos del "destino del producto" agregados
+  // a REPOSICION (toggle CON/SIN devolución). Todos opcionales.
+  //   withReturn=true  → returnState=PENDING + opcional return courier
+  //   withReturn=false → returnState=NONE; productValue (si se carga)
+  //                       suma al panel del responsable como costo
+  withReturn?: boolean;
+  productValue?: number | null;
+  productLabel?: string | null;
+  returnCarrier?: string | null;
+  returnShippingCost?: number | null;
 }
 
 export interface UpdateOrderData {

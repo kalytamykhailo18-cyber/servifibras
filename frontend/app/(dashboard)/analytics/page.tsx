@@ -17,6 +17,7 @@ import { MlAccountSplitCard } from "@/components/analytics/ml-account-split-card
 import { VentasUnificadasCard } from "@/components/analytics/ventas-unificadas-card";
 import { DispatchStatsCard } from "@/components/analytics/dispatch-stats-card";
 import { ReposicionByResponsibleCard } from "@/components/analytics/reposicion-by-responsible-card";
+import { LostByCarrierCard } from "@/components/analytics/lost-by-carrier-card";
 import { api } from "@/lib/api/endpoints";
 import { useRealtimeEvent } from "@/lib/realtime/use-realtime";
 import { useAuthStore, selectUserRole } from "@/lib/store/auth-store";
@@ -435,9 +436,14 @@ export default function AnalyticsPage() {
 
       {/* Marcos 2026-06-22: costo de reposiciones por responsable —
          "se contabiliza en dinero el valor del error segmentado por
-         semana, mes, personalizado". ADMIN-only. */}
+         semana, mes, personalizado". ADMIN-only. Marcos 2026-06-23:
+         + card hermana "A cobrar a mensajerías" para el monto de los
+         paquetes perdidos por courier. */}
       {isAdmin && (
-        <ReposicionByResponsibleCard />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+          <ReposicionByResponsibleCard />
+          <LostByCarrierCard />
+        </div>
       )}
 
       {/* INSIGHTS — admin-only (contact + KB counts are global). */}

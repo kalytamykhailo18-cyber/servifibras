@@ -969,6 +969,26 @@ export const analyticsApi = {
     return r.data?.data ?? r.data;
   },
 
+  /**
+   * Marcos 2026-06-23: monto a cobrar a cada mensajería por paquetes
+   * perdidos (returnState=LOST). Agrupa por carrier responsable del
+   * retorno y suma productValue. ADMIN-only.
+   */
+  getLostByCarrier: async (params: { from: string; to: string }): Promise<{
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalToCollect: number;
+    currency: string;
+    byCarrier: Array<{ carrier: string; count: number; totalToCollect: number }>;
+  }> => {
+    const qs = new URLSearchParams();
+    qs.set('from', params.from);
+    qs.set('to', params.to);
+    const r = await apiClient.get<any>(`/admin/analytics/lost-by-carrier?${qs.toString()}`);
+    return r.data?.data ?? r.data;
+  },
+
   getMlAccountSplit: async (params?: { since?: string; until?: string }): Promise<{
     range: { since: string | null; until: string | null };
     accounts: Array<{
@@ -1266,12 +1286,24 @@ export const ordersApi = {
   pendingReturns: async (): Promise<Array<{
     id: string;
     orderNumber: string;
+    orderType: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
+    /** Marcos 2026-06-23: PENDING o LOST (el panel sigue mostrando
+     *  ambos, con badge distinto). */
+    returnState: 'PENDING' | 'LOST';
     contact: { id: string; name: string | null };
     carrier: string | null;
     shippingZone: string | null;
     shippingCost: number | null;
-    /** Marcos 2026-06-18 PM: valor del producto (suma de línea). */
+    /** Marcos 2026-06-23: mensajería que trae el producto de vuelta
+     *  (REPOSICION CON DEVOLUCION). Cuando el estado es LOST esta es
+     *  la mensajería que tiene que devolver la plata. En DEVOLUCION
+     *  pura es null porque usa `carrier`. */
+    returnCarrier: string | null;
+    returnShippingCost: number | null;
+    /** Marcos 2026-06-18 PM: valor del producto. Para REPOSICION sale
+     *  del campo productValue; para DEVOLUCION histórica suma líneas. */
     productCost: number | null;
+    productLabel: string | null;
     notes: string | null;
     createdAt: string;
     createdBy: { id: string; name: string } | null;
@@ -1281,6 +1313,15 @@ export const ordersApi = {
   },
   markReturned: async (id: string, returned: boolean = true): Promise<{ id: string; orderNumber: string; returnedAt: string | null }> => {
     const r = await apiClient.post<any>(`/admin/orders/${id}/mark-returned`, { returned });
+    return r.data?.data ?? r.data;
+  },
+  /**
+   * Marcos 2026-06-23: cierre del retorno como PERDIDO — el courier
+   * no trajo el paquete. Stampea lostAt + returnState=LOST y el valor
+   * del producto queda como monto a cobrar a la mensajería.
+   */
+  markLost: async (id: string): Promise<{ id: string; orderNumber: string; lostAt: string | null }> => {
+    const r = await apiClient.post<any>(`/admin/orders/${id}/mark-lost`, {});
     return r.data?.data ?? r.data;
   },
 
