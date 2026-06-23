@@ -269,6 +269,7 @@ function channelGuardrailBlock(channel: Channel | undefined): string | null {
       '   El comprador eligió esta publicación, abrió esta publicación, y está preguntando ACÁ — implícitamente está preguntando por ESTE producto. Tu trabajo es responder específico para ESTE producto, no pedirle que lo nombre.',
       '   Caso real (Marcos 2026-06-06): publicación "Resina Cristal Epoxi 4l con filtro UV". Comprador preguntó "cuánto tiempo se puede trabajar sin que seque?". El agente respondió "¿Es resina epoxi, poliéster o silicona?" — esa es exactamente la forma de error que no puede volver a aparecer. La respuesta correcta hubiera sido: "El tiempo de trabajo de la Resina Cristal Epoxi de esta publicación es de [X] minutos antes de empezar a gelificar a temperatura ambiente. Si la trabajás en capas finas tenés más margen; en volumen grande te conviene cortarla en tandas." — específico para el producto de la publicación, sin pedirle al cliente que identifique nada.',
       '   Otro caso real (Marcos 2026-06-22, publicación MLA3221254752 "Resina Cristal Epoxi 1:1 con Filtro UV 500 ml"). Comprador preguntó "Cuánto metro cubre el pote". El agente respondió "No puedo responder sin saber exactamente qué producto estás mirando. Esta publicación es de Resina Cristal Epoxi 1:1 Con Filtro UV 500 ml — un kit que trae 250 ml de Parte A + 250 ml de Parte B. ¿Es para eso que preguntás? Si es así, te digo que el rendimiento depende del espesor..." — todo el preámbulo de "no puedo responder sin saber" + "¿es para eso que preguntás?" es violación directa de esta regla. La respuesta debió arrancar derecho con el rendimiento del kit de 500 ml de ESTA publicación. PROHIBIDO también los preámbulos "No puedo responder sin saber", "Necesito saber qué producto", "Antes de responder, contame", "¿Es para eso que preguntás?", "Si es así, te digo" — son todas variantes de pedir identificación que la regla prohíbe.',
+      '   Tercer caso real (Marcos 2026-06-23, publicación MLA1588195697 "Pigmentos"). Comprador (Mirmaza) preguntó "Hola te compré los pigmentos pero sirve para jabones porq dice para resina". El agente respondió "La búsqueda devolvió moldes y pigmentos para resina, no colorantes especificos para jabón. En nuestro perfil de tienda de MercadoLibre podés buscar entre los productos si ofrecemos colorante apto para jabón, o consultame directamente qué uso le querés dar — tal vez podamos orientarte mejor. ¿Los pigmentos que compraste los querías para teñir la resina, o ya estabas buscando otra cosa para los jabones?" — TRES violaciones a la vez: (1) "La búsqueda devolvió" expone vocabulario interno de la herramienta buscar_producto, jamás llega al comprador; (2) "podés buscar entre los productos" + "consultame directamente qué uso" pasan la pelota al comprador en vez de responder; (3) "¿Los pigmentos que compraste los querías para teñir la resina, o ya estabas buscando otra cosa?" es exactamente la pregunta de clarificación que esta regla prohíbe — la publicación dice "para resina" y el comprador YA aclaró que compró estos, hay que responder con la propiedad técnica del pigmento (compatibilidad con jabón sí/no) y si no es compatible, buscar_producto interno + linkear el alternativo. La respuesta correcta arranca con la propiedad del producto: "Esos pigmentos son específicos para resina epoxi/poliéster — no se recomiendan en jabón porque [razón técnica]. Para jabones conviene [colorante apto]: [link]."',
       '',
       '6. Tono ML: más formal que en WhatsApp, respuesta completa, sin emojis, sin abreviaturas de chat. El comprador puede no conocer la marca — explicá lo justo para que entienda.',
       '',
@@ -305,6 +306,8 @@ function channelGuardrailBlock(channel: Channel | undefined): string | null {
       '  - "clasificado como", "motivo PNR", "PNR{numero}", "ID de reclamo {numero}", "expediente"',
       '  - "defensa del consumidor", "postventa", "decisión a favor del reclamante"',
       '  - "Quedo a disposición ante cualquier otra duda" (cierre de oficina formal, prohibido — usá el cierre canónico del prompt)',
+      '  - Marcos 2026-06-23: vocabulario de la herramienta buscar_producto en el cuerpo de la respuesta. PROHIBIDO escribir "La búsqueda devolvió X", "los resultados de la búsqueda son Y", "el catálogo devolvió", "busqué en el catálogo y...", "la herramienta arrojó...", "no encontré en el sistema". La herramienta es interna; el comprador no sabe que existe. Si querés decir "no tenemos ese producto", decilo así: "No tenemos ese colorante para jabón" — no "La búsqueda no devolvió colorantes para jabón". Si encontraste un alternativo, presentalo como propio: "Para jabón te conviene [X] — [link]", no "la búsqueda devolvió [X]".',
+      '  - Marcos 2026-06-23: variantes de pedir al comprador más información antes de responder. PROHIBIDO "consultame directamente qué uso", "contame qué necesitás", "podés buscar entre los productos", "fijate vos si te sirve". Tu trabajo es responder con lo que la publicación + la pregunta ya te dan; si el caso requiere un alternativo, buscalo VOS con buscar_producto y pegalo en la respuesta.',
       '',
       'Esas son palabras del MANUAL OPERATIVO que ves en este prompt — sirven para que VOS sepas QUÉ hacer, no son texto para repetir al cliente. Si la pregunta del comprador es legítima sobre el producto (como "Este producto es líquido"), respondela en términos del producto — no proceses la pregunta como un reclamo aunque alguna palabra te lo sugiera.',
       '',
@@ -1868,6 +1871,17 @@ IMPORTANTE sobre precios:
       { name: 'no puedo responder sin saber', re: /^\s*[Nn]o puedo responder (?:sin|hasta|si no)[^.!?\n]*[.!?\n]+\s*/g },
       { name: 'necesito saber qu[eé]', re: /^\s*[Nn]ecesito saber (?:qu[eé]|cu[aá]l)[^.!?\n]*[.!?\n]+\s*/g },
       { name: 'antes de responder', re: /^\s*[Aa]ntes de (?:responder|contestar|poder contestarte)[^.!?\n]*[.!?\n]+\s*/g },
+      // Marcos 2026-06-23 (MLA1588195697 — "La búsqueda devolvió
+      // moldes y pigmentos para resina, no colorantes especificos
+      // para jabón. En nuestro perfil de tienda..."): el modelo
+      // narra la salida de la herramienta buscar_producto en lugar
+      // de usar la info de la publicación. "La búsqueda devolvió"
+      // / "Los resultados de la búsqueda" / "el catálogo devolvió"
+      // son strings INTERNOS que jamás deberían llegar al comprador.
+      { name: 'la búsqueda devolvió/no encontró', re: /^\s*[Ll]a\s+b[uú]squeda\s+(?:devolvi[oó]|no\s+(?:encontr[oó]|devolvi[oó])|arroj[oó]|trajo|retorn[oó])[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'los resultados de la búsqueda', re: /^\s*[Ll]os\s+resultados\s+de\s+(?:la\s+)?b[uú]squeda[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'el catálogo / sistema devolvió', re: /^\s*[Ee]l\s+(?:cat[aá]logo|sistema|inventario)\s+(?:devolvi[oó]|muestra|tiene|arroja)[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'busqué en el catálogo', re: /^\s*[Bb]usqu[eé]\s+(?:en\s+(?:el|nuestro)\s+)?cat[aá]logo[^.!?\n]*[.!?\n]+\s*/g },
       // Marcos 2026-06-22 (caso MLA1500591407 — "Ah, entendido — es una reparación.\nNo, esta resina..."): aperturas pseudo-conversacionales tipo chatbot que reconocen al comprador como si la conversación viniera de antes. En ML cada pregunta es one-shot — no hay nada que "acabar de entender". Estas aperturas son ruido.
       { name: 'ah / entendido / claro', re: /^\s*(?:Ah[,!.]?\s*)?(?:entendido|entiendo|claro|perfecto|listo|ok|okay|de acuerdo|comprendo|ya veo)\s*[—\-,!.]?\s*(?:[^\n.!?]{0,80}[—,.!?\n])?\s*/i },
       { name: 'ah, ...', re: /^\s*Ah[,!]\s*[^\n.!?]{0,60}[,.!?\n]\s*/i },
@@ -1909,6 +1923,21 @@ IMPORTANTE sobre precios:
       /\s*¿\s*[Ee]s (?:para|por) eso que pregunt[aá]s\??\s*\??\s*/g,
       /\s*¿\s*[EeYy] es (?:para|por) eso[^.!?\n]*\??\s*/g,
       /\s*[Ss]i es as[ií][,.\s]+(?:te|le)\s+(?:digo|cuento|explico|respondo)[^,.\n]*[,.]\s*/g,
+      // Marcos 2026-06-23: "La búsqueda devolvió X" / "el catálogo
+      // devolvió X" pueden aparecer mid-text después de una primera
+      // oración legítima. Tienen que desaparecer en cualquier posición.
+      /(?:^|\s)[Ll]a\s+b[uú]squeda\s+(?:devolvi[oó]|no\s+(?:encontr[oó]|devolvi[oó])|arroj[oó]|trajo|retorn[oó])[^.!?\n]*[.!?\n]\s*/g,
+      /(?:^|\s)[Ll]os\s+resultados\s+de\s+(?:la\s+)?b[uú]squeda[^.!?\n]*[.!?\n]\s*/g,
+      // "consultame directamente qué uso le querés dar" / "consultame
+      // qué necesitás" — closures que piden al comprador que aclare
+      // antes de responder. La pregunta es one-shot, hay que responder
+      // con lo que el contexto da, no pedir mas info.
+      /(?:^|\s)(?:o\s+)?[Cc]onsult[aá]me\s+(?:directamente\s+)?(?:qu[eé]|c[oó]mo|cu[aá]ndo|cu[aá]l|para qu[eé])[^.!?\n]*[.!?\n]\s*/g,
+      /(?:^|\s)(?:o\s+)?[Cc]ont[aá]me\s+(?:qu[eé]|c[oó]mo|cu[aá]ndo|cu[aá]l|para qu[eé])[^.!?\n]*[.!?\n]\s*/g,
+      // "podés buscar entre los productos si ofrecemos X" — pasar la
+      // pelota al comprador para que busque el mismo. El agente
+      // tiene buscar_producto, lo tiene que hacer el.
+      /(?:^|\s)[Pp]od[eé]s\s+buscar\s+entre\s+(?:los|nuestros)\s+productos[^.!?\n]*[.!?\n]\s*/g,
     ];
     for (const re of BODY_CONFIRMATION_RES) {
       if (re.test(cleaned)) {
