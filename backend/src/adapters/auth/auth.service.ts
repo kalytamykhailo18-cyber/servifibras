@@ -392,6 +392,14 @@ export class AuthService implements IAuthService {
         return UserRole.VENTAS;
       case PrismaUserRole.LOGISTICA:
         return UserRole.LOGISTICA;
+      // Marcos 2026-06-23: faltaba el case ENCARGADO — caía al default
+      // y se mapeaba a ATENCION. Aldo (role=ENCARGADO en DB) entraba
+      // con un JWT que decía ATENCION, así que los gates de Pedidos /
+      // PRFV / Armado que checkean ENCARGADO explícito nunca pasaban.
+      // El auto-expand del RolesGuard tampoco se disparaba para esas
+      // surfaces porque LOGISTICA no estaba en su set.
+      case PrismaUserRole.ENCARGADO:
+        return UserRole.ENCARGADO;
       default:
         return UserRole.ATENCION; // Default to ATENCION for unknown roles
     }
