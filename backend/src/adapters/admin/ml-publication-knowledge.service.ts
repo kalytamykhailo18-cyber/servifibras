@@ -12,6 +12,7 @@
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import Anthropic from '@anthropic-ai/sdk';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 
@@ -182,6 +183,139 @@ export class MlPublicationKnowledgeService {
       byItem.set(key, e);
     }
     return Array.from(byItem.values()).sort((a, b) => b.pending - a.pending);
+  }
+
+  /**
+   * Marcos 2026-06-24 (Phase B): pasada de IA que evalúa cada Q&A
+   * pendiente contra la ficha ACTUAL de la publicación. Por cada fila
+   * mete un score 0..1 (1 = sigue válida, 0 = totalmente desactualizada)
+   * y una nota corta. NO modifica curationStatus — la decisión final
+   * sigue siendo del operador. El score sirve para que el panel ordene
+   * primero las dudosas (score bajo) y el operador foque ahí.
+   *
+   * Modelo: Haiku — barato y suficiente para una clasificación binaria
+   * con justificación corta.
+   */
+  async aiStalenessPassForItem(args: {
+    itemId: string;
+    limit?: number;
+  }): Promise<{
+    itemId: string;
+    processed: number;
+    skipped: number;
+    errored: number;
+    flagged: number;
+    note?: string;
+  }> {
+    const result = {
+      itemId: args.itemId,
+      processed: 0,
+      skipped: 0,
+      errored: 0,
+      flagged: 0,
+      note: undefined as string | undefined,
+    };
+    // Marcos 2026-06-24: el proyecto usa CLAUDE_API_KEY (con
+    // ANTHROPIC_API_KEY como fallback por si el operador heredó el
+    // estándar del SDK).
+    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      result.note = 'CLAUDE_API_KEY no configurada';
+      return result;
+    }
+    if (!this.mercadolibre) {
+      result.note = 'ML service no disponible';
+      return result;
+    }
+    // Ficha actual de la publicación: título + precio + atributos + descripción.
+    const listing = await this.mercadolibre.fetchListingDetails(args.itemId).catch(() => null);
+    if (!listing) {
+      result.note = 'No se pudo obtener la ficha de la publicación';
+      return result;
+    }
+    const pendingRows = await this.prisma.mlPublicationKnowledge.findMany({
+      where: { itemId: args.itemId, curationStatus: 'pending', aiValidityScore: null },
+      orderBy: { questionAt: 'desc' },
+      take: Math.max(1, Math.min(200, args.limit ?? 100)),
+      select: { id: true, questionText: true, answerText: true, questionAt: true },
+    });
+    if (pendingRows.length === 0) {
+      result.note = 'No hay filas pendientes sin scorear';
+      return result;
+    }
+    const client = new Anthropic({ apiKey });
+    const model = process.env.ML_KNOWLEDGE_AI_PASS_MODEL || 'claude-haiku-4-5-20251001';
+    // Bloque común con la ficha — se repite en cada turno pero el
+    // contenido es estable y cachea bien.
+    const fichaBlock = this.buildListingFichaBlock(listing);
+    for (const row of pendingRows) {
+      try {
+        const prompt = [
+          'Sos un evaluador de Q&A histórica de Mercado Libre para Servifibras. Tu tarea: decidir si una pregunta + respuesta histórica sobre una publicación SIGUE SIENDO VÁLIDA hoy.',
+          '',
+          'Devolvé EXCLUSIVAMENTE un JSON así (sin texto antes ni después):',
+          '{ "score": 0.0-1.0, "note": "una oración corta justificando" }',
+          '',
+          'Criterio:',
+          '- 1.0 = la respuesta sigue siendo correcta y aplicable hoy (precio, atributos, presentación, todo coincide con la ficha actual).',
+          '- 0.5 = parcialmente desactualizada (algún detalle cambió pero la idea general aplica).',
+          '- 0.0 = totalmente desactualizada o contradice la ficha actual.',
+          '',
+          'FICHA ACTUAL DE LA PUBLICACIÓN:',
+          fichaBlock,
+          '',
+          'PREGUNTA HISTÓRICA (' + new Date(row.questionAt).toISOString().slice(0, 10) + '):',
+          row.questionText,
+          '',
+          'RESPUESTA HISTÓRICA:',
+          row.answerText ?? '(sin respuesta)',
+        ].join('\n');
+        const resp = await client.messages.create({
+          model,
+          max_tokens: 200,
+          temperature: 0,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const text = resp.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('')
+          .trim();
+        const m = text.match(/\{[\s\S]*\}/);
+        if (!m) { result.errored++; continue; }
+        const parsed = JSON.parse(m[0]);
+        const score = typeof parsed.score === 'number' ? Math.max(0, Math.min(1, parsed.score)) : null;
+        const note = typeof parsed.note === 'string' ? parsed.note.slice(0, 500) : null;
+        if (score == null) { result.errored++; continue; }
+        await this.prisma.mlPublicationKnowledge.update({
+          where: { id: row.id },
+          data: { aiValidityScore: score, aiNote: note },
+        });
+        result.processed++;
+        if (score < 0.7) result.flagged++;
+      } catch (err: any) {
+        this.logger.warn(`AI staleness row ${row.id} failed: ${err.message}`);
+        result.errored++;
+      }
+    }
+    this.logger.log(`AI staleness pass ${args.itemId}: processed=${result.processed} flagged=${result.flagged} err=${result.errored}`);
+    return result;
+  }
+
+  private buildListingFichaBlock(listing: any): string {
+    const parts: string[] = [];
+    if (listing.title) parts.push(`Título: ${listing.title}`);
+    if (listing.price != null) parts.push(`Precio actual: ${listing.currencyId ?? 'ARS'} ${listing.price}`);
+    if (listing.availableQuantity != null) parts.push(`Stock disponible: ${listing.availableQuantity}`);
+    if (listing.status) parts.push(`Estado: ${listing.status}`);
+    if (Array.isArray(listing.attributes) && listing.attributes.length > 0) {
+      const attrs = listing.attributes.slice(0, 30).map((a: any) => `  - ${a.name ?? a.id}: ${a.value_name ?? a.value ?? ''}`).join('\n');
+      parts.push(`Atributos:\n${attrs}`);
+    }
+    if (listing.description) {
+      parts.push(`Descripción: ${String(listing.description).slice(0, 1500)}`);
+    }
+    return parts.join('\n');
   }
 
   /**

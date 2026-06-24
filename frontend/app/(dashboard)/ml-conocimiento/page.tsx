@@ -30,6 +30,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 
 const ROLES = [UserRole.ADMIN, UserRole.ATENCION];
 
@@ -60,6 +61,7 @@ export default function MlConocimientoPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [aiPassRunning, setAiPassRunning] = useState(false);
 
   const loadSummary = async () => {
     try {
@@ -105,6 +107,24 @@ export default function MlConocimientoPage() {
       toast.error(err?.response?.data?.message || err?.message || "No se pudo ingestar");
     } finally {
       setIngesting(false);
+    }
+  };
+
+  const onAiPass = async () => {
+    if (!selectedItemId) return;
+    setAiPassRunning(true);
+    try {
+      const r = await api.mlPublicationKnowledge.aiStalenessPass(selectedItemId);
+      if (r.note) {
+        toast.info(r.note);
+      } else {
+        toast.success(`Pasada IA: ${r.processed} evaluadas, ${r.flagged} marcadas como dudosas (score < 0.7)`);
+      }
+      await loadItem(selectedItemId);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Falló la pasada de IA");
+    } finally {
+      setAiPassRunning(false);
     }
   };
 
@@ -229,15 +249,28 @@ export default function MlConocimientoPage() {
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
               Q&A de {selectedItemId}
             </p>
-            <a
-              href={`https://articulo.mercadolibre.com.ar/${selectedItemId.replace(/^([A-Z]{3})(\d+)$/, '$1-$2')}-_JM`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline"
-            >
-              <OpenInNewIcon sx={{ fontSize: 12 }} />
-              Abrir publicación
-            </a>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onAiPass}
+                disabled={aiPassRunning}
+                data-testid="ml-knowledge-ai-pass"
+                title="Corre Haiku sobre cada Q&A pendiente y marca cuáles quedaron desactualizadas comparándolas con la ficha actual de la publicación"
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 text-[11px] font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-60"
+              >
+                <AutoAwesomeIcon sx={{ fontSize: 13 }} className={aiPassRunning ? 'animate-pulse' : ''} />
+                {aiPassRunning ? 'Evaluando con IA…' : 'Pasada IA'}
+              </button>
+              <a
+                href={`https://articulo.mercadolibre.com.ar/${selectedItemId.replace(/^([A-Z]{3})(\d+)$/, '$1-$2')}-_JM`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline"
+              >
+                <OpenInNewIcon sx={{ fontSize: 12 }} />
+                Abrir publicación
+              </a>
+            </div>
           </div>
           {rows === null ? (
             <Skeleton className="h-64 w-full rounded-xl" />
@@ -261,11 +294,33 @@ export default function MlConocimientoPage() {
                       <p className="text-[11px] text-slate-500">
                         Pregunta del {fmtDate(r.questionAt)}{r.answeredAt && ` · respondida ${fmtDate(r.answeredAt)}`}
                       </p>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${pill.cls}`}>
-                        {pill.label}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {r.aiValidityScore != null && (
+                          <span
+                            className={
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                              (r.aiValidityScore >= 0.7
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : r.aiValidityScore >= 0.4
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800')
+                            }
+                            title={r.aiNote ?? undefined}
+                          >
+                            IA {(r.aiValidityScore * 100).toFixed(0)}%
+                          </span>
+                        )}
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${pill.cls}`}>
+                          {pill.label}
+                        </span>
+                      </div>
                     </div>
                     <p className="text-sm font-medium text-slate-900">{r.questionText}</p>
+                    {r.aiNote && r.aiValidityScore != null && r.aiValidityScore < 0.7 && (
+                      <p className="rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900 border border-amber-200">
+                        <strong>IA:</strong> {r.aiNote}
+                      </p>
+                    )}
                     {isEditing ? (
                       <div className="space-y-1.5">
                         <textarea

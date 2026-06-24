@@ -3134,6 +3134,23 @@ export const mlPublicationKnowledgeApi = {
   curate: async (rowId: string, body: { action: 'keep' | 'edit' | 'discard'; curatedAnswer?: string; stalenessFlag?: string }): Promise<void> => {
     await apiClient.put<any>(`/admin/mercadolibre/publications/knowledge/${encodeURIComponent(rowId)}`, body);
   },
+  /**
+   * Marcos 2026-06-24 (Phase B): corre la pasada de IA sobre las
+   * Q&A pendientes — popula aiValidityScore + aiNote para que el
+   * operador vea cuáles son dudosas.
+   */
+  aiStalenessPass: async (itemId: string, limit?: number): Promise<{
+    itemId: string;
+    processed: number;
+    skipped: number;
+    errored: number;
+    flagged: number;
+    note?: string;
+  }> => {
+    const qs = limit ? `?limit=${limit}` : '';
+    const r = await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/ai-staleness-pass${qs}`, {});
+    return r.data?.data ?? r.data;
+  },
 };
 
 export const competitorsApi = {

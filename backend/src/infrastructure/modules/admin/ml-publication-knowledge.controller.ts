@@ -54,6 +54,26 @@ export class MlPublicationKnowledgeController {
     return { success: true, data };
   }
 
+  /**
+   * Marcos 2026-06-24 (Phase B): pasada de IA staleness sobre todas
+   * las Q&A pendientes de la publicación. Cada fila queda con
+   * aiValidityScore + aiNote para que el operador foque en las
+   * dudosas. NO modifica curationStatus.
+   */
+  @Post(':itemId/ai-staleness-pass')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async aiStalenessPass(
+    @Param('itemId') itemId: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (!itemId || !/^MLA\d+$/i.test(itemId)) {
+      throw new BadRequestException('itemId debe ser un MLA válido');
+    }
+    const lim = limit ? Math.max(1, Math.min(200, parseInt(limit, 10))) : 100;
+    const data = await this.svc.aiStalenessPassForItem({ itemId: itemId.toUpperCase(), limit: lim });
+    return { success: true, data };
+  }
+
   @Get('knowledge/summary')
   async summary() {
     const data = await this.svc.summary();
