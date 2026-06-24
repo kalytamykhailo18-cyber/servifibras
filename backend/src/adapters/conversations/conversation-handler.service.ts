@@ -155,16 +155,19 @@ export class ConversationHandlerService implements IConversationHandler {
     buyerQuestion: string;
     buyerNickname?: string | null;
     listing?: any;
-  }): Promise<string | null> {
+  }): Promise<{ reply: string; autoSendAllowed: boolean; selfEvalScore: number } | null> {
     if (!this.mlKnowledge) return null;
     try {
       const r = await this.mlKnowledge.tryConstrainedReply(args);
-      if (r.usedConstrained && r.reply) {
-        this.logger.log(
-          `🔒 Constrained reply OK for ${args.itemId} (${r.curatedRowsUsed} curated rows)`,
-        );
-      }
-      return r.usedConstrained ? r.reply : null;
+      if (!r.usedConstrained || !r.reply) return null;
+      this.logger.log(
+        `🔒 Constrained reply ${args.itemId} (${r.curatedRowsUsed} curated rows, self-eval=${(r.selfEvalScore ?? 0).toFixed(1)}, autoSend=${r.autoSendAllowed})`,
+      );
+      return {
+        reply: r.reply,
+        autoSendAllowed: !!r.autoSendAllowed,
+        selfEvalScore: r.selfEvalScore ?? 0,
+      };
     } catch (err: any) {
       this.logger.warn(`Constrained reply non-fatal failure: ${err.message}`);
       return null;
@@ -1212,7 +1215,11 @@ export class ConversationHandlerService implements IConversationHandler {
       // Si el modelo declina (devuelve "le paso al equipo") o no hay
       // base suficiente, devuelve null y cae al pipeline regular —
       // FAQ por publicación → product lookup → FAQ pre-AI → agente.
-      const constrainedCanned =
+      // Marcos 2026-06-24 (Phase C/D). Modo cerrado retorna ahora un
+      // objeto con reply + autoSendAllowed + selfEvalScore. La flag
+      // autoSendAllowed la usa el handler downstream para decidir si
+      // se envía a ML automaticamente o se deja como pendingReview.
+      const constrainedResult =
         conversation.channel === Channel.MERCADOLIBRE && message.itemId && this.mlKnowledge
           ? await this.tryConstrainedReply({
               itemId: String(message.itemId),
@@ -1221,6 +1228,7 @@ export class ConversationHandlerService implements IConversationHandler {
               listing: mlListing,
             })
           : null;
+      const constrainedCanned = constrainedResult?.reply ?? null;
       const publicationFaqCanned = constrainedCanned
         ? null
         : await this.tryPublicationFaqReply({
@@ -1360,6 +1368,12 @@ export class ConversationHandlerService implements IConversationHandler {
         success: true,
         response: aiResponse,
         error: null,
+        // Marcos 2026-06-24 (Phase D): si la respuesta vino del modo
+        // cerrado Y el self-eval pasó el umbral, indicamos al caller
+        // (webhook controller) que puede bypass review-mode y enviar
+        // a ML directo. Si no, default false → respeta el flag global.
+        forceAutoSend: constrainedResult?.autoSendAllowed === true,
+        selfEvalScore: constrainedResult?.selfEvalScore,
       };
     } catch (error: any) {
       this.logger.error(`Error handling MercadoLibre message: ${error.message}`);

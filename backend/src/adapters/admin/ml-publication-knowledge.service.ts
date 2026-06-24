@@ -311,6 +311,70 @@ export class MlPublicationKnowledgeService {
     return result;
   }
 
+  /**
+   * Marcos 2026-06-24 (Phase D — auto-score). Segunda llamada a Haiku
+   * (cheap, ~100 tokens) que evalúa la respuesta recién generada
+   * según: directness al pregunta yes/no, fidelidad a la ficha (no
+   * inventa precios/atributos/stock), tono natural sin cierres
+   * formales, y si fallback fue honesto cuando no había info. Devuelve
+   * score 0..10. El caller compara contra ML_CONSTRAINED_AUTOSEND_THRESHOLD
+   * (default 8.5) para decidir auto-send vs review.
+   */
+  private async selfEvalReply(args: {
+    ficha: string;
+    qaBlock: string;
+    buyerQuestion: string;
+    reply: string;
+    client: Anthropic;
+    model: string;
+  }): Promise<{ score: number; reason?: string }> {
+    try {
+      const prompt = [
+        'Sos un evaluador de calidad de respuestas de Mercado Libre para Servifibras. Te paso una pregunta del comprador, la ficha de la publicación, las Q&A validadas que el equipo curó, y la respuesta que el agente generó. Calificás la respuesta de 0 a 10 según:',
+        '- Directness (si la pregunta era yes/no o de elección, la primera oración tiene que ser la respuesta directa)',
+        '- Fidelidad: NO inventa precios, atributos, stock, links ni info que no está en la ficha ni en las Q&A',
+        '- Tono natural sin cierres de oficina ("Quedo a disposición", "Atentamente", etc)',
+        '- Si no podía responder con info de arriba, dijo honestamente "le paso al equipo" en vez de inventar',
+        '- Coherencia interna y largo razonable',
+        '',
+        'Devolvé EXCLUSIVAMENTE JSON: { "score": 0.0-10.0, "reason": "una oración corta" }',
+        '',
+        'FICHA:',
+        args.ficha,
+        '',
+        'Q&A VALIDADAS:',
+        args.qaBlock,
+        '',
+        'PREGUNTA DEL COMPRADOR:',
+        args.buyerQuestion,
+        '',
+        'RESPUESTA A EVALUAR:',
+        args.reply,
+      ].join('\n');
+      const resp = await args.client.messages.create({
+        model: args.model,
+        max_tokens: 150,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const text = resp.content
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('')
+        .trim();
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) return { score: 0, reason: 'parse failed' };
+      const parsed = JSON.parse(m[0]);
+      const score = typeof parsed.score === 'number' ? Math.max(0, Math.min(10, parsed.score)) : 0;
+      const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 300) : undefined;
+      return { score, reason };
+    } catch (err: any) {
+      this.logger.warn(`selfEvalReply failed: ${err.message}`);
+      // Fail closed — score 0 means we never auto-send on eval errors.
+      return { score: 0, reason: `error: ${err.message}` };
+    }
+  }
+
   private buildListingFichaBlock(listing: any): string {
     const parts: string[] = [];
     if (listing.title) parts.push(`Título: ${listing.title}`);
@@ -357,6 +421,16 @@ export class MlPublicationKnowledgeService {
     usedConstrained: boolean;
     reason: string;
     curatedRowsUsed?: number;
+    /**
+     * Marcos 2026-06-24 (Phase D): self-eval score 0..10 que la IA
+     * misma se asigna sobre su propia respuesta (directness, fidelidad
+     * a la ficha, no-inventos, fallback honesto). El umbral
+     * ML_CONSTRAINED_AUTOSEND_THRESHOLD (default 8.5) decide si el
+     * caller debe auto-enviarla a ML o dejarla como pendingReview.
+     */
+    selfEvalScore?: number;
+    /** Recomendación derivada del score: 'auto-send' | 'review'. */
+    autoSendAllowed?: boolean;
   }> {
     if (!isConstrainedEnabled()) {
       return { reply: null, usedConstrained: false, reason: 'feature flag off' };
@@ -452,14 +526,66 @@ export class MlPublicationKnowledgeService {
         );
         return { reply: null, usedConstrained: false, reason: 'model declined', curatedRowsUsed: curated.length };
       }
+      // Marcos 2026-06-24 (Phase D): self-eval del reply.
+      const selfEval = await this.selfEvalReply({
+        ficha: fichaBlock,
+        qaBlock,
+        buyerQuestion: args.buyerQuestion,
+        reply: text,
+        client,
+        model,
+      });
+      const threshold = (() => {
+        const raw = Number(process.env.ML_CONSTRAINED_AUTOSEND_THRESHOLD);
+        return Number.isFinite(raw) && raw > 0 && raw <= 10 ? raw : 8.5;
+      })();
+      const autoSendAllowed = selfEval.score >= threshold;
       this.logger.log(
-        `Constrained reply ${args.itemId}: OK (${text.length} chars, ${curated.length} curated rows)`,
+        `Constrained reply ${args.itemId}: OK (${text.length} chars, ${curated.length} curated rows, self-eval=${selfEval.score.toFixed(1)}, autoSend=${autoSendAllowed})`,
       );
-      return { reply: text, usedConstrained: true, reason: 'ok', curatedRowsUsed: curated.length };
+      return {
+        reply: text,
+        usedConstrained: true,
+        reason: 'ok',
+        curatedRowsUsed: curated.length,
+        selfEvalScore: selfEval.score,
+        autoSendAllowed,
+      };
     } catch (err: any) {
       this.logger.warn(`Constrained reply ${args.itemId} failed: ${err.message}`);
       return { reply: null, usedConstrained: false, reason: `error: ${err.message}` };
     }
+  }
+
+  /**
+   * Marcos 2026-06-24 (curation accelerator): auto-mark como 'kept'
+   * todas las filas pending de la publicación que tengan
+   * aiValidityScore >= threshold (default 0.7). Marcos las puede
+   * desmarcar / editar después si encuentra alguna mal validada.
+   * Acelera la curación masiva sin perder control humano.
+   */
+  async autoKeepHighScore(args: {
+    itemId: string;
+    minScore?: number;
+    userId?: string | null;
+  }): Promise<{ keptCount: number }> {
+    const min = typeof args.minScore === 'number' && args.minScore > 0 && args.minScore <= 1
+      ? args.minScore
+      : 0.7;
+    const r = await this.prisma.mlPublicationKnowledge.updateMany({
+      where: {
+        itemId: args.itemId,
+        curationStatus: 'pending',
+        aiValidityScore: { gte: min },
+      },
+      data: {
+        curationStatus: 'kept',
+        curatedAt: new Date(),
+        curatedById: args.userId ?? null,
+      },
+    });
+    this.logger.log(`autoKeepHighScore ${args.itemId}: ${r.count} rows kept (min score ${min})`);
+    return { keptCount: r.count };
   }
 
   /** Cuántas Q&A curadas tiene cada publicación — útil para que el panel

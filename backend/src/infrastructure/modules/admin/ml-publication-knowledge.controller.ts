@@ -55,6 +55,63 @@ export class MlPublicationKnowledgeController {
   }
 
   /**
+   * Marcos 2026-06-24: auto-mark como 'kept' todas las filas pending
+   * con aiValidityScore >= 0.7 (la IA las validó). Acelera curación
+   * masiva. Operador puede revisar/desmarcar después.
+   */
+  @Post(':itemId/auto-keep-high-score')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async autoKeepHighScore(
+    @Param('itemId') itemId: string,
+    @Request() req: any,
+  ) {
+    if (!itemId || !/^MLA\d+$/i.test(itemId)) {
+      throw new BadRequestException('itemId debe ser un MLA válido');
+    }
+    const data = await this.svc.autoKeepHighScore({
+      itemId: itemId.toUpperCase(),
+      userId: req.user?.id ?? null,
+    });
+    return { success: true, data };
+  }
+
+  /**
+   * Marcos 2026-06-24: bulk-ingest. Recibe lista de MLA ids + accountKey
+   * y los ingiere uno por uno. Devuelve resumen por publicación.
+   */
+  @Post('bulk-ingest')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async bulkIngest(@Body() body: { itemIds?: string[]; accountKey?: string }) {
+    const ak: 'mercadolibre' | 'mercadolibre_cuenta2' =
+      body?.accountKey === 'mercadolibre_cuenta2' ? 'mercadolibre_cuenta2' : 'mercadolibre';
+    const ids = Array.isArray(body?.itemIds)
+      ? body.itemIds.filter((id): id is string => typeof id === 'string' && /^MLA\d+$/i.test(id)).map((id) => id.toUpperCase())
+      : [];
+    if (ids.length === 0) {
+      throw new BadRequestException('itemIds debe ser un array de MLA IDs válidos');
+    }
+    if (ids.length > 100) {
+      throw new BadRequestException('Max 100 publicaciones por bulk-ingest — partí en grupos');
+    }
+    const out: Array<{ itemId: string; fetched: number; inserted: number; skipped: number; errored: number }> = [];
+    for (const id of ids) {
+      try {
+        const r = await this.svc.ingestForItem({ itemId: id, accountKey: ak });
+        out.push({ itemId: id, fetched: r.fetched, inserted: r.inserted, skipped: r.skipped, errored: r.errored });
+      } catch (err: any) {
+        out.push({ itemId: id, fetched: 0, inserted: 0, skipped: 0, errored: 1 });
+      }
+    }
+    const totals = out.reduce((acc, r) => ({
+      fetched: acc.fetched + r.fetched,
+      inserted: acc.inserted + r.inserted,
+      skipped: acc.skipped + r.skipped,
+      errored: acc.errored + r.errored,
+    }), { fetched: 0, inserted: 0, skipped: 0, errored: 0 });
+    return { success: true, data: { results: out, totals } };
+  }
+
+  /**
    * Marcos 2026-06-24 (Phase B): pasada de IA staleness sobre todas
    * las Q&A pendientes de la publicación. Cada fila queda con
    * aiValidityScore + aiNote para que el operador foque en las

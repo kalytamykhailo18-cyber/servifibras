@@ -15,6 +15,15 @@ export interface ConversationHandleResult {
   success: boolean;
   response: string | null;
   error: string | null;
+  /**
+   * Marcos 2026-06-24 (Phase D): cuando la respuesta vino del modo
+   * cerrado Y el self-eval del modelo dio >=8.5, este flag pide al
+   * caller (e.g. webhook controller) que bypass el review-mode y
+   * envíe a ML automáticamente. Default false → respeta review mode.
+   */
+  forceAutoSend?: boolean;
+  /** Score del self-eval (0..10) — para logging/auditoría. */
+  selfEvalScore?: number;
 }
 
 /**

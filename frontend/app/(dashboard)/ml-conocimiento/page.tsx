@@ -62,6 +62,7 @@ export default function MlConocimientoPage() {
   const [editText, setEditText] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [aiPassRunning, setAiPassRunning] = useState(false);
+  const [autoKeepRunning, setAutoKeepRunning] = useState(false);
 
   const loadSummary = async () => {
     try {
@@ -107,6 +108,22 @@ export default function MlConocimientoPage() {
       toast.error(err?.response?.data?.message || err?.message || "No se pudo ingestar");
     } finally {
       setIngesting(false);
+    }
+  };
+
+  const onAutoKeep = async () => {
+    if (!selectedItemId) return;
+    if (!window.confirm("¿Auto-marcar como 'validadas' todas las pendientes con score IA >= 70%? Las dudosas y desactualizadas quedan para revisión manual.")) return;
+    setAutoKeepRunning(true);
+    try {
+      const r = await api.mlPublicationKnowledge.autoKeepHighScore(selectedItemId);
+      toast.success(`${r.keptCount} filas auto-validadas`);
+      await loadItem(selectedItemId);
+      await loadSummary();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Falló auto-keep");
+    } finally {
+      setAutoKeepRunning(false);
     }
   };
 
@@ -260,6 +277,17 @@ export default function MlConocimientoPage() {
               >
                 <AutoAwesomeIcon sx={{ fontSize: 13 }} className={aiPassRunning ? 'animate-pulse' : ''} />
                 {aiPassRunning ? 'Evaluando con IA…' : 'Pasada IA'}
+              </button>
+              <button
+                type="button"
+                onClick={onAutoKeep}
+                disabled={autoKeepRunning}
+                data-testid="ml-knowledge-auto-keep"
+                title="Auto-marca como 'validadas' las pendientes con score IA >= 70% (las dudosas quedan para revisión manual)"
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+              >
+                <CheckIcon sx={{ fontSize: 13 }} />
+                {autoKeepRunning ? 'Validando…' : 'Auto-validar ≥ 70%'}
               </button>
               <a
                 href={`https://articulo.mercadolibre.com.ar/${selectedItemId.replace(/^([A-Z]{3})(\d+)$/, '$1-$2')}-_JM`}

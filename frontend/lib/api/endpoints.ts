@@ -3151,6 +3151,25 @@ export const mlPublicationKnowledgeApi = {
     const r = await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/ai-staleness-pass${qs}`, {});
     return r.data?.data ?? r.data;
   },
+  /**
+   * Marcos 2026-06-24: auto-marca como 'kept' todas las pendientes con
+   * aiValidityScore >= 0.7. Acelera curación masiva post-pasada IA.
+   */
+  autoKeepHighScore: async (itemId: string): Promise<{ keptCount: number }> => {
+    const r = await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/auto-keep-high-score`, {});
+    return r.data?.data ?? r.data;
+  },
+  /**
+   * Marcos 2026-06-24: ingesta en lote — pasás un array de MLA IDs
+   * y los ingiere uno por uno con resumen totales.
+   */
+  bulkIngest: async (itemIds: string[], accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2'): Promise<{
+    results: Array<{ itemId: string; fetched: number; inserted: number; skipped: number; errored: number }>;
+    totals: { fetched: number; inserted: number; skipped: number; errored: number };
+  }> => {
+    const r = await apiClient.post<any>(`/admin/mercadolibre/publications/bulk-ingest`, { itemIds, accountKey });
+    return r.data?.data ?? r.data;
+  },
 };
 
 export const competitorsApi = {

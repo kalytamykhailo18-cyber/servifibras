@@ -256,8 +256,14 @@ export class MercadoLibreController {
       // admin can pause / resume the autoresponder from the UI
       // without a redeploy. Default (no row, no env) stays in
       // review-mode — drafts only.
+      // Marcos 2026-06-24 (Phase D): el handler puede setear
+      // forceAutoSend=true cuando la respuesta vino del modo cerrado
+      // Y el self-eval fue >= ML_CONSTRAINED_AUTOSEND_THRESHOLD (8.5).
+      // En ese caso bypass del review-mode global — la respuesta
+      // confiable se envía directo, las dudosas siguen como draft.
       const reviewMode = !(await this.isAutoReplyOn());
-      if (reviewMode) {
+      const forceAutoSend = (result as any)?.forceAutoSend === true;
+      if (reviewMode && !forceAutoSend) {
         await this.markLatestDraftPending(
           question.id,
           question.fromId,
@@ -269,6 +275,11 @@ export class MercadoLibreController {
           `📝 ML draft pending review for ${questionId} — auto-send disabled by ML_QA_REVIEW_MODE`,
         );
         return;
+      }
+      if (reviewMode && forceAutoSend) {
+        this.logger.log(
+          `🚀 ML auto-send bypass for ${questionId} — constrained mode self-eval=${(result as any)?.selfEvalScore?.toFixed?.(1) ?? '?'} >= threshold`,
+        );
       }
 
       // Send answer via MercadoLibre API
