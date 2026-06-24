@@ -509,6 +509,56 @@ enum ReturnState {
   LOST
 }
 
+/// Marcos 2026-06-24: per-publication Q&A knowledge — base de
+/// conocimiento que se ingiere desde /questions/search?item=X&status=
+/// ANSWERED por la API de Mercado Libre. Cada pregunta histórica de
+/// la publicación + la respuesta que salió en su momento queda
+/// guardada. El operador (o una pasada de IA) cura cada fila marcando
+/// si sigue válida, si necesita reformulación o si está obsoleta.
+/// El modo de respuesta cerrado lee SOLO de acá + la ficha de la
+/// publicación cuando llega una pregunta nueva, sin RAG abierto.
+model MlPublicationKnowledge {
+  id              String    @id @default(uuid())
+  /// ID del item de ML (MLA-XXXXXXXX). Cada publicación tiene su set.
+  itemId          String
+  /// 'mercadolibre' o 'mercadolibre_cuenta2'. Permite ingestas por cuenta.
+  accountKey      String
+  /// ID de la pregunta en ML — unique para idempotencia de ingesta.
+  mlQuestionId    String    @unique
+  questionText    String
+  /// Respuesta que SALIÓ históricamente. Null sólo si la ingesta cayó
+  /// en una pregunta sin respuesta (no debería pasar para status=ANSWERED).
+  answerText      String?
+  questionAt      DateTime
+  answeredAt      DateTime?
+  /// Estado curatorial:
+  ///   'pending'   — recién ingestada, no revisada
+  ///   'kept'      — el operador (o la pasada de IA) la valida tal cual
+  ///   'edited'    — el operador modificó la respuesta para mejorarla
+  ///   'discarded' — irrelevante / desactualizada / no usable
+  curationStatus  String    @default("pending")
+  /// Override del answerText si el operador editó. La respuesta que
+  /// el modo cerrado USA es: curatedAnswer ?? answerText.
+  curatedAnswer   String?
+  curatedAt       DateTime?
+  curatedById     String?
+  /// Tag de motivo cuando se discardea o edita por staleness:
+  /// 'price_changed' | 'attr_changed' | 'product_reformulated' | 'irrelevant'
+  stalenessFlag   String?
+  /// Resultado de la pasada de IA (score 0..1) — 1 = sigue válida.
+  aiValidityScore Float?
+  /// Nota de la IA sobre por qué la flageó como dudosa.
+  aiNote          String?
+  ingestedAt      DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([itemId])
+  @@index([accountKey])
+  @@index([curationStatus])
+  @@index([itemId, curationStatus])
+  @@map("ml_publication_knowledge")
+}
+
 /// Marcos 2026-06-24 (Bloque E visibility): cada vez que un shortcut
 /// "skip Claude" dispara (FAQ pre-IA, publication-FAQ, product-lookup,
 /// history-compression, ML shortcut), grabamos un evento. El widget

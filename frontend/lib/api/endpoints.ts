@@ -3081,6 +3081,61 @@ export const operationalResponsiblesApi = {
   },
 };
 
+// Marcos 2026-06-24: base de conocimiento por publicación (Phase A
+// de la arquitectura de "respuestas reales por publicación"). Ingiere
+// el histórico de Q&A desde la API de Mercado Libre y permite al
+// operador curar fila por fila. El modo de respuesta cerrado (Phase C)
+// va a leer SOLO de acá + la ficha de la publicación.
+export type MlKnowledgeRow = {
+  id: string;
+  mlQuestionId: string;
+  questionText: string;
+  answerText: string | null;
+  curatedAnswer: string | null;
+  questionAt: string;
+  answeredAt: string | null;
+  curationStatus: 'pending' | 'kept' | 'edited' | 'discarded' | string;
+  stalenessFlag: string | null;
+  aiValidityScore: number | null;
+  aiNote: string | null;
+  curatedAt: string | null;
+};
+export type MlKnowledgeSummaryRow = {
+  itemId: string;
+  accountKey: string;
+  total: number;
+  pending: number;
+  kept: number;
+  edited: number;
+  discarded: number;
+};
+export const mlPublicationKnowledgeApi = {
+  ingest: async (itemId: string, accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2'): Promise<{
+    itemId: string;
+    accountKey: string;
+    fetched: number;
+    inserted: number;
+    skipped: number;
+    errored: number;
+    note?: string;
+  }> => {
+    const qs = accountKey ? `?accountKey=${accountKey}` : '';
+    const r = await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/ingest${qs}`, {});
+    return r.data?.data ?? r.data;
+  },
+  listForItem: async (itemId: string): Promise<MlKnowledgeRow[]> => {
+    const r = await apiClient.get<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/knowledge`);
+    return r.data?.data ?? r.data ?? [];
+  },
+  summary: async (): Promise<MlKnowledgeSummaryRow[]> => {
+    const r = await apiClient.get<any>(`/admin/mercadolibre/publications/knowledge/summary`);
+    return r.data?.data ?? r.data ?? [];
+  },
+  curate: async (rowId: string, body: { action: 'keep' | 'edit' | 'discard'; curatedAnswer?: string; stalenessFlag?: string }): Promise<void> => {
+    await apiClient.put<any>(`/admin/mercadolibre/publications/knowledge/${encodeURIComponent(rowId)}`, body);
+  },
+};
+
 export const competitorsApi = {
   list: async (productId: string, opts?: { force?: boolean }): Promise<CompetitorList> => {
     const params = new URLSearchParams();
@@ -3136,6 +3191,7 @@ export const api = {
   competitors: competitorsApi,
   dispatchTariffs: dispatchTariffsApi,
   operationalResponsibles: operationalResponsiblesApi,
+  mlPublicationKnowledge: mlPublicationKnowledgeApi,
 };
 
 export default api;

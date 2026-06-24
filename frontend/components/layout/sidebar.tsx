@@ -13,6 +13,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import CategoryIcon from '@mui/icons-material/Category';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
@@ -169,6 +170,20 @@ const navigationItems = [
     rail: "bg-gradient-to-b from-violet-500 to-fuchsia-400",
     roles: [UserRole.ADMIN, UserRole.VENTAS],
     category: 'metricas' as Category,
+  },
+  {
+    // Marcos 2026-06-24: base de conocimiento por publicación de ML.
+    // Phase A — ingesta + curación del histórico Q&A. Modo cerrado
+    // (Phase C) leerá de acá.
+    name: "Conocimiento ML",
+    href: "/ml-conocimiento",
+    icon: LibraryBooksIcon,
+    iconColor: "text-blue-600",
+    activeBg: "bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 shadow-[0_8px_20px_-6px_rgb(59_130_246/0.55)]",
+    wash: "bg-gradient-to-r from-blue-500/10 via-cyan-400/10 to-transparent",
+    rail: "bg-gradient-to-b from-blue-500 to-cyan-400",
+    roles: [UserRole.ADMIN, UserRole.ATENCION],
+    category: 'atencion' as Category,
   },
   {
     name: "Analíticas",

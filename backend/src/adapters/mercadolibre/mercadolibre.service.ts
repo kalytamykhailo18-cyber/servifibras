@@ -886,6 +886,84 @@ export class MercadoLibreService implements IMercadoLibreService {
     }
   }
 
+  /**
+   * Marcos 2026-06-24: pagina /questions/search?item=X&status=ANSWERED
+   * para traer TODO el histórico de Q&A de una publicación. La idea es
+   * alimentar la tabla MlPublicationKnowledge — base de verdad por
+   * publicación que el modo de respuesta cerrado va a usar.
+   *
+   * ML paginate via offset+limit; limit max es 50. Cortamos en 2000
+   * preguntas como tope defensivo (un item con más historia que eso
+   * es un caso raro y conviene mirarlo a mano).
+   */
+  async fetchAnsweredQuestionsForItem(
+    itemId: string,
+    accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' = 'mercadolibre',
+  ): Promise<Array<{
+    id: string;
+    text: string;
+    answerText: string | null;
+    dateCreated: Date;
+    answeredAt: Date | null;
+    fromUserId: string;
+    accountKey: 'mercadolibre' | 'mercadolibre_cuenta2';
+  }>> {
+    const cred = await this.credentials.getFresh(accountKey, (refreshToken) =>
+      this.refreshAccessToken(refreshToken),
+    );
+    if (!cred?.accessToken) return [];
+    const resolved = accountKey;
+    const out: Array<{
+      id: string;
+      text: string;
+      answerText: string | null;
+      dateCreated: Date;
+      answeredAt: Date | null;
+      fromUserId: string;
+      accountKey: 'mercadolibre' | 'mercadolibre_cuenta2';
+    }> = [];
+    let offset = 0;
+    const limit = 50;
+    const MAX_PAGES = 40; // 40 × 50 = 2000 questions cap
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = `${this.apiUrl}/questions/search?item=${encodeURIComponent(itemId)}&status=ANSWERED&limit=${limit}&offset=${offset}&sort_fields=date_created&sort_types=ASC`;
+      const r = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${cred.accessToken}` },
+      });
+      if (!r.ok) {
+        this.logger.warn(`fetchAnsweredQuestionsForItem ${itemId} HTTP ${r.status}; stopping`);
+        break;
+      }
+      const j: any = await r.json().catch(() => ({}));
+      const arr = Array.isArray(j?.questions) ? j.questions : [];
+      if (arr.length === 0) break;
+      for (const q of arr) {
+        const id = String(q?.id ?? '');
+        const text = String(q?.text ?? '').trim();
+        const fromId = String(q?.from?.id ?? '');
+        const created = q?.date_created ? new Date(q.date_created) : null;
+        if (!id || !text || !created) continue;
+        const answer = q?.answer ?? null;
+        const answerText = typeof answer?.text === 'string' ? answer.text.trim() : null;
+        const answeredAt = answer?.date_created ? new Date(answer.date_created) : null;
+        out.push({
+          id,
+          text,
+          answerText,
+          dateCreated: created,
+          answeredAt,
+          fromUserId: fromId,
+          accountKey: resolved,
+        });
+      }
+      if (arr.length < limit) break;
+      offset += limit;
+    }
+    this.logger.log(`fetchAnsweredQuestionsForItem ${itemId}: ${out.length} preguntas`);
+    return out;
+  }
+
   async healthCheck(): Promise<boolean> {
     const auth = await this.resolveAuth();
     if (!auth) return false;
