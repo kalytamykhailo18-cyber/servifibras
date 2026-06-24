@@ -218,6 +218,36 @@ function mlListingContextBlock(listing: import('../../use-cases/ai/ai.interface'
 }
 
 function channelGuardrailBlock(channel: Channel | undefined): string | null {
+  // Marcos 2026-06-24: reglas específicas para canales privados
+  // (WhatsApp / Facebook / Instagram / TiendaNube webchat). El agente
+  // estaba usando los MLA permalinks del catálogo en respuestas de
+  // estos canales, mandando al cliente a comprar en Mercado Libre
+  // cuando en realidad la venta directa por estos canales es más
+  // valiosa (menos comisión, lead nuestro, relación directa).
+  if (
+    channel === Channel.WHATSAPP ||
+    channel === Channel.FACEBOOK ||
+    channel === Channel.INSTAGRAM ||
+    channel === Channel.TIENDANUBE_WEBCHAT
+  ) {
+    return [
+      '▸ REGLAS DE CANALES PRIVADOS (WhatsApp / FB / IG / Webchat)',
+      '',
+      'Estás respondiendo a un cliente por WhatsApp, Facebook, Instagram o el chat de TiendaNube. Reglas duras para este canal:',
+      '',
+      '1. PROHIBIDO mandar links de Mercado Libre (mercadolibre.com.ar / articulo.mercadolibre.com.ar / tienda/servifibras en ML). El cliente ya está hablando con nosotros directamente; mandarlo a ML lo saca de nuestro canal, agrega comisión y debilita la relación. Si necesitás referenciar un producto:',
+      '   - Preferí el link de TiendaNube si el producto lo tiene (tiendaservifibras.com).',
+      '   - Si no hay link de TiendaNube, describí el producto con nombre + presentación + precio y ofrecé armar el pedido directo: "Te lo armo desde acá, decime cantidad y zona de entrega".',
+      '   - JAMÁS pegues una URL articulo.mercadolibre.com.ar en este canal.',
+      '',
+      '2. Para cerrar la venta, el camino es DIRECTO: vos tomás los datos (nombre, dirección, forma de pago) y el equipo le carga el pedido en el CRM. NO redirijas al cliente a "podés comprarlo en nuestra tienda" sin link concreto de TiendaNube — eso lo deja perdido.',
+      '',
+      '3. Tono más relajado que en ML — voseo, emojis ocasionales aceptados, contracciones, español rioplatense. Pero seguís siendo Lucas: no uses cierres de oficina formal ("Quedo a disposición", "Atentamente", "Cordialmente"). El cierre natural es algo tipo "Cualquier cosa avisame" o simplemente sin cierre cuando la conversación está fluyendo.',
+      '',
+      '4. La identidad: representás a Servifibras directamente, no a una publicación específica. Podés mencionar la web/tienda propia (tiendaservifibras.com), el local, el rango de horarios — info que en ML está prohibida acá es libre.',
+      '',
+    ].join('\n');
+  }
   if (channel === Channel.MERCADOLIBRE) {
     return [
       '▸ REGLAS DE MERCADOLIBRE (PRIORIDAD MÁXIMA — TOS DE LA PLATAFORMA)',
@@ -703,9 +733,39 @@ export class ClaudeService implements IAIService {
     // also let any mercadolibre.com.ar / mercadolibre.com URL through
     // since those are platform-internal regardless of channel.
     const ML_INTERNAL_URL_RE = /^https?:\/\/(?:[a-z0-9-]+\.)*mercadolibre\.com(?:\.ar)?(?:\/|$)/i;
+    // Marcos 2026-06-24: en canales privados (WhatsApp/FB/IG/webchat)
+    // NUNCA mandar links de Mercado Libre. El cliente ya está hablando
+    // con nosotros; reenviarlo a ML pierde el lead + agrega comisión.
+    // Si el agente igual los emite (porque el catálogo tiene MLA
+    // permalinks), los strippeamos acá y los reemplazamos por el link
+    // de TiendaNube correspondiente (lookup reverso de catalogUrlToMlPermalink)
+    // si existe, o por una nota neutra.
+    const isPrivateChannel =
+      channel === Channel.WHATSAPP ||
+      channel === Channel.FACEBOOK ||
+      channel === Channel.INSTAGRAM ||
+      channel === Channel.TIENDANUBE_WEBCHAT;
+    const mlToTnLookup = new Map<string, string>();
+    if (isPrivateChannel && this.catalogUrlToMlPermalink.size > 0) {
+      for (const [tn, ml] of this.catalogUrlToMlPermalink.entries()) {
+        if (ml) mlToTnLookup.set(ml.replace(/\/$/, ''), tn);
+      }
+    }
     if (this.validCatalogUrls.size > 0) {
       cleaned = cleaned.replace(/\bhttps?:\/\/[^\s<>\)\]"',]+/gi, (raw) => {
         const trimmed = raw.replace(/[.,;:!?]+$/, '');
+        // Canales privados: cualquier articulo.mercadolibre / mercadolibre.com.ar
+        // se reemplaza con TN si lo tenemos mapeado, sino se strippa.
+        if (isPrivateChannel && ML_INTERNAL_URL_RE.test(trimmed)) {
+          const tnEquivalent = mlToTnLookup.get(trimmed.replace(/\/$/, ''));
+          dropped++;
+          if (tnEquivalent) {
+            this.logger.warn(`ML URL on private channel ${channel} swapped to TN: ${trimmed} → ${tnEquivalent}`);
+            return tnEquivalent;
+          }
+          this.logger.warn(`ML URL on private channel ${channel} stripped (no TN equivalent): ${trimmed}`);
+          return '[te lo paso por acá, decime cantidad y zona]';
+        }
         if (
           this.validCatalogUrls.has(trimmed) ||
           this.validCatalogUrls.has(trimmed + '/') ||
@@ -1939,6 +1999,15 @@ IMPORTANTE sobre precios:
       // pelota al comprador para que busque el mismo. El agente
       // tiene buscar_producto, lo tiene que hacer el.
       /(?:^|\s)[Pp]od[eé]s\s+buscar\s+entre\s+(?:los|nuestros)\s+productos[^.!?\n]*[.!?\n]\s*/g,
+      // Marcos 2026-06-24 (caso EDU_SENAC, Resina Epoxi Cristal):
+      // cierres de oficina formal ("Quedo a disposición ante cualquier
+      // otra duda.", "Quedo a la espera", "Atentamente Lucas", etc).
+      // Ya estaban prohibidos en regla 9 del prompt pero el agente
+      // los seguía emitiendo — los stripeamos como red de seguridad.
+      // Anclados como trailing (al final del texto o de un párrafo).
+      /\s*[Qq]uedo\s+a\s+(?:disposici[oó]n|la\s+espera)[^.!?\n]*[.!?]?\s*$/g,
+      /\s*[Aa]tentamente[,.]?\s*(?:Lucas|Servifibras)?[^\n]*$/g,
+      /\s*[Cc]ordialmente[,.]?\s*(?:Lucas|Servifibras)?[^\n]*$/g,
     ];
     for (const re of BODY_CONFIRMATION_RES) {
       if (re.test(cleaned)) {
