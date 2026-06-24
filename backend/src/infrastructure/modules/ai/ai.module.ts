@@ -16,6 +16,7 @@ import { QuickReplyService } from '../../../adapters/admin/quick-reply.service';
 import { MlBatchQueueService } from '../../../adapters/ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../../../adapters/ai/history-compression.service';
 import { CostOptCounterService } from '../../../adapters/ai/cost-opt-counter.service';
+import { MlPublicationKnowledgeService } from '../../../adapters/admin/ml-publication-knowledge.service';
 import { AIController } from './ai.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
@@ -60,6 +61,12 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     // shortcut skip-Claude registra un evento, el budget widget los
     // suma para mostrar ahorro mensual demostrable.
     CostOptCounterService,
+    // Marcos 2026-06-24 (Phase C): MlPublicationKnowledge se necesita
+    // tanto en el admin controller como en el inbound handler de ML
+    // (modo cerrado). Vive acá para compartir una sola instancia
+    // entre AdminModule (importa AIModule) y los channel modules que
+    // hostean ConversationHandlerService.
+    MlPublicationKnowledgeService,
   ],
   exports: [
     ClaudeService,
@@ -71,6 +78,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     MlBatchQueueService,
     HistoryCompressionService,
     CostOptCounterService,
+    MlPublicationKnowledgeService,
   ],
 })
 export class AIModule {}

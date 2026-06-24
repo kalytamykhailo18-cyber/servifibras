@@ -16,6 +16,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 
+// Marcos 2026-06-24 (Phase C): kill switch para el modo cerrado.
+// Default OFF mientras Marcos cura las publicaciones; flipea a true
+// para activar en una cuenta de prueba o por env.
+function isConstrainedEnabled(): boolean {
+  const raw = process.env.ML_CONSTRAINED_REPLY_ENABLED;
+  if (raw == null || raw.trim().length === 0) return false;
+  return raw.trim().toLowerCase() === 'true';
+}
+
 export interface IngestResult {
   itemId: string;
   accountKey: 'mercadolibre' | 'mercadolibre_cuenta2';
@@ -316,6 +325,154 @@ export class MlPublicationKnowledgeService {
       parts.push(`Descripción: ${String(listing.description).slice(0, 1500)}`);
     }
     return parts.join('\n');
+  }
+
+  /**
+   * Marcos 2026-06-24 (Phase C): MODO CERRADO DE RESPUESTA.
+   *
+   * Cuando llega una pregunta nueva en una publicación que tiene
+   * suficientes Q&A curadas, en lugar de pasar por el agente con tools
+   * + RAG abierto, armamos un prompt mínimo:
+   *   - Ficha actual de la publicación (titulo + precio + atributos + descripción).
+   *   - Las Q&A curadas (kept + edited) ya validadas por el equipo.
+   *   - Reglas duras: SOLO responder con info de arriba; si no se
+   *     cubre, devolver "le paso al equipo".
+   * Y lo corremos con Haiku. Sin tool calls, sin historial, sin
+   * fabricación. El resultado es la respuesta cerrada, o null si el
+   * modelo dijo que no podía responder (el caller hace fallback).
+   *
+   * Threshold de readiness: la publicación necesita >= N Q&A curadas
+   * (default 3; configurable via ML_CONSTRAINED_MIN_CURATED). Si tiene
+   * menos, devolvemos null inmediatamente para que el caller use el
+   * pipeline regular.
+   */
+  async tryConstrainedReply(args: {
+    itemId: string;
+    buyerQuestion: string;
+    buyerNickname?: string | null;
+    /** Listing ya fetched por el caller — evita doble round trip a ML. */
+    listing?: any;
+  }): Promise<{
+    reply: string | null;
+    usedConstrained: boolean;
+    reason: string;
+    curatedRowsUsed?: number;
+  }> {
+    if (!isConstrainedEnabled()) {
+      return { reply: null, usedConstrained: false, reason: 'feature flag off' };
+    }
+    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return { reply: null, usedConstrained: false, reason: 'no API key' };
+
+    // Cargar Q&A curadas (kept + edited). discarded y pending se ignoran.
+    const curated = await this.prisma.mlPublicationKnowledge.findMany({
+      where: {
+        itemId: args.itemId,
+        curationStatus: { in: ['kept', 'edited'] },
+      },
+      orderBy: { questionAt: 'desc' },
+      take: 50,
+      select: {
+        questionText: true,
+        answerText: true,
+        curatedAnswer: true,
+      },
+    });
+    const minRequired = (() => {
+      const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED);
+      return Number.isFinite(raw) && raw > 0 ? raw : 3;
+    })();
+    if (curated.length < minRequired) {
+      return {
+        reply: null,
+        usedConstrained: false,
+        reason: `curated=${curated.length} < min=${minRequired}`,
+      };
+    }
+    // Ficha actual — el caller puede pasarla pre-fetched (común en el
+    // pipeline ML porque mlListing ya se cargó).
+    const listing = args.listing
+      ?? (this.mercadolibre ? await this.mercadolibre.fetchListingDetails(args.itemId).catch(() => null) : null);
+    if (!listing) {
+      return { reply: null, usedConstrained: false, reason: 'no listing context' };
+    }
+
+    const fichaBlock = this.buildListingFichaBlock(listing);
+    const qaBlock = curated.map((c, i) => {
+      const answer = c.curatedAnswer ?? c.answerText ?? '';
+      return `${i + 1}. P: ${c.questionText}\n   R: ${answer}`;
+    }).join('\n\n');
+    const nickname = (args.buyerNickname ?? '').trim() || 'comprador';
+    const FALLBACK = `Hola ${nickname}, le paso esta consulta al equipo y te respondemos en breve. Gracias por la paciencia.`;
+
+    const prompt = [
+      'Sos un asistente de Mercado Libre para Servifibras. Respondés SOLO con información que está abajo. NO podés improvisar, inventar precios, atributos, stock, links ni nada que no esté literalmente acá.',
+      '',
+      'FICHA ACTUAL DE LA PUBLICACIÓN:',
+      fichaBlock,
+      '',
+      'PREGUNTAS Y RESPUESTAS YA VALIDADAS POR EL EQUIPO PARA ESTA PUBLICACIÓN:',
+      qaBlock,
+      '',
+      'REGLAS:',
+      `- Empezá con "Hola ${nickname},". No uses cierre formal ("Quedo a disposición", "Atentamente", "Cordialmente"); si querés cerrar, usá "Saludos."`,
+      '- Si la pregunta nueva ya está cubierta arriba (o muy parecida), respondé reutilizando esa respuesta validada — adaptala al apodo del comprador si hace falta.',
+      '- Si la pregunta NO está cubierta pero se contesta directo desde la ficha, respondé citando ESTRICTAMENTE la ficha.',
+      `- Si NO se puede responder con info de arriba, devolvé EXACTAMENTE este texto (sin agregar nada más): "${FALLBACK}"`,
+      '- Máximo 80 palabras salvo que la pregunta requiera más.',
+      '- Si la pregunta es yes/no o de elección, primera oración es la respuesta directa (sí/no/cuál).',
+      '',
+      'PREGUNTA NUEVA:',
+      args.buyerQuestion,
+    ].join('\n');
+
+    const client = new Anthropic({ apiKey });
+    const model = process.env.ML_CONSTRAINED_MODEL || 'claude-haiku-4-5-20251001';
+    try {
+      const resp = await client.messages.create({
+        model,
+        max_tokens: 350,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const text = resp.content
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('')
+        .trim();
+      if (!text) {
+        return { reply: null, usedConstrained: false, reason: 'empty response' };
+      }
+      // Si la respuesta es exactamente el fallback, devolvemos null
+      // para que el caller decida (puede dejarla para revisión humana
+      // o caer al pipeline regular).
+      if (text.includes(FALLBACK) || text.includes('le paso esta consulta al equipo')) {
+        this.logger.log(
+          `Constrained reply ${args.itemId}: model declined (fallback emitted), ${curated.length} curated rows available`,
+        );
+        return { reply: null, usedConstrained: false, reason: 'model declined', curatedRowsUsed: curated.length };
+      }
+      this.logger.log(
+        `Constrained reply ${args.itemId}: OK (${text.length} chars, ${curated.length} curated rows)`,
+      );
+      return { reply: text, usedConstrained: true, reason: 'ok', curatedRowsUsed: curated.length };
+    } catch (err: any) {
+      this.logger.warn(`Constrained reply ${args.itemId} failed: ${err.message}`);
+      return { reply: null, usedConstrained: false, reason: `error: ${err.message}` };
+    }
+  }
+
+  /** Cuántas Q&A curadas tiene cada publicación — útil para que el panel
+   *  muestre el badge "lista para modo cerrado". */
+  async countCuratedByItem(): Promise<Record<string, number>> {
+    const rows = await this.prisma.mlPublicationKnowledge.groupBy({
+      by: ['itemId'],
+      where: { curationStatus: { in: ['kept', 'edited'] } },
+      _count: { _all: true },
+    });
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.itemId] = r._count._all;
+    return out;
   }
 
   /**

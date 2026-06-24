@@ -32,6 +32,7 @@ import { OrderStatusReplyService } from './order-status-reply.service';
 import { FaqPreAiService } from './faq-pre-ai.service';
 import { ProductLookupShortcutService } from './product-lookup-shortcut.service';
 import { PublicationFaqService } from '../admin/publication-faq.service';
+import { MlPublicationKnowledgeService } from '../admin/ml-publication-knowledge.service';
 import { MlBatchQueueService } from '../ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../ai/history-compression.service';
 import { looksLikeTestContactName } from './test-contact-patterns';
@@ -63,6 +64,7 @@ export class ConversationHandlerService implements IConversationHandler {
     // channel module. Marked optional so unit-test harnesses that
     // instantiate the handler bare don't crash.
     @Optional() private readonly publicationFaq?: PublicationFaqService,
+    @Optional() private readonly mlKnowledge?: MlPublicationKnowledgeService,
     // Optional — ML batch queue (Bloque E item 4). When the env flag
     // is on, ML inbound enqueues the question instead of calling
     // Claude inline. The cron in AdminModule dispatches + polls.
@@ -140,6 +142,35 @@ export class ConversationHandlerService implements IConversationHandler {
    * registered for that item, answer instantly (zero Claude tokens)
    * and bump the hit counter. Returns null to fall through.
    */
+  /**
+   * Marcos 2026-06-24 (Phase C — modo cerrado de respuesta). Si la
+   * publicación tiene suficientes Q&A curadas, corremos Haiku con un
+   * prompt cerrado que sólo lee de la ficha + Q&A validadas. Sin
+   * tools, sin RAG, sin historial. Si el modelo declina (no puede
+   * contestar con la info de arriba) devuelve null y el caller cae
+   * al pipeline regular. Errores son swallowed — nunca rompen el flujo.
+   */
+  private async tryConstrainedReply(args: {
+    itemId: string;
+    buyerQuestion: string;
+    buyerNickname?: string | null;
+    listing?: any;
+  }): Promise<string | null> {
+    if (!this.mlKnowledge) return null;
+    try {
+      const r = await this.mlKnowledge.tryConstrainedReply(args);
+      if (r.usedConstrained && r.reply) {
+        this.logger.log(
+          `🔒 Constrained reply OK for ${args.itemId} (${r.curatedRowsUsed} curated rows)`,
+        );
+      }
+      return r.usedConstrained ? r.reply : null;
+    } catch (err: any) {
+      this.logger.warn(`Constrained reply non-fatal failure: ${err.message}`);
+      return null;
+    }
+  }
+
   private async tryPublicationFaqReply(args: {
     channel: Channel;
     itemId: string | null | undefined;
@@ -1174,11 +1205,29 @@ export class ConversationHandlerService implements IConversationHandler {
       // Per-publication FAQ (Bloque E item 3) runs FIRST — operator-
       // curated canned answers are the most specific signal we have on
       // ML, so they outrank the generic product-lookup shortcut.
-      const publicationFaqCanned = await this.tryPublicationFaqReply({
-        channel: conversation.channel,
-        itemId: message.itemId ? String(message.itemId) : null,
-        text: message.text,
-      });
+      // Marcos 2026-06-24 (Phase C — modo cerrado). FIRST shortcut
+      // antes que todo: si la publicación tiene Q&A curadas suficientes
+      // (>= ML_CONSTRAINED_MIN_CURATED, default 3), corremos Haiku con
+      // prompt cerrado que SOLO lee de la ficha + Q&A validadas.
+      // Si el modelo declina (devuelve "le paso al equipo") o no hay
+      // base suficiente, devuelve null y cae al pipeline regular —
+      // FAQ por publicación → product lookup → FAQ pre-AI → agente.
+      const constrainedCanned =
+        conversation.channel === Channel.MERCADOLIBRE && message.itemId && this.mlKnowledge
+          ? await this.tryConstrainedReply({
+              itemId: String(message.itemId),
+              buyerQuestion: message.text,
+              buyerNickname: message.from || null,
+              listing: mlListing,
+            })
+          : null;
+      const publicationFaqCanned = constrainedCanned
+        ? null
+        : await this.tryPublicationFaqReply({
+            channel: conversation.channel,
+            itemId: message.itemId ? String(message.itemId) : null,
+            text: message.text,
+          });
       // Product lookup (Bloque E item 1) runs second — a "precio?"
       // question on a known publication resolves straight from the
       // listing context without a Claude call.
@@ -1206,6 +1255,7 @@ export class ConversationHandlerService implements IConversationHandler {
           ? null
           : await this.tryOrderStatusReply(contact.id, message.text);
       const canned =
+        constrainedCanned ??
         publicationFaqCanned ??
         productCanned ??
         faqCanned ??
