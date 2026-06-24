@@ -64,7 +64,128 @@ export class MercadolibreQaService {
     @Optional()
     @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
+    // Marcos 2026-06-24: ClaudeService inyectada por el endpoint
+    // regenerateDraft que re-corre el agente sobre la misma pregunta
+    // con el prompt actual.
+    @Optional()
+    private readonly claude?: import('../ai/claude.service').ClaudeService,
   ) {}
+
+  /**
+   * Marcos 2026-06-24 (MLA1713128062 — draft generado antes del fix
+   * de prompt sigue mostrando la respuesta vieja). Re-corre la IA
+   * sobre la misma pregunta que originalmente produjo este draft,
+   * usando el prompt actual. Reemplaza el content del row pendingReview
+   * con la nueva respuesta; el metadata.mlQuestionId / pendingReview
+   * se preservan así el operador puede seguir releasing/discarding.
+   */
+  async regenerateDraft(messageId: string): Promise<{ ok: boolean; reason?: string; newContent?: string }> {
+    if (!this.claude || !this.mercadolibre) {
+      return { ok: false, reason: 'AI/ML services not available in this runtime' };
+    }
+    const draft = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        conversationId: true,
+        metadata: true,
+        isFromAI: true,
+        conversation: {
+          select: {
+            id: true,
+            channel: true,
+            isSandbox: true,
+            contactId: true,
+            contact: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!draft || !draft.isFromAI) return { ok: false, reason: 'Draft not found or not AI-generated' };
+    if (draft.conversation?.channel !== Channel.MERCADOLIBRE) {
+      return { ok: false, reason: 'Regenerate only supported for MercadoLibre drafts' };
+    }
+    const meta = (draft.metadata as Record<string, unknown> | null) ?? {};
+    const mlQuestionId = typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null;
+    if (!mlQuestionId) return { ok: false, reason: 'Draft has no mlQuestionId in metadata' };
+    // Encontrar la pregunta del comprador que disparó este draft.
+    // Convención: el CUSTOMER message más reciente anterior al draft,
+    // que tenga metadata.mlQuestionId === el mismo id.
+    const customerMsg = await this.prisma.message.findFirst({
+      where: {
+        conversationId: draft.conversationId,
+        isFromAI: false,
+        metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+    if (!customerMsg) return { ok: false, reason: 'Original buyer question not found' };
+    const cipher = getMessageCipher();
+    const questionText = cipher.decrypt(customerMsg.content);
+    const customerMeta = (customerMsg.metadata as Record<string, unknown> | null) ?? {};
+    const itemId = typeof customerMeta.mlItemId === 'string' ? customerMeta.mlItemId : null;
+    // Historial conversacional: TODOS los messages anteriores al draft,
+    // en orden cronológico (oldest first).
+    const priorMsgs = await this.prisma.message.findMany({
+      where: {
+        conversationId: draft.conversationId,
+        timestamp: { lt: customerMsg.timestamp },
+      },
+      orderBy: { timestamp: 'asc' },
+      select: { content: true, sender: true, isFromAI: true, timestamp: true },
+    });
+    const { AIConversation, AIMessage } = await import('../../domain/entities/ai.entity');
+    const aiMessages = priorMsgs.map((m) => new AIMessage(m.isFromAI ? 'assistant' : 'user', cipher.decrypt(m.content)));
+    const aiConv = new AIConversation(aiMessages);
+
+    // Listing fresco para el contexto de Claude.
+    let mlListing: any = undefined;
+    if (itemId && !itemId.startsWith('sandbox-')) {
+      try {
+        const fetched = await this.mercadolibre.fetchListingDetails(itemId);
+        if (fetched) mlListing = fetched;
+      } catch (err: any) {
+        this.logger.warn(`fetchListingDetails failed for ${itemId}: ${err.message}`);
+      }
+    }
+    const isContinuation = aiMessages.some((m) => m.role === 'assistant');
+    const contactName =
+      (typeof customerMeta.mlBuyerNickname === 'string' && customerMeta.mlBuyerNickname) ||
+      draft.conversation.contact?.name ||
+      null;
+    let newResponse: string;
+    try {
+      newResponse = await this.claude.continueConversation(
+        aiConv,
+        questionText,
+        {
+          channel: Channel.MERCADOLIBRE,
+          mercadolibreListing: mlListing,
+          customerName: contactName,
+          isContinuation,
+          contactId: draft.conversation.contact?.id ?? null,
+          isTestTraffic: !!draft.conversation.isSandbox,
+        },
+      );
+    } catch (err: any) {
+      this.logger.error(`regenerateDraft Claude call failed for ${messageId}: ${err.message}`);
+      return { ok: false, reason: `Regeneración falló: ${err.message}` };
+    }
+    if (!newResponse || newResponse.trim().length === 0) {
+      return { ok: false, reason: 'La IA devolvió una respuesta vacía' };
+    }
+    const nextMeta = { ...meta, regeneratedAt: new Date().toISOString() };
+    await this.prisma.message.update({
+      where: { id: draft.id },
+      data: {
+        content: cipher.encrypt(newResponse),
+        metadata: nextMeta as any,
+        timestamp: new Date(),
+      },
+    });
+    this.logger.log(`Draft ${messageId} regenerated (mlQuestionId=${mlQuestionId}, len=${newResponse.length})`);
+    return { ok: true, newContent: newResponse };
+  }
 
   /**
    * List the most-recent N ML Q&A pairs (defaults to 50). Optional:

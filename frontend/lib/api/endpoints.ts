@@ -2436,6 +2436,18 @@ export const mercadolibreApi = {
     return r.data?.data ?? r.data;
   },
   /**
+   * Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
+   * que originó el draft, con el prompt actual. Devuelve el nuevo
+   * texto generado para que el frontend lo muestre sin recargar.
+   */
+  regenerateDraft: async (messageId: string): Promise<{ messageId: string; content: string }> => {
+    const r = await apiClient.post<any>(
+      `/admin/mercadolibre/qa/regenerate/${encodeURIComponent(messageId)}`,
+      {},
+    );
+    return r.data?.data ?? r.data;
+  },
+  /**
    * Marcos 2026-06-12: persist mid-edit changes to a pending draft.
    * The QA panel debounces typing into this endpoint so leaving and
    * returning to the page preserves the edit.

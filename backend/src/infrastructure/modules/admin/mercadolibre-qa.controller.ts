@@ -228,6 +228,19 @@ export class MercadolibreQaController {
   }
 
   /**
+   * Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
+   * usando el prompt actual. Útil cuando ajustamos el prompt + el
+   * draft pendiente quedó congelado con la respuesta vieja.
+   */
+  @Post('qa/regenerate/:messageId')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async regenerate(@Param('messageId') messageId: string) {
+    const r = await this.svc.regenerateDraft(messageId);
+    if (!r.ok) throw new BadRequestException(r.reason ?? 'No se pudo regenerar');
+    return { success: true, data: { messageId, content: r.newContent } };
+  }
+
+  /**
    * Marcos 2026-06-12: persist mid-edit changes to a pending draft
    * so leaving + returning to the panel doesn't blow away the
    * operator's work. UI debounces typing into this endpoint

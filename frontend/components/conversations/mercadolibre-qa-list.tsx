@@ -144,7 +144,7 @@ export function MercadolibreQaList() {
   // prioridad máxima.
   const [claimsBucket, setClaimsBucket] = useState<'seller' | 'buyer' | 'ml'>('seller');
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
-  const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | null>>({});
+  const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | 'regen' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
   // server-side save so the textarea can render a subtle "guardado"
   // hint after a debounce flushes. Per-id timer holder.
@@ -265,6 +265,24 @@ export function MercadolibreQaList() {
       setDraftEdits((prev) => { const next = { ...prev }; delete next[d.messageId]; return next; });
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? err?.message ?? 'No se pudo descartar');
+    } finally {
+      setDraftBusy((prev) => ({ ...prev, [d.messageId]: null }));
+    }
+  }, []);
+
+  // Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
+  // con el prompt actual. Reemplaza el content del borrador in-place
+  // para que el operador pueda compararlo con la versión vieja.
+  const regenerateDraft = useCallback(async (d: PendingDraft) => {
+    setDraftBusy((prev) => ({ ...prev, [d.messageId]: 'regen' }));
+    try {
+      const r = await api.mercadolibre.regenerateDraft(d.messageId);
+      toast.success('Borrador regenerado con el prompt actual');
+      setDrafts((prev) => prev.map((x) => (x.messageId === d.messageId ? { ...x, content: r.content } : x)));
+      // Clean any in-progress edits so el operador ve la nueva versión cruda.
+      setDraftEdits((prev) => { const next = { ...prev }; delete next[d.messageId]; return next; });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? err?.message ?? 'No se pudo regenerar');
     } finally {
       setDraftBusy((prev) => ({ ...prev, [d.messageId]: null }));
     }
@@ -784,6 +802,20 @@ export function MercadolibreQaList() {
                     </p>
                   )}
                   <div className="flex items-center justify-end gap-2">
+                    {/* Marcos 2026-06-24: regenerar reusa la misma
+                       pregunta + el prompt actual. Útil cuando se
+                       cambia una regla del agente y el draft ya
+                       generado se quedó con la versión vieja. */}
+                    <button
+                      type="button"
+                      onClick={() => void regenerateDraft(d)}
+                      disabled={!!busy}
+                      data-testid="ml-draft-regenerate"
+                      title="Re-correr el agente sobre la misma pregunta con el prompt actual"
+                      className="inline-flex h-8 items-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-60"
+                    >
+                      {busy === 'regen' ? '…' : 'Regenerar'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => void discardDraft(d)}
