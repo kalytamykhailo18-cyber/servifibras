@@ -1192,11 +1192,24 @@ export class ConversationHandlerService implements IConversationHandler {
       const faqCanned = publicationFaqCanned || productCanned
         ? null
         : await this.tryFaqPreAiReply(conversation.channel, message.text);
+      // Marcos 2026-06-24 (MLA859949317 — "Hola, quería saber si hacen
+      // envíos a ameghino, Buenos Aires (CP 6064), qué costo tiene y
+      // cuándo llegaría"): el detector de intent matcheaba "cuándo
+      // llega" como substring de "cuándo llegaría" y disparaba el auto-
+      // reply de orden inexistente, leakeando el formato CRM-interno
+      // "ORD-AAAA-NNNN" a un comprador de ML pre-venta. El servicio
+      // de OrderStatusReply existe para WhatsApp post-venta, no para
+      // ML — el comprador de ML rastrea su pedido en ML directamente.
+      // Lo skipeamos en este canal entero.
+      const orderStatusCanned =
+        conversation.channel === Channel.MERCADOLIBRE
+          ? null
+          : await this.tryOrderStatusReply(contact.id, message.text);
       const canned =
         publicationFaqCanned ??
         productCanned ??
         faqCanned ??
-        (await this.tryOrderStatusReply(contact.id, message.text));
+        orderStatusCanned;
       let aiResponse: string;
       if (canned) {
         this.logger.log(`📦 Order-status auto-reply: "${canned.substring(0, 60)}..."`);
