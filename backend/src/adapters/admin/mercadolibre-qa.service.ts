@@ -134,7 +134,7 @@ export class MercadolibreQaService {
       orderBy: { timestamp: 'asc' },
       select: { content: true, sender: true, isFromAI: true, timestamp: true },
     });
-    const { AIConversation, AIMessage } = await import('../../domain/entities/ai.entity');
+    const { AIConversation, AIMessage } = await import('../../domain/entities/ai-message.entity');
     const aiMessages = priorMsgs.map((m) => new AIMessage(m.isFromAI ? 'assistant' : 'user', cipher.decrypt(m.content)));
     const aiConv = new AIConversation(aiMessages);
 
