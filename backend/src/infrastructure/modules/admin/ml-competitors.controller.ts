@@ -44,7 +44,17 @@ export class MlCompetitorsController {
     @Query('productId') productId?: string,
     @Query('force') force?: string,
   ) {
-    if (!productId) throw new BadRequestException('productId is required');
+    // Marcos 2026-06-24: sin productId, devolvemos TODOS los productos
+    // que tengan watches cargados — vista centralizada de /competidores.
+    if (!productId) {
+      try {
+        const data = await this.svc.listAll({ force: force === '1' || force === 'true' });
+        return { success: true, data };
+      } catch (err: any) {
+        this.logger.error(`Competitors listAll failed: ${err.message}`);
+        throw new BadRequestException(err.message);
+      }
+    }
     try {
       const data = await this.svc.listForProduct({
         productId,

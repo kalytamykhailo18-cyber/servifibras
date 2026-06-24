@@ -111,6 +111,52 @@ export class MlCompetitorsService {
     }
   }
 
+  /**
+   * Marcos 2026-06-24: vista agregada — todos los productos con
+   * algún competidor cargado + sus watches en vivo. Sirve para la
+   * página /competidores centralizada. No incluye productos sin
+   * watches (la lista es de "qué estoy siguiendo").
+   */
+  async listAll(args: { force?: boolean } = {}): Promise<MlCompetitorsSnapshot[]> {
+    const watches = await this.prisma.mlCompetitorWatch.findMany({
+      orderBy: { createdAt: 'asc' },
+      include: {
+        product: {
+          select: { id: true, sku: true, name: true, basePriceArs: true, stockQuantity: true },
+        },
+      },
+    });
+    if (watches.length === 0) return [];
+    // Group por producto preservando el orden de inserción del primer watch.
+    const byProduct = new Map<string, {
+      product: typeof watches[number]['product'];
+      watches: typeof watches;
+    }>();
+    for (const w of watches) {
+      if (!w.product) continue;
+      const g = byProduct.get(w.product.id) ?? { product: w.product, watches: [] };
+      g.watches.push(w);
+      byProduct.set(w.product.id, g);
+    }
+    const out: MlCompetitorsSnapshot[] = [];
+    for (const { product, watches: ws } of byProduct.values()) {
+      const live: MlCompetitorLive[] = [];
+      for (const w of ws) {
+        const fetched = await this.fetchItem(w.itemId, args.force === true);
+        live.push(this.mapWatch(w, fetched));
+      }
+      out.push({
+        productId: product.id,
+        productSku: product.sku,
+        productName: product.name,
+        productPriceArs: product.basePriceArs ? Number(product.basePriceArs) : null,
+        ourStock: product.stockQuantity ?? null,
+        watches: live,
+      });
+    }
+    return out;
+  }
+
   async listForProduct(args: {
     productId: string;
     force?: boolean;

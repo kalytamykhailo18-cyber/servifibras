@@ -12,6 +12,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import CategoryIcon from '@mui/icons-material/Category';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
@@ -153,6 +154,19 @@ const navigationItems = [
     activeBg: "bg-gradient-to-r from-orange-600 via-red-500 to-orange-600 shadow-[0_8px_20px_-6px_rgb(249_115_22/0.55)]",
     wash: "bg-gradient-to-r from-orange-500/10 via-red-400/10 to-transparent",
     rail: "bg-gradient-to-b from-orange-500 to-red-400",
+    roles: [UserRole.ADMIN, UserRole.VENTAS],
+    category: 'metricas' as Category,
+  },
+  {
+    // Marcos 2026-06-24: entrada propia. Antes el feature vivía como
+    // diálogo nested dentro de /products y Marcos no la encontraba.
+    name: "Competidores",
+    href: "/competidores",
+    icon: VisibilityIcon,
+    iconColor: "text-violet-600",
+    activeBg: "bg-gradient-to-r from-violet-600 via-fuchsia-500 to-violet-600 shadow-[0_8px_20px_-6px_rgb(139_92_246/0.55)]",
+    wash: "bg-gradient-to-r from-violet-500/10 via-fuchsia-400/10 to-transparent",
+    rail: "bg-gradient-to-b from-violet-500 to-fuchsia-400",
     roles: [UserRole.ADMIN, UserRole.VENTAS],
     category: 'metricas' as Category,
   },

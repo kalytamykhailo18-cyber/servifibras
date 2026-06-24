@@ -3077,6 +3077,16 @@ export const competitorsApi = {
     const r = await apiClient.get<any>(`/admin/competitors?${params.toString()}`);
     return r.data?.data ?? r.data;
   },
+  // Marcos 2026-06-24: vista agregada para /competidores. Devuelve
+  // TODOS los productos que tengan watches cargados, con los watches
+  // hydratados en vivo (precio + stock del competidor).
+  listAll: async (opts?: { force?: boolean }): Promise<CompetitorList[]> => {
+    const params = new URLSearchParams();
+    if (opts?.force) params.set('force', '1');
+    const qs = params.toString();
+    const r = await apiClient.get<any>(`/admin/competitors${qs ? `?${qs}` : ''}`);
+    return r.data?.data ?? r.data ?? [];
+  },
   add: async (input: { productId: string; itemId: string; label?: string }): Promise<CompetitorWatch> => {
     const r = await apiClient.post<any>('/admin/competitors', input);
     return r.data?.data ?? r.data;
