@@ -26,14 +26,19 @@
  *   HISTORY_COMPRESSION_THRESHOLD      default 10  (# msgs to start)
  *   HISTORY_COMPRESSION_TAIL_SIZE      default 5   (# msgs verbatim)
  *   HISTORY_COMPRESSION_MAX_BYTES      default 1500
- *   HISTORY_COMPRESSION_CHANNELS       default "WHATSAPP,TIENDANUBE_WEBCHAT,FACEBOOK,INSTAGRAM"
- *                                      ML is skipped by default since
- *                                      ML pre-venta is one-shot.
+ *   HISTORY_COMPRESSION_CHANNELS       default "WHATSAPP,TIENDANUBE_WEBCHAT,FACEBOOK,INSTAGRAM,MERCADOLIBRE"
+ *                                      Marcos 2026-06-24: ML sumado al
+ *                                      default. Pre-venta sigue siendo
+ *                                      one-shot (queda corto, no entra
+ *                                      al umbral), pero los reclamos
+ *                                      post-venta van y vuelven varios
+ *                                      turnos y ahi si se beneficia.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Channel } from '@prisma/client';
 import { ConversationSummaryService } from './conversation-summary.service';
+import { CostOptCounterService } from './cost-opt-counter.service';
 
 export interface CompressionResult<TMsg = any> {
   /** Spanish system-block text to push into the prompt (cached), or
@@ -51,7 +56,10 @@ export interface CompressionResult<TMsg = any> {
 export class HistoryCompressionService {
   private readonly logger = new Logger(HistoryCompressionService.name);
 
-  constructor(private readonly summaries: ConversationSummaryService) {}
+  constructor(
+    private readonly summaries: ConversationSummaryService,
+    @Optional() private readonly costOptCounter?: CostOptCounterService,
+  ) {}
 
   enabled(): boolean {
     return (process.env.HISTORY_COMPRESSION_ENABLED ?? 'true').toLowerCase() !== 'false';
@@ -76,7 +84,11 @@ export class HistoryCompressionService {
     const raw = process.env.HISTORY_COMPRESSION_CHANNELS;
     const list = raw && raw.length > 0
       ? raw.split(',').map((s) => s.trim().toUpperCase())
-      : ['WHATSAPP', 'TIENDANUBE_WEBCHAT', 'FACEBOOK', 'INSTAGRAM'];
+      // Marcos 2026-06-24: ML sumado al default — los reclamos post-venta
+      // tienen threads largos donde la compresión ayuda. Pre-venta queda
+      // corta y nunca pasa el threshold, asi que no hay riesgo de
+      // contexto cortado en el flujo donde no se quiere.
+      : ['WHATSAPP', 'TIENDANUBE_WEBCHAT', 'FACEBOOK', 'INSTAGRAM', 'MERCADOLIBRE'];
     if (!channel) return false;
     return list.includes(channel);
   }
@@ -124,6 +136,18 @@ export class HistoryCompressionService {
       this.logger.debug(
         `compressed ${args.fullHistory.length} → ${recentMessages.length} msgs (conv=${args.conversationId.slice(0, 8)}, summary=${summary.summary.length}c)`,
       );
+      // Marcos 2026-06-24: registramos para el widget de Bloque E.
+      // El "ahorro" estimado es ~1000 tokens por mensaje cortado (el
+      // promedio de un msg WA tipico). Usamos default del counter
+      // (~6K) si no podemos calcular mejor.
+      const cutCount = args.fullHistory.length - recentMessages.length;
+      const estimatedTokensSaved = Math.max(0, cutCount * 250);
+      this.costOptCounter?.record({
+        source: 'history-compression',
+        intent: `cut:${cutCount}`,
+        conversationId: args.conversationId,
+        estimatedTokensSaved: estimatedTokensSaved > 0 ? estimatedTokensSaved : undefined,
+      });
       return { systemBlock: block, recentMessages, compressed: true };
     } catch (err: any) {
       this.logger.warn(`history compression failed (non-fatal): ${err.message}`);

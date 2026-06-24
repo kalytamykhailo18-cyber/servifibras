@@ -14,8 +14,9 @@
  * to author from the ML QA panel.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PublicationFaq, PrismaClient } from '@prisma/client';
+import { CostOptCounterService } from '../ai/cost-opt-counter.service';
 
 function stripAccents(s: string): string {
   return s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -59,6 +60,8 @@ export interface PublicationFaqInput {
 export class PublicationFaqService {
   private readonly logger = new Logger(PublicationFaqService.name);
   private readonly prisma = new PrismaClient();
+
+  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
 
   async list(opts?: { itemId?: string; activeOnly?: boolean }): Promise<PublicationFaq[]> {
     const where: any = {};
@@ -157,6 +160,11 @@ export class PublicationFaqService {
       await this.prisma.publicationFaq.update({
         where: { id },
         data: { hitCount: { increment: 1 }, lastHitAt: new Date() },
+      });
+      // Marcos 2026-06-24: contador del Bloque E visibility.
+      this.costOptCounter?.record({
+        source: 'publication-faq',
+        intent: id,
       });
     } catch (err: any) {
       this.logger.warn(`publication-faq recordHit failed for ${id}: ${err.message}`);

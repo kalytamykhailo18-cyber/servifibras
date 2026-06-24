@@ -15,6 +15,7 @@ import { PublicationFaqService } from '../../../adapters/admin/publication-faq.s
 import { QuickReplyService } from '../../../adapters/admin/quick-reply.service';
 import { MlBatchQueueService } from '../../../adapters/ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../../../adapters/ai/history-compression.service';
+import { CostOptCounterService } from '../../../adapters/ai/cost-opt-counter.service';
 import { AIController } from './ai.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
@@ -55,6 +56,10 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     // block so long WA/webchat threads don't keep re-uploading their
     // full message tail to Claude.
     HistoryCompressionService,
+    // Marcos 2026-06-24: contador del Bloque E (visibility) — cada
+    // shortcut skip-Claude registra un evento, el budget widget los
+    // suma para mostrar ahorro mensual demostrable.
+    CostOptCounterService,
   ],
   exports: [
     ClaudeService,
@@ -65,6 +70,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     QuickReplyService,
     MlBatchQueueService,
     HistoryCompressionService,
+    CostOptCounterService,
   ],
 })
 export class AIModule {}

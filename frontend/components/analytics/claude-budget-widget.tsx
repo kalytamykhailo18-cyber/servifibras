@@ -24,6 +24,15 @@ const CALL_SITE_LABEL: Record<string, string> = {
   "json:handoff_ai":   "Handoff (IA)",
 };
 
+// Marcos 2026-06-24: nombres legibles para el card de Bloque E.
+const COST_OPT_LABEL: Record<string, string> = {
+  'faq-preai':          'FAQ pre-IA',
+  'publication-faq':    'FAQ por publicación',
+  'product-lookup':     'Atajo precio/stock',
+  'history-compression':'Compresión de historial',
+  'ml-shortcut':        'Atajo ML',
+};
+
 function fmtUsd(n: number): string {
   if (!Number.isFinite(n)) return "—";
   return `USD ${n < 1 ? n.toFixed(4) : n.toFixed(2)}`;
@@ -189,6 +198,40 @@ export function ClaudeBudgetWidget() {
             {fmtInt(stats.cache.readTokens)} tokens leídos del caché ·{" "}
             sin caching habría costado {fmtUsd(stats.cache.baselineUsd)}
           </p>
+        </div>
+      )}
+
+      {/* Marcos 2026-06-24: Bloque E visibility — cuántos turnos se
+         saltearon Claude este mes gracias a los shortcuts (FAQ pre-IA,
+         publication-FAQ, product-lookup, compresión de historial) y
+         el USD estimado ahorrado al precio normal de input. */}
+      {stats.costOpts && stats.costOpts.totalCount > 0 && (
+        <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-100 text-amber-700">
+                <BoltIcon sx={{ fontSize: 12 }} />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+                Ahorro por shortcuts (Bloque E)
+              </span>
+            </div>
+            <span className="text-sm font-bold tabular-nums text-amber-700">
+              {fmtUsd(stats.costOpts.totalUsdSaved)}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-amber-800/80">
+            {fmtInt(stats.costOpts.totalCount)} turnos esquivados a Claude ·{" "}
+            {fmtInt(stats.costOpts.totalTokensSaved)} tokens estimados
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-amber-900">
+            {stats.costOpts.bySource.map((s) => (
+              <li key={s.source} className="flex items-center justify-between gap-2">
+                <span className="truncate">{COST_OPT_LABEL[s.source] ?? s.source}</span>
+                <strong className="shrink-0 tabular-nums">{fmtInt(s.count)}</strong>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

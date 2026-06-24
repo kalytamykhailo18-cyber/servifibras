@@ -23,9 +23,10 @@
  *                                      Default 15.0.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { looksLikeTestContactName } from '../conversations/test-contact-patterns';
+import { CostOptCounterService } from './cost-opt-counter.service';
 
 function num(envKey: string, fallback: number): number {
   const v = process.env[envKey];
@@ -132,6 +133,18 @@ export interface UsageStats {
     monthRealCalls: number;
     monthTestCalls: number;
   };
+  /**
+   * Marcos 2026-06-24: Bloque E visibility. Cuántas veces dispararon
+   * los shortcuts skip-Claude este mes + tokens estimados ahorrados
+   * + USD estimado al precio normal de input. Permite que el widget
+   * muestre el ahorro demostrable de las optimizaciones de costo.
+   */
+  costOpts: {
+    bySource: Array<{ source: string; count: number; estimatedTokensSaved: number; estimatedUsdSaved: number }>;
+    totalCount: number;
+    totalTokensSaved: number;
+    totalUsdSaved: number;
+  };
 }
 
 export class BudgetExceededError extends Error {
@@ -145,6 +158,10 @@ export class BudgetExceededError extends Error {
 export class ClaudeBudgetService {
   private readonly logger = new Logger(ClaudeBudgetService.name);
   private readonly prisma = new PrismaClient();
+
+  // Marcos 2026-06-24: Opcional para no romper tests/seeds que
+  // instancian ClaudeBudgetService sin el contador de Bloque E.
+  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
 
   /**
    * Returns whether the current call is allowed under the monthly cap.
@@ -471,7 +488,41 @@ export class ClaudeBudgetService {
         monthRealCalls,
         monthTestCalls,
       },
+      // Marcos 2026-06-24: Bloque E visibility.
+      costOpts: await this.costOptsBreakdown(inputPricePerMtok),
     };
+  }
+
+  /**
+   * Marcos 2026-06-24: agregado mensual de eventos de Bloque E. Cuenta
+   * cuántas veces cada source (FAQ pre-IA, publication-FAQ, etc) se
+   * activó este mes, suma tokens estimados ahorrados, y traduce a USD
+   * usando el precio actual de input. Si CostOptCounter no esta
+   * inyectado (e.g. test seed) devuelve zeros sin fallar.
+   */
+  private async costOptsBreakdown(inputPricePerMtok: number): Promise<UsageStats['costOpts']> {
+    if (!this.costOptCounter) {
+      return { bySource: [], totalCount: 0, totalTokensSaved: 0, totalUsdSaved: 0 };
+    }
+    try {
+      const summary = await this.costOptCounter.monthSummary();
+      const bySource = summary.bySource.map((r) => ({
+        source: r.source,
+        count: r.count,
+        estimatedTokensSaved: r.estimatedTokensSaved,
+        estimatedUsdSaved: Math.round(((r.estimatedTokensSaved * inputPricePerMtok) / 1_000_000) * 1_000_000) / 1_000_000,
+      }));
+      const totalUsdSaved = Math.round(((summary.totalTokensSaved * inputPricePerMtok) / 1_000_000) * 1_000_000) / 1_000_000;
+      return {
+        bySource,
+        totalCount: summary.totalCount,
+        totalTokensSaved: summary.totalTokensSaved,
+        totalUsdSaved,
+      };
+    } catch (err: any) {
+      this.logger.warn(`cost-opt breakdown failed (non-fatal): ${err.message}`);
+      return { bySource: [], totalCount: 0, totalTokensSaved: 0, totalUsdSaved: 0 };
+    }
   }
 
   /**

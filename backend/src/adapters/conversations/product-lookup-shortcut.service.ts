@@ -29,7 +29,8 @@
  *   PRODUCT_LOOKUP_SHORTCUT_ENABLED — 'true' / 'false' (default true)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { CostOptCounterService } from '../ai/cost-opt-counter.service';
 import { Channel, PrismaClient, Product } from '@prisma/client';
 
 function isEnabled(): boolean {
@@ -111,6 +112,8 @@ function stockSummary(qty: number | null | undefined, inStock: boolean): string 
 export class ProductLookupShortcutService {
   private readonly logger = new Logger(ProductLookupShortcutService.name);
   private readonly prisma = new PrismaClient();
+
+  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
 
   /**
    * ML pre-venta variant. Caller provides the mercadolibreListing
@@ -235,17 +238,29 @@ export class ProductLookupShortcutService {
       const stock = stockSummary(product.stockQuantity, product.inStock);
       const linkTail = product.url ? `\nLink: ${product.url}` : '';
 
+      // Marcos 2026-06-24: helper para contar el evento del Bloque E
+      // antes de devolver. Llamamos costOptCounter (opcional inyectado)
+      // y el resto del flow sigue igual.
+      const recordShortcut = (intentLabel: string) => {
+        this.costOptCounter?.record({
+          source: 'product-lookup',
+          intent: `${args.channel}:${intentLabel}:${product.sku}`,
+        });
+      };
+
       if (intent === 'price') {
         if (product.basePriceArs == null) return null;
         this.logger.log(
           `📌 Pre-AI product shortcut (${args.channel}): price for ${product.sku}`,
         );
+        recordShortcut('price');
         return `${titlePart}: ${formatArs(product.basePriceArs)}.${linkTail}`;
       }
       if (intent === 'stock') {
         this.logger.log(
           `📌 Pre-AI product shortcut (${args.channel}): stock for ${product.sku}`,
         );
+        recordShortcut('stock');
         return `${titlePart} está ${stock}.${linkTail}`;
       }
       // price + stock
@@ -253,6 +268,7 @@ export class ProductLookupShortcutService {
       this.logger.log(
         `📌 Pre-AI product shortcut (${args.channel}): price+stock for ${product.sku}`,
       );
+      recordShortcut('price+stock');
       return `${titlePart}: ${formatArs(product.basePriceArs)}, ${stock}.${linkTail}`;
     } catch (err: any) {
       this.logger.warn(`Product lookup shortcut failed (non-fatal): ${err.message}`);

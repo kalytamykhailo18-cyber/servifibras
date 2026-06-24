@@ -1918,6 +1918,15 @@ export interface ClaudeBudgetStats {
     monthRealCalls: number;
     monthTestCalls: number;
   };
+  // Marcos 2026-06-24: Bloque E cost-opts visibility. Cuántas veces
+  // los shortcuts skip-Claude dispararon este mes + USD estimado
+  // ahorrado por turnos que NUNCA llegaron a Claude.
+  costOpts?: {
+    bySource: Array<{ source: string; count: number; estimatedTokensSaved: number; estimatedUsdSaved: number }>;
+    totalCount: number;
+    totalTokensSaved: number;
+    totalUsdSaved: number;
+  };
 }
 
 export const aiBudgetApi = {

@@ -509,6 +509,32 @@ enum ReturnState {
   LOST
 }
 
+/// Marcos 2026-06-24 (Bloque E visibility): cada vez que un shortcut
+/// "skip Claude" dispara (FAQ pre-IA, publication-FAQ, product-lookup,
+/// history-compression, ML shortcut), grabamos un evento. El widget
+/// de Uso de IA suma estos events para mostrar cuanto se ahorra
+/// mensualmente gracias a las optimizaciones de costo del Bloque E
+/// (turnos no enviados a Claude + tokens estimados ahorrados).
+model CostOptEvent {
+  id                   String   @id @default(uuid())
+  /// 'faq-preai' | 'publication-faq' | 'product-lookup' |
+  /// 'history-compression' | 'ml-shortcut'
+  source               String
+  /// Etiqueta opcional para diagnostico: intent matched, label id,
+  /// itemId, conversation snippet — depende del source.
+  intent               String?
+  conversationId       String?
+  /// Estimacion de tokens que se hubieran enviado a Claude si no
+  /// hubiera disparado el shortcut. Promedio conservador por tipo;
+  /// el agregado mensual da un orden de magnitud claro.
+  estimatedTokensSaved Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  @@index([source])
+  @@index([createdAt])
+  @@map("cost_opt_events")
+}
+
 /// Marcos 2026-06-22: catalogo de personas operativas que pueden ser
 /// marcadas como responsables de errores de armado/despacho. NO es un
 /// User — el personal de deposito no tiene cuenta en el CRM y aun asi
