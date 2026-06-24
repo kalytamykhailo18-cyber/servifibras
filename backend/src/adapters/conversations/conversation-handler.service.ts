@@ -896,23 +896,53 @@ export class ConversationHandlerService implements IConversationHandler {
             ? `[Reseña recibida en MercadoLibre — id ${message.id}]`
             : `[Reclamo recibido en MercadoLibre — id ${message.id}]`;
         const content = enriched.length > 0 ? enriched : fallback;
-        await this.prisma.message.create({
-          data: {
+        // Marcos 2026-06-24 (caso 5529086122 — 6 bubbles idénticas
+        // "[Reclamo ML 5529086122] Tipo: mediations · Estado: opened ·
+        // Etapa: dispute · Motivo: Llegó bien (PDD9955)"): cada webhook
+        // de ML (status change, etapa change, mediación añadiendo step)
+        // creaba un Message row nuevo, llenando el panel de duplicados.
+        // Ahora upsert por mlResourceId: si ya existe el row para este
+        // claim/review, actualizamos contenido + pendingFor + timestamp
+        // en lugar de crear otro. Si el contenido es idéntico solo se
+        // mueve el updatedAt (el operador igual ve que llegó actividad
+        // nueva por el orden de la conversación) pero no se duplica.
+        const existing = await this.prisma.message.findFirst({
+          where: {
             conversationId: conversation.id,
-            sender: MessageSender.CUSTOMER,
-            content: getMessageCipher().encrypt(content),
-            isFromAI: false,
-            metadata: {
-              kind: message.type === MercadoLibreMessageType.REVIEW ? 'ml_review' : 'ml_claim',
-              mlResourceId: message.id,
-              mlAccountKey: message.mlAccountKey ?? null,
-              // Marcos 2026-06-22: 'seller' | 'buyer' | 'ml' — quién tiene
-              // el próximo turno según players[].available_actions. El panel
-              // de Reclamos segmenta por este campo y prioriza 'seller'.
-              pendingFor: (message as any).pendingFor ?? null,
-            },
+            metadata: { path: ['mlResourceId'], equals: message.id } as any,
           },
+          select: { id: true, content: true },
         });
+        const newCipher = getMessageCipher().encrypt(content);
+        const newMeta = {
+          kind: message.type === MercadoLibreMessageType.REVIEW ? 'ml_review' : 'ml_claim',
+          mlResourceId: message.id,
+          mlAccountKey: message.mlAccountKey ?? null,
+          // Marcos 2026-06-22: 'seller' | 'buyer' | 'ml' — quién tiene
+          // el próximo turno según players[].available_actions. El panel
+          // de Reclamos segmenta por este campo y prioriza 'seller'.
+          pendingFor: (message as any).pendingFor ?? null,
+        };
+        if (existing) {
+          await this.prisma.message.update({
+            where: { id: existing.id },
+            data: {
+              content: newCipher,
+              metadata: newMeta as any,
+              timestamp: new Date(),
+            },
+          });
+        } else {
+          await this.prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              sender: MessageSender.CUSTOMER,
+              content: newCipher,
+              isFromAI: false,
+              metadata: newMeta as any,
+            },
+          });
+        }
         await this.handoff.escalate({
           conversationId: conversation.id,
           contactId: contact.id,

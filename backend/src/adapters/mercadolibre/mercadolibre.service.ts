@@ -525,25 +525,47 @@ export class MercadoLibreService implements IMercadoLibreService {
           // ML usa `sender_role` ('respondent' = seller, 'complainant' = buyer)
           // OR `from.user_id` que comparamos contra sellerId. Tomamos
           // el más reciente del comprador con texto no-vacío.
-          const buyerMsgs = arr
-            .filter((m: any) => {
+          // Marcos 2026-06-24 (caso 5529086122 — "no trae todos"):
+          // antes tomábamos sólo el último mensaje del comprador.
+          // Ahora concatenamos TODOS los mensajes del thread (buyer +
+          // mediador ML) en orden cronológico ascendente, así el
+          // operador ve la historia completa de la disputa en la
+          // misma bubble. Cada uno prefijado con quién lo mandó +
+          // fecha corta.
+          const threadMsgs = arr
+            .map((m: any) => {
               const role = String(m?.sender_role ?? '').toLowerCase();
               const fromId = String(m?.from?.user_id ?? m?.sender_id ?? '');
-              if (role === 'complainant' || role === 'buyer') return true;
-              if (role === 'respondent' || role === 'seller') return false;
-              return fromId && fromId !== sellerId;
+              let sender: 'comprador' | 'mediador' | 'vendedor';
+              if (role === 'complainant' || role === 'buyer') sender = 'comprador';
+              else if (role === 'respondent' || role === 'seller') sender = 'vendedor';
+              else if (role === 'mediator' || role === 'internal') sender = 'mediador';
+              else if (fromId && fromId !== sellerId) sender = 'comprador';
+              else sender = 'vendedor';
+              return {
+                sender,
+                text: String(m?.message ?? m?.text ?? '').trim(),
+                dateRaw: m?.date_created ?? m?.created_at ?? m?.last_updated ?? null,
+              };
             })
-            .map((m: any) => ({
-              text: String(m?.message ?? m?.text ?? '').trim(),
-              dateRaw: m?.date_created ?? m?.created_at ?? m?.last_updated ?? null,
-            }))
             .filter((m: { text: string }) => m.text.length > 0)
             .sort((a: any, b: any) => {
               const da = a.dateRaw ? new Date(a.dateRaw).getTime() : 0;
               const db = b.dateRaw ? new Date(b.dateRaw).getTime() : 0;
-              return db - da;
+              return da - db; // ascendente: más viejo primero
             });
-          if (buyerMsgs.length > 0) buyerText = buyerMsgs[0].text;
+          if (threadMsgs.length > 0) {
+            const fmtDate = (d: string | null) => {
+              if (!d) return '';
+              try {
+                const dt = new Date(d);
+                return ` (${dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })})`;
+              } catch { return ''; }
+            };
+            buyerText = threadMsgs
+              .map((m: any) => `${m.sender}${fmtDate(m.dateRaw)}: ${m.text}`)
+              .join('\n\n');
+          }
         } else if (mr.status !== 404 && mr.status !== 403) {
           this.logger.warn(`Claim messages fetch HTTP ${mr.status} for ${claimId}`);
         }
