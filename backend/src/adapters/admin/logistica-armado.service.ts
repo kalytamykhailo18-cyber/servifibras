@@ -24,7 +24,7 @@
  * `tn:<orderId>` / etc.) so state stays stable across day boundaries.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, LogisticaArmado, LogisticaArmadoState } from '@prisma/client';
 
 export type RowLifecycleState = 'PENDIENTE' | 'ARMADO' | 'LISTO';
@@ -363,6 +363,18 @@ export class LogisticaArmadoService {
     const existing = await this.prisma.logisticaArmado.findUnique({
       where: { rowKey: args.rowKey },
     });
+    // Marcos 2026-06-25: cuando se asigna courier (value !== null) y la
+    // fila todavía no está LISTO, auto-promoveer a LISTO en el mismo
+    // call. Comprime los 2 pasos que hacía el operador hoy (click
+    // "Enviar a Listas para despachar" + después asignar courier).
+    // Asignar courier en sí mismo es señal de que el paquete está
+    // listo para que el courier se lo lleve. Si está clearing (null),
+    // NO tocamos state — limpiar el courier no debe regresar a
+    // PENDIENTE ni promover a LISTO.
+    const shouldPromoteToListo =
+      value !== null &&
+      existing != null &&
+      existing.state !== LogisticaArmadoState.LISTO;
     if (existing) {
       return this.prisma.logisticaArmado.update({
         where: { rowKey: args.rowKey },
@@ -371,17 +383,28 @@ export class LogisticaArmadoService {
           stampedAt: now,
           stampedById: args.stampedById ?? existing.stampedById,
           dayDate: args.dayDate || existing.dayDate,
+          ...(shouldPromoteToListo
+            ? {
+                state: LogisticaArmadoState.LISTO,
+                listoAt: existing.listoAt ?? now,
+                armadoAt: existing.armadoAt ?? now,
+              }
+            : {}),
         },
       });
     }
+    // Sin LogisticaArmado row previo: si se asigna courier, lo
+    // creamos directamente en LISTO (no tiene sentido stampar courier
+    // a un row que ni siquiera está armado — eso ES armado-y-listo).
     return this.prisma.logisticaArmado.create({
       data: {
         rowKey: args.rowKey,
         dayDate: args.dayDate,
-        // Marcos 2026-06-11: same fix as setNote — courier stamp is
-        // not a lifecycle event. Keep state PENDIENTE.
-        state: LogisticaArmadoState.PENDIENTE,
+        state: value !== null
+          ? LogisticaArmadoState.LISTO
+          : LogisticaArmadoState.PENDIENTE,
         flexCourier: value,
+        ...(value !== null ? { armadoAt: now, listoAt: now } : {}),
         stampedById: args.stampedById ?? null,
       },
     });
@@ -477,6 +500,28 @@ export class LogisticaArmadoService {
   }): Promise<LogisticaArmado> {
     const now = new Date();
     const value = args.dispatched ? now : null;
+    // Marcos 2026-06-25: regla "si o si" — para marcar despachado
+    // necesitamos saber qué courier se llevó el paquete, para poder
+    // rastrearlo si después no se entrega. Sin flexCourier rechazamos
+    // el dispatch con un mensaje que el frontend muestra como toast.
+    // Solo aplica al dispatch (no al clear), y solo a rows existentes
+    // (los nuevos directos vienen desde un row sin courier y ya están
+    // bloqueados por la misma regla aplicada al setManualDispatch que
+    // no pasa por el row existente — el bulk handler los crea con
+    // state=LISTO sin courier, lo cual no debería pasar; mantenemos
+    // el guard también para esos para defender el invariante).
+    if (args.dispatched && !args.rowKey.startsWith('prfv:')) {
+      const cur = await this.prisma.logisticaArmado.findUnique({
+        where: { rowKey: args.rowKey },
+        select: { flexCourier: true },
+      });
+      const courier = cur?.flexCourier?.trim();
+      if (!courier) {
+        throw new BadRequestException(
+          'Asigná un courier antes de marcar como despachada — no podemos rastrear el paquete si no sabemos quién se lo llevó.',
+        );
+      }
+    }
     // Marcos 2026-06-12: PRFV laminado rows in the daily panel are
     // backed by a `PrfvPlaca` row, not an Order. When the operator
     // marks the row dispatched here we must also flip the underlying
@@ -532,8 +577,18 @@ export class LogisticaArmadoService {
     dayDate: string;
     dispatched: boolean;
     stampedById: string | null;
-  }): Promise<{ updated: number; failed: string[] }> {
-    const result = { updated: 0, failed: [] as string[] };
+  }): Promise<{
+    updated: number;
+    failed: string[];
+    // Marcos 2026-06-25: failures per row, así el frontend puede
+    // mostrar el motivo concreto (ej. "sin courier") en el toast.
+    failedReasons?: Array<{ rowKey: string; reason: string }>;
+  }> {
+    const result = {
+      updated: 0,
+      failed: [] as string[],
+      failedReasons: [] as Array<{ rowKey: string; reason: string }>,
+    };
     for (const rowKey of args.rowKeys) {
       try {
         await this.setManualDispatch({
@@ -546,6 +601,7 @@ export class LogisticaArmadoService {
       } catch (err: any) {
         this.logger.warn(`bulkSetManualDispatch: ${rowKey} failed: ${err.message}`);
         result.failed.push(rowKey);
+        result.failedReasons.push({ rowKey, reason: err?.message ?? 'error' });
       }
     }
     this.logger.log(

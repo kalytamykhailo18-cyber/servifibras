@@ -429,7 +429,18 @@ export default function LogisticaDiariaPage() {
     setBulkPending(true);
     try {
       const r = await api.dailyLogistica.setFlexCourier(Array.from(selected), date, courier);
-      toast.success(`${r.updated} fila${r.updated === 1 ? '' : 's'} → ${courier ?? 'sin courier'}${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
+      // Marcos 2026-06-25: el backend ahora auto-promove a LISTO cuando
+      // se asigna un courier. Si la operación se hizo desde Pendientes,
+      // las filas saltan a "Listas para despachar" en el próximo load.
+      const courierLabel = courier ?? 'sin courier';
+      const promoteHint = courier && tab === 'pendientes'
+        ? ' (pasan a Listas para despachar)'
+        : '';
+      toast.success(
+        `${r.updated} fila${r.updated === 1 ? '' : 's'} → ${courierLabel}${promoteHint}` +
+        `${r.failed.length ? ` (${r.failed.length} con error)` : ''}`,
+      );
+      clearSelection();
       await load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo asignar el courier");
@@ -456,7 +467,32 @@ export default function LogisticaDiariaPage() {
     setBulkPending(true);
     try {
       const r = await api.dailyLogistica.setManualDispatch(Array.from(selected), date, true);
-      toast.success(`${r.updated} fila${r.updated === 1 ? '' : 's'} → Despachadas${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
+      if (r.updated > 0) {
+        toast.success(
+          `${r.updated} fila${r.updated === 1 ? '' : 's'} → Despachadas` +
+          `${r.failed.length ? ` (${r.failed.length} con error)` : ''}`,
+        );
+      }
+      // Marcos 2026-06-25: cuando una fila no se pudo despachar (rule
+      // "si o si necesita courier"), surface el motivo con el cliente
+      // afectado en vez de un genérico "N con error". Si hay >3 errores,
+      // mostramos los primeros 3 para mantener el toast legible.
+      if (r.failed.length > 0) {
+        const reasons = (r as any).failedReasons as
+          | Array<{ rowKey: string; reason: string }>
+          | undefined;
+        const labelByKey = new Map<string, string>();
+        for (const rows of Object.values(data?.sections ?? {})) {
+          for (const row of (rows as any[])) {
+            labelByKey.set(row.rowKey, row.clienteName || row.cliente || row.orderRef || row.rowKey);
+          }
+        }
+        const items = (reasons ?? r.failed.map((rk) => ({ rowKey: rk, reason: '' })))
+          .slice(0, 3)
+          .map((f) => `${labelByKey.get(f.rowKey) ?? f.rowKey}: ${f.reason || 'error'}`);
+        const more = r.failed.length > 3 ? ` (+${r.failed.length - 3} más)` : '';
+        toast.error(`No se pudieron despachar:\n${items.join('\n')}${more}`, { duration: 10_000 });
+      }
       clearSelection();
       await load();
     } catch (err: any) {
@@ -823,11 +859,14 @@ export default function LogisticaDiariaPage() {
                 Marcar como despachadas
               </button>
             )}
-            {/* Marcos 2026-06-10: courier dropdown — only useful on
-                the Listas tab where the picker is stamping who
-                actually took the box. Hidden on other tabs to keep
-                the bar focused. */}
-            {tab === 'listas' && flexCouriers.length > 0 && (
+            {/* Marcos 2026-06-10: courier dropdown — antes solo en
+                Listas. Marcos 2026-06-25: extendido a Pendientes
+                también, porque asignar courier en sí mismo es la
+                señal de que el paquete está listo para que el courier
+                se lo lleve — el backend auto-promove a LISTO en
+                el mismo call, comprimiendo los 2 pasos que hacía el
+                operador (enviar a Listas + después asignar courier). */}
+            {tab !== 'despachadas' && flexCouriers.length > 0 && (
               <select
                 data-testid="logistica-bulk-courier"
                 onChange={(e) => {
@@ -1354,13 +1393,13 @@ export default function LogisticaDiariaPage() {
                                   type="button"
                                   data-testid="logistica-row-flex-courier"
                                   title={
-                                    tab === 'pendientes'
-                                      ? `Asignado: ${row.flexCourier}`
-                                      : `Despachado con ${row.flexCourier} — click para cambiar`
+                                    tab === 'despachadas'
+                                      ? `Despachado con ${row.flexCourier} — click para cambiar`
+                                      : `Asignado: ${row.flexCourier} — click para cambiar`
                                   }
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (tab === 'pendientes' || row.isCancelled || flexCouriers.length === 0) return;
+                                    if (row.isCancelled || flexCouriers.length === 0) return;
                                     setEditingCourierRow((prev) => {
                                       const next = new Set(prev);
                                       next.add(row.rowKey);
@@ -1369,7 +1408,7 @@ export default function LogisticaDiariaPage() {
                                   }}
                                   className={
                                     'ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold uppercase tracking-wider align-middle ' +
-                                    (tab === 'pendientes' || row.isCancelled || flexCouriers.length === 0
+                                    (row.isCancelled || flexCouriers.length === 0
                                       ? 'bg-violet-100 text-violet-700 cursor-default'
                                       : 'bg-violet-100 text-violet-700 hover:bg-violet-200 cursor-pointer')
                                   }
@@ -1390,7 +1429,7 @@ export default function LogisticaDiariaPage() {
                                   SIN COURIER
                                 </span>
                               )}
-                              {tab !== 'pendientes' && flexCouriers.length > 0 && !row.isCancelled
+                              {flexCouriers.length > 0 && !row.isCancelled
                                 && (!row.flexCourier || editingCourierRow.has(row.rowKey)) && (
                                 <select
                                   data-testid={`logistica-row-courier-pick-${row.rowKey.replace(/[^a-z0-9]+/gi, '-')}`}
