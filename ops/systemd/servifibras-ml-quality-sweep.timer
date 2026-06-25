@@ -1,0 +1,15 @@
+[Unit]
+Description=Servifibras — daily ML quality sweep timer (04:30 UTC = ~01:30 ART, low-traffic window)
+
+[Timer]
+# Daily at 04:30 UTC (~01:30 Argentina). Low traffic so the Anthropic
+# call inside the sweep doesn't compete with real customer questions.
+OnCalendar=*-*-* 04:30:00
+# Si el server estuvo apagado, dispará apenas vuelva (RandomizedDelay
+# evita stampede si por alguna razón llega varios timers juntos).
+Persistent=true
+RandomizedDelaySec=300
+Unit=servifibras-ml-quality-sweep.service
+
+[Install]
+WantedBy=timers.target

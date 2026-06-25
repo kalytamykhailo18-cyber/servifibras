@@ -3206,6 +3206,30 @@ export const mlPublicationKnowledgeApi = {
     await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/closed-mode`, { mode });
   },
   /**
+   * Marcos 2026-06-25 ("probar respuesta"): corre el modo cerrado
+   * sobre una pregunta hipotética. Permite ver qué respondería el
+   * agente antes de que llegue tráfico real. Bypassa el feature flag.
+   */
+  testConstrainedReply: async (
+    itemId: string,
+    question: string,
+    nickname?: string,
+  ): Promise<{
+    reply: string | null;
+    usedConstrained: boolean;
+    reason: string;
+    curatedRowsUsed: number;
+    selfEvalScore: number | null;
+    autoSendAllowed: boolean;
+    elapsedMs: number;
+  }> => {
+    const r = await apiClient.post<any>(
+      `/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/test-constrained-reply`,
+      { question, nickname },
+    );
+    return r.data?.data ?? r.data;
+  },
+  /**
    * Marcos 2026-06-25 (Phase D widget): stats del modo cerrado para el
    * dashboard — total replies, auto-sent vs drafted, histograma del
    * self-eval, top publicaciones. Default ventana 30 días.

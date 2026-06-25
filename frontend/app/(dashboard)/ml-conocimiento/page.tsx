@@ -64,6 +64,21 @@ export default function MlConocimientoPage() {
   const [aiPassRunning, setAiPassRunning] = useState(false);
   const [autoKeepRunning, setAutoKeepRunning] = useState(false);
   const [catalogRunning, setCatalogRunning] = useState(false);
+  // Marcos 2026-06-25 ("probar respuesta" sandbox): probar el modo
+  // cerrado con una pregunta hipotética sobre la publicación
+  // seleccionada — útil para ver cobertura antes de enviar tráfico real.
+  const [testQuestion, setTestQuestion] = useState("");
+  const [testNickname, setTestNickname] = useState("");
+  const [testRunning, setTestRunning] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    reply: string | null;
+    usedConstrained: boolean;
+    reason: string;
+    curatedRowsUsed: number;
+    selfEvalScore: number | null;
+    autoSendAllowed: boolean;
+    elapsedMs: number;
+  } | null>(null);
   // Marcos 2026-06-25 (Phase D widget): stats del modo cerrado para
   // dashboard arriba — total replies, auto-sent vs draft, histograma
   // del self-eval, top publicaciones por uso.
@@ -108,9 +123,38 @@ export default function MlConocimientoPage() {
     }
   };
 
+  const onTestReply = async () => {
+    if (!selectedItemId) return;
+    const q = testQuestion.trim();
+    if (q.length < 3) {
+      toast.error("Escribí una pregunta de prueba");
+      return;
+    }
+    setTestRunning(true);
+    setTestResult(null);
+    try {
+      const r = await api.mlPublicationKnowledge.testConstrainedReply(
+        selectedItemId,
+        q,
+        testNickname.trim() || undefined,
+      );
+      setTestResult(r);
+      if (!r.reply) {
+        toast.info(r.reason || "El modo cerrado declinó responder esta pregunta");
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "No se pudo probar la respuesta");
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
   const loadItem = async (itemId: string) => {
     setSelectedItemId(itemId);
     setRows(null);
+    setTestResult(null);
+    setTestQuestion("");
+    setTestNickname("");
     try {
       const r = await api.mlPublicationKnowledge.listForItem(itemId);
       setRows(r);
@@ -532,6 +576,87 @@ export default function MlConocimientoPage() {
                 Abrir publicación
               </a>
             </div>
+          </div>
+          {/* Marcos 2026-06-25 ("probar respuesta" sandbox): probá una
+              pregunta hipotética contra la base curada de esta publicación
+              para ver qué respondería el agente y qué self-eval saca,
+              antes de que entre tráfico real. */}
+          <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-2" data-testid="sandbox-test-reply">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700">
+              Probar respuesta
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_140px_auto]">
+              <Input
+                value={testQuestion}
+                onChange={(e) => setTestQuestion(e.target.value)}
+                placeholder="Pregunta hipotética del comprador (ej. ¿cuánto rinde por m²?)"
+                data-testid="sandbox-question"
+                className="h-9"
+                onKeyDown={(e) => { if (e.key === 'Enter' && !testRunning) void onTestReply(); }}
+              />
+              <Input
+                value={testNickname}
+                onChange={(e) => setTestNickname(e.target.value)}
+                placeholder="Apodo (opcional)"
+                data-testid="sandbox-nickname"
+                className="h-9"
+              />
+              <button
+                type="button"
+                onClick={onTestReply}
+                disabled={testRunning || testQuestion.trim().length < 3}
+                data-testid="sandbox-run"
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 px-4 text-[11px] font-semibold text-white hover:brightness-105 disabled:opacity-60"
+              >
+                <AutoAwesomeIcon sx={{ fontSize: 13 }} className={testRunning ? 'animate-pulse' : ''} />
+                {testRunning ? 'Generando…' : 'Probar'}
+              </button>
+            </div>
+            {testResult && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 text-xs">
+                {testResult.reply ? (
+                  <>
+                    <p className="whitespace-pre-wrap text-slate-800">{testResult.reply}</p>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+                      {testResult.selfEvalScore != null && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                            testResult.autoSendAllowed
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                          title={testResult.autoSendAllowed
+                            ? 'Pasó el umbral de auto-envío'
+                            : 'Por debajo del umbral — quedaría como draft para revisar'}
+                        >
+                          🔒 self-eval {testResult.selfEvalScore.toFixed(1)} {testResult.autoSendAllowed ? '→ auto' : '→ draft'}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-slate-500">
+                        {testResult.curatedRowsUsed} Q&A curadas · {testResult.elapsedMs}ms
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-slate-700">
+                      <strong className="text-amber-700">El modo cerrado no respondió.</strong>
+                    </p>
+                    <p className="text-slate-600">
+                      Motivo: <span className="font-mono text-[10.5px]">{testResult.reason}</span>
+                    </p>
+                    <p className="text-[10.5px] text-slate-500">
+                      Esto puede pasar si la publicación tiene menos Q&A curadas que el umbral mínimo, la pregunta no está cubierta por la ficha + Q&A, o el modelo declinó. Marcos: revisá la curación para esta publicación.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {!testResult && !testRunning && (
+              <p className="text-[10.5px] text-slate-500">
+                La prueba usa la ficha actual de la publicación + las Q&A curadas. NO envía nada a Mercado Libre — es solo para ver qué respondería el agente.
+              </p>
+            )}
           </div>
           {rows === null ? (
             <Skeleton className="h-64 w-full rounded-xl" />

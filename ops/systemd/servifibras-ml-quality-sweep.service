@@ -1,0 +1,16 @@
+[Unit]
+Description=Servifibras — ML quality sweep (daily audit of last-24h ML AI replies vs Marcos's known regression catalog)
+After=postgresql.service network-online.target servifibras-backend.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/servifibras
+ExecStart=/home/servifibras/ops/ml-quality-sweep-cron.sh 1 300
+# Capture stdout/stderr to the journal so journalctl -u shows the
+# full report alongside any exit-code failures.
+StandardOutput=journal
+StandardError=journal
+# El wrapper exit 1 si encuentra CRIT — systemd marca la unit como
+# failed, queda visible en `systemctl --failed` y en logs.
+SuccessExitStatus=0

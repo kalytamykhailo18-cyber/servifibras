@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client';
 import Anthropic from '@anthropic-ai/sdk';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
+import { ClaudeBudgetService } from '../ai/claude-budget.service';
 
 // Marcos 2026-06-24 (Phase C): kill switch para el modo cerrado.
 // Default OFF mientras Marcos cura las publicaciones; flipea a true
@@ -44,6 +45,14 @@ export class MlPublicationKnowledgeService {
     @Optional()
     @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
+    // Marcos 2026-06-25 (cost tracking): los calls del modo cerrado
+    // (constrained reply + self-eval) y de Phase B (staleness pass)
+    // hasta hoy no se registraban en claude_usage_events, así que el
+    // dashboard de costos no veía el modo cerrado. Optional para no
+    // romper tests / contextos standalone que crean el service sin
+    // budget service.
+    @Optional()
+    private readonly budget?: ClaudeBudgetService,
   ) {}
 
   /**
@@ -309,6 +318,7 @@ export class MlPublicationKnowledgeService {
           temperature: 0,
           messages: [{ role: 'user', content: prompt }],
         });
+        await this.budget?.recordUsage('ml_staleness_pass', model, resp as any).catch(() => {});
         const text = resp.content
           .filter((c: any) => c.type === 'text')
           .map((c: any) => c.text)
@@ -389,6 +399,7 @@ export class MlPublicationKnowledgeService {
         ] as any,
         messages: [{ role: 'user', content: evalUser }],
       });
+      await this.budget?.recordUsage('ml_constrained_selfeval', args.model, resp as any).catch(() => {});
       const text = resp.content
         .filter((c: any) => c.type === 'text')
         .map((c: any) => c.text)
@@ -448,6 +459,14 @@ export class MlPublicationKnowledgeService {
     buyerNickname?: string | null;
     /** Listing ya fetched por el caller — evita doble round trip a ML. */
     listing?: any;
+    /**
+     * Marcos 2026-06-25 (sandbox "probar respuesta"): bypass del kill
+     * switch ML_CONSTRAINED_REPLY_ENABLED. Permite probar el modo
+     * cerrado desde el panel de curación aunque esté off en prod.
+     * NUNCA usar desde el pipeline real — solo desde el endpoint de
+     * test. Default false preserva el behavior productivo.
+     */
+    ignoreEnabledFlag?: boolean;
   }): Promise<{
     reply: string | null;
     usedConstrained: boolean;
@@ -464,7 +483,7 @@ export class MlPublicationKnowledgeService {
     /** Recomendación derivada del score: 'auto-send' | 'review'. */
     autoSendAllowed?: boolean;
   }> {
-    if (!isConstrainedEnabled()) {
+    if (!args.ignoreEnabledFlag && !isConstrainedEnabled()) {
       return { reply: null, usedConstrained: false, reason: 'feature flag off' };
     }
     const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
@@ -577,6 +596,15 @@ export class MlPublicationKnowledgeService {
         ] as any,
         messages: [{ role: 'user', content: userBlock }],
       });
+      // Marcos 2026-06-25 (cost tracking): registramos el call en
+      // claude_usage_events con callSite distinto del pipeline normal
+      // para que el dashboard pueda mostrar el costo del modo cerrado
+      // por separado y demostrar el ahorro vs respuesta abierta.
+      // isTestTraffic=true cuando se invoca desde el sandbox.
+      await this.budget?.recordUsage('ml_constrained_reply', model, resp as any, {
+        errored: false,
+        isTestTraffic: args.ignoreEnabledFlag === true,
+      }).catch(() => {});
       // Marcos 2026-06-25: alerta cuando la respuesta toca el cap —
       // sirve para subir ML_CONSTRAINED_MAX_TOKENS si vemos pattern.
       if ((resp as any)?.stop_reason === 'max_tokens') {

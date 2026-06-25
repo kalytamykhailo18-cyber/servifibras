@@ -192,6 +192,52 @@ export class MlPublicationKnowledgeController {
     return { success: true, data };
   }
 
+  /**
+   * Marcos 2026-06-25 ("probar respuesta" sandbox): corre el modo
+   * cerrado sobre una pregunta hipotética para ver qué respondería
+   * el agente antes de que llegue tráfico real. Útil durante la
+   * curación — el operador prueba cobertura sin esperar que entre
+   * una pregunta de un comprador. Bypass del kill switch global.
+   */
+  @Post(':itemId/test-constrained-reply')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async testConstrainedReply(
+    @Param('itemId') itemId: string,
+    @Body() body: { question?: string; nickname?: string },
+  ) {
+    if (!itemId || !/^MLA\d+$/i.test(itemId)) {
+      throw new BadRequestException('itemId debe ser un MLA válido (ej. MLA1234567890)');
+    }
+    const question = (body?.question ?? '').trim();
+    if (!question) {
+      throw new BadRequestException('question requerida');
+    }
+    if (question.length > 1000) {
+      throw new BadRequestException('question demasiado larga (max 1000 chars)');
+    }
+    const nickname = (body?.nickname ?? '').trim() || 'comprador-test';
+    const t0 = Date.now();
+    const r = await this.svc.tryConstrainedReply({
+      itemId: itemId.toUpperCase(),
+      buyerQuestion: question,
+      buyerNickname: nickname,
+      ignoreEnabledFlag: true,
+    });
+    const elapsedMs = Date.now() - t0;
+    return {
+      success: true,
+      data: {
+        reply: r.reply,
+        usedConstrained: r.usedConstrained,
+        reason: r.reason,
+        curatedRowsUsed: r.curatedRowsUsed ?? 0,
+        selfEvalScore: r.selfEvalScore ?? null,
+        autoSendAllowed: r.autoSendAllowed ?? false,
+        elapsedMs,
+      },
+    };
+  }
+
   @Get(':itemId/knowledge')
   async listForItem(@Param('itemId') itemId: string) {
     const data = await this.svc.listForItem(itemId.toUpperCase());
