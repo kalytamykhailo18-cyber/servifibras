@@ -180,6 +180,18 @@ export class MlPublicationKnowledgeController {
     return { success: true, data };
   }
 
+  /**
+   * Marcos 2026-06-25 (Phase D widget): stats agregadas del modo
+   * cerrado — total replies, auto-sent vs drafted, distribución del
+   * self-eval y top publicaciones. Default window 30 días.
+   */
+  @Get('closed-mode-stats')
+  async closedModeStats(@Query('days') days?: string) {
+    const n = days ? Number(days) : 30;
+    const data = await this.svc.closedModeStats({ days: n });
+    return { success: true, data };
+  }
+
   @Get(':itemId/knowledge')
   async listForItem(@Param('itemId') itemId: string) {
     const data = await this.svc.listForItem(itemId.toUpperCase());

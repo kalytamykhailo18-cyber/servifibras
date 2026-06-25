@@ -51,6 +51,55 @@ export class MercadoLibreController {
     }
   }
 
+  /**
+   * Marcos 2026-06-25 (Phase D widget): stampear el self-eval también en
+   * mensajes auto-enviados por modo cerrado para que el dashboard pueda
+   * graficar la distribución completa (draft + auto-sent), no solo la
+   * mitad que quedó como draft. Sin esto, el widget veía únicamente
+   * los <8.5 y sub-representaba el modo cerrado.
+   */
+  private async markLatestAutoSentConstrained(
+    mlBuyerId: string,
+    mlAccountKey: string | null,
+    selfEvalScore: number,
+    itemId: string | null,
+  ): Promise<void> {
+    if (typeof selfEvalScore !== 'number' || !Number.isFinite(selfEvalScore)) return;
+    const contact = await this.prisma.contact.findFirst({
+      where: {
+        metadata: { path: ['mercadolibreUserId'], equals: mlBuyerId } as any,
+      },
+      select: { id: true },
+    });
+    if (!contact) return;
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { contactId: contact.id, channel: Channel.MERCADOLIBRE },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (!conversation) return;
+    const message = await this.prisma.message.findFirst({
+      where: { conversationId: conversation.id, isFromAI: true },
+      orderBy: { timestamp: 'desc' },
+      select: { id: true, metadata: true },
+    });
+    if (!message) return;
+    const prev = (message.metadata as Record<string, unknown> | null) ?? {};
+    await this.prisma.message.update({
+      where: { id: message.id },
+      data: {
+        metadata: {
+          ...prev,
+          constrainedSelfEvalScore: selfEvalScore,
+          constrainedAutoSent: true,
+          ...(itemId ? { mlItemId: itemId } : {}),
+          ...(mlAccountKey ? { mlAccountKey } : {}),
+          constrainedSentAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+  }
+
   private async markLatestDraftPending(
     resourceId: string,
     mlBuyerId: string,
@@ -63,6 +112,9 @@ export class MercadoLibreController {
     // existing `mlQuestionId` field stays so the release flow can
     // still find the ML question id when releasing a question.
     kind: 'question' | 'message' = 'question',
+    // Marcos 2026-06-25 (Phase D widget): stampear el itemId al ML
+    // pregunta-pendiente para agrupar el dashboard por publicación.
+    itemId: string | null = null,
   ): Promise<void> {
     const contact = await this.prisma.contact.findFirst({
       where: {
@@ -104,6 +156,7 @@ export class MercadoLibreController {
           ...(typeof constrainedSelfEvalScore === 'number'
             ? { constrainedSelfEvalScore }
             : {}),
+          ...(itemId ? { mlItemId: itemId } : {}),
         } as any,
       },
     });
@@ -280,6 +333,8 @@ export class MercadoLibreController {
           question.fromId,
           mlAccountKey ?? null,
           selfEvalScore,
+          'question',
+          String(question.itemId ?? '') || null,
         ).catch((err: any) =>
           this.logger.warn(`mark-pending failed for ${questionId}: ${err?.message ?? err}`),
         );
@@ -292,6 +347,25 @@ export class MercadoLibreController {
         this.logger.log(
           `🚀 ML auto-send bypass for ${questionId} — constrained mode self-eval=${(result as any)?.selfEvalScore?.toFixed?.(1) ?? '?'} >= threshold`,
         );
+      }
+      // Marcos 2026-06-25 (Phase D widget): stampear el self-eval en la
+      // metadata del mensaje auto-enviado por modo cerrado para que el
+      // dashboard pueda agregarlo. Solo cuando forceAutoSend o
+      // auto-reply general estén on Y el reply vino del modo cerrado.
+      {
+        const selfEvalScore = typeof (result as any)?.selfEvalScore === 'number'
+          ? (result as any).selfEvalScore
+          : null;
+        if (selfEvalScore !== null) {
+          await this.markLatestAutoSentConstrained(
+            question.fromId,
+            mlAccountKey ?? null,
+            selfEvalScore,
+            String(question.itemId ?? '') || null,
+          ).catch((err: any) =>
+            this.logger.warn(`mark-autosent-constrained failed for ${questionId}: ${err?.message ?? err}`),
+          );
+        }
       }
 
       // Send answer via MercadoLibre API

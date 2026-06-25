@@ -752,6 +752,107 @@ export class MlPublicationKnowledgeService {
     return (v === 'always-draft' || v === 'always-send') ? v : 'auto';
   }
 
+  /**
+   * Marcos 2026-06-25 (Phase D widget): agrega métricas del modo
+   * cerrado para el dashboard. Consulta `messages.metadata` filtrando
+   * por `constrainedSelfEvalScore` (lo stampean tanto la rama draft
+   * como la auto-sent — Phase D).
+   *
+   *   - total constrained replies en los últimos `days` días
+   *   - split auto-sent vs draft
+   *   - distribución del self-eval en buckets para histograma
+   *   - top 5 publicaciones por uso del modo cerrado
+   *
+   * El umbral 8.5 viene de ML_CONSTRAINED_AUTOSEND_THRESHOLD para
+   * que el bucket coincida con la línea real de auto-envío.
+   */
+  async closedModeStats(args: { days?: number } = {}): Promise<{
+    windowDays: number;
+    total: number;
+    autoSent: number;
+    drafted: number;
+    avgScore: number | null;
+    autoSendThreshold: number;
+    buckets: Array<{ label: string; min: number; max: number; count: number }>;
+    topPublications: Array<{ itemId: string; count: number; avgScore: number }>;
+  }> {
+    const windowDays = (() => {
+      const n = Number(args.days);
+      return Number.isFinite(n) && n > 0 && n <= 365 ? Math.floor(n) : 30;
+    })();
+    const since = new Date(Date.now() - windowDays * 86_400_000);
+    const threshold = (() => {
+      const raw = Number(process.env.ML_CONSTRAINED_AUTOSEND_THRESHOLD);
+      return Number.isFinite(raw) && raw > 0 && raw <= 10 ? raw : 8.5;
+    })();
+    const rows = await this.prisma.message.findMany({
+      where: {
+        isFromAI: true,
+        timestamp: { gte: since },
+        metadata: { path: ['constrainedSelfEvalScore'], not: undefined } as any,
+      },
+      select: { metadata: true, timestamp: true },
+      take: 5000,
+    });
+    let total = 0;
+    let autoSent = 0;
+    let drafted = 0;
+    let scoreSum = 0;
+    const itemAgg = new Map<string, { count: number; scoreSum: number }>();
+    const buckets = [
+      { label: '< 6', min: 0, max: 6, count: 0 },
+      { label: '6–7', min: 6, max: 7, count: 0 },
+      { label: '7–8', min: 7, max: 8, count: 0 },
+      { label: `8–${threshold.toFixed(1)}`, min: 8, max: threshold, count: 0 },
+      { label: `${threshold.toFixed(1)}–9`, min: threshold, max: 9, count: 0 },
+      { label: '9–10', min: 9, max: 10, count: 0 },
+    ];
+    for (const r of rows) {
+      const md = (r.metadata as Record<string, unknown> | null) ?? {};
+      const score = typeof md.constrainedSelfEvalScore === 'number'
+        ? (md.constrainedSelfEvalScore as number)
+        : null;
+      if (score === null) continue;
+      total++;
+      scoreSum += score;
+      const isAutoSent = md.constrainedAutoSent === true;
+      const isDraft = md.pendingReview === true;
+      if (isAutoSent) autoSent++;
+      if (isDraft) drafted++;
+      for (const b of buckets) {
+        if (score >= b.min && score < b.max + (b.max === 10 ? 0.001 : 0)) {
+          b.count++;
+          break;
+        }
+      }
+      const itemId = typeof md.mlItemId === 'string' ? md.mlItemId : null;
+      if (itemId) {
+        const cur = itemAgg.get(itemId) ?? { count: 0, scoreSum: 0 };
+        cur.count++;
+        cur.scoreSum += score;
+        itemAgg.set(itemId, cur);
+      }
+    }
+    const topPublications = Array.from(itemAgg.entries())
+      .map(([itemId, agg]) => ({
+        itemId,
+        count: agg.count,
+        avgScore: agg.count > 0 ? Number((agg.scoreSum / agg.count).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    return {
+      windowDays,
+      total,
+      autoSent,
+      drafted,
+      avgScore: total > 0 ? Number((scoreSum / total).toFixed(2)) : null,
+      autoSendThreshold: threshold,
+      buckets,
+      topPublications,
+    };
+  }
+
   /** Cuántas Q&A curadas tiene cada publicación — útil para que el panel
    *  muestre el badge "lista para modo cerrado". */
   async countCuratedByItem(): Promise<Record<string, number>> {

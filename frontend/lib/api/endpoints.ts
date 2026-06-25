@@ -3205,6 +3205,24 @@ export const mlPublicationKnowledgeApi = {
   setClosedMode: async (itemId: string, mode: 'auto' | 'always-draft' | 'always-send'): Promise<void> => {
     await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/closed-mode`, { mode });
   },
+  /**
+   * Marcos 2026-06-25 (Phase D widget): stats del modo cerrado para el
+   * dashboard — total replies, auto-sent vs drafted, histograma del
+   * self-eval, top publicaciones. Default ventana 30 días.
+   */
+  closedModeStats: async (days: number = 30): Promise<{
+    windowDays: number;
+    total: number;
+    autoSent: number;
+    drafted: number;
+    avgScore: number | null;
+    autoSendThreshold: number;
+    buckets: Array<{ label: string; min: number; max: number; count: number }>;
+    topPublications: Array<{ itemId: string; count: number; avgScore: number }>;
+  }> => {
+    const r = await apiClient.get<any>(`/admin/mercadolibre/publications/closed-mode-stats?days=${days}`);
+    return r.data?.data ?? r.data;
+  },
 };
 
 export const competitorsApi = {

@@ -64,6 +64,39 @@ export default function MlConocimientoPage() {
   const [aiPassRunning, setAiPassRunning] = useState(false);
   const [autoKeepRunning, setAutoKeepRunning] = useState(false);
   const [catalogRunning, setCatalogRunning] = useState(false);
+  // Marcos 2026-06-25 (Phase D widget): stats del modo cerrado para
+  // dashboard arriba — total replies, auto-sent vs draft, histograma
+  // del self-eval, top publicaciones por uso.
+  const [closedStats, setClosedStats] = useState<{
+    windowDays: number;
+    total: number;
+    autoSent: number;
+    drafted: number;
+    avgScore: number | null;
+    autoSendThreshold: number;
+    buckets: Array<{ label: string; min: number; max: number; count: number }>;
+    topPublications: Array<{ itemId: string; count: number; avgScore: number }>;
+  } | null>(null);
+  const [statsWindowDays, setStatsWindowDays] = useState<number>(30);
+
+  const loadClosedStats = async (days: number) => {
+    try {
+      const s = await api.mlPublicationKnowledge.closedModeStats(days);
+      setClosedStats(s);
+    } catch (err: any) {
+      // silencioso — el widget muestra "sin datos" si falla
+      setClosedStats({
+        windowDays: days,
+        total: 0,
+        autoSent: 0,
+        drafted: 0,
+        avgScore: null,
+        autoSendThreshold: 8.5,
+        buckets: [],
+        topPublications: [],
+      });
+    }
+  };
 
   const loadSummary = async () => {
     try {
@@ -90,7 +123,14 @@ export default function MlConocimientoPage() {
   useEffect(() => {
     if (!isAllowed) return;
     void loadSummary();
+    void loadClosedStats(statsWindowDays);
   }, [isAllowed]);
+
+  useEffect(() => {
+    if (!isAllowed) return;
+    void loadClosedStats(statsWindowDays);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsWindowDays]);
 
   const onIngest = async () => {
     const itemId = newItemId.trim().toUpperCase();
@@ -256,6 +296,129 @@ export default function MlConocimientoPage() {
             {catalogRunning ? "Ingestando catálogo…" : "Ingestar catálogo completo"}
           </button>
         </div>
+      </section>
+
+      {/* Marcos 2026-06-25 (Phase D widget): actividad del modo cerrado.
+          Muestra cuántas respuestas el modo cerrado generó en la ventana,
+          cuántas se auto-enviaron vs quedaron draft (split por el
+          threshold de self-eval), histograma del self-eval y las
+          publicaciones que más uso del modo cerrado tuvieron. */}
+      <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/50 to-white p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700">
+              Modo cerrado — actividad
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Self-eval ≥ {(closedStats?.autoSendThreshold ?? 8.5).toFixed(1)} ⇒ auto-envío; por debajo, queda como draft para revisar.
+            </p>
+          </div>
+          <select
+            value={statsWindowDays}
+            onChange={(e) => setStatsWindowDays(Number(e.target.value))}
+            data-testid="closed-mode-window"
+            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700"
+          >
+            <option value={7}>Últimos 7 días</option>
+            <option value={30}>Últimos 30 días</option>
+            <option value={90}>Últimos 90 días</option>
+          </select>
+        </div>
+
+        {closedStats === null ? (
+          <Skeleton className="h-32 w-full rounded-xl" />
+        ) : closedStats.total === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-4 py-6 text-center text-xs text-slate-500" data-testid="closed-mode-empty">
+            Todavía no hay respuestas del modo cerrado en esta ventana. A medida que se respondan preguntas en publicaciones con base curada, este panel se va a poblar.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-testid="closed-mode-totals">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Total</p>
+                <p className="text-xl font-bold text-slate-900">{closedStats.total}</p>
+                <p className="text-[10px] text-slate-500">respuestas con base cerrada</p>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Auto-enviadas</p>
+                <p className="text-xl font-bold text-emerald-900">{closedStats.autoSent}</p>
+                <p className="text-[10px] text-emerald-700/80">
+                  {closedStats.total > 0 ? `${Math.round((closedStats.autoSent / closedStats.total) * 100)}%` : '0%'} del total
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">Draft pendiente</p>
+                <p className="text-xl font-bold text-amber-900">{closedStats.drafted}</p>
+                <p className="text-[10px] text-amber-700/80">
+                  {closedStats.total > 0 ? `${Math.round((closedStats.drafted / closedStats.total) * 100)}%` : '0%'} para revisar
+                </p>
+              </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">Self-eval promedio</p>
+                <p className="text-xl font-bold text-blue-900">{closedStats.avgScore != null ? closedStats.avgScore.toFixed(2) : "—"}</p>
+                <p className="text-[10px] text-blue-700/80">/ 10</p>
+              </div>
+            </div>
+
+            {closedStats.buckets.some((b) => b.count > 0) && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3" data-testid="closed-mode-histogram">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Distribución del self-eval
+                </p>
+                {(() => {
+                  const maxCount = Math.max(...closedStats.buckets.map((b) => b.count), 1);
+                  return (
+                    <div className="space-y-1">
+                      {closedStats.buckets.map((b) => {
+                        const pct = (b.count / maxCount) * 100;
+                        const isAutoBucket = b.min >= closedStats.autoSendThreshold;
+                        return (
+                          <div key={b.label} className="grid grid-cols-[48px_1fr_42px] items-center gap-2">
+                            <span className="text-[11px] tabular-nums text-slate-600">{b.label}</span>
+                            <div className="h-3 rounded bg-slate-100">
+                              <div
+                                className={`h-3 rounded ${isAutoBucket ? 'bg-emerald-400' : 'bg-amber-400'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-right text-[11px] tabular-nums text-slate-700">{b.count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                <p className="mt-2 text-[10px] text-slate-500">
+                  <span className="inline-block h-2 w-2 rounded bg-emerald-400" /> = enviadas automáticamente · <span className="inline-block h-2 w-2 rounded bg-amber-400" /> = quedaron como draft
+                </p>
+              </div>
+            )}
+
+            {closedStats.topPublications.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3" data-testid="closed-mode-top">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Publicaciones que más usaron el modo cerrado
+                </p>
+                <ul className="space-y-1.5">
+                  {closedStats.topPublications.map((p) => (
+                    <li key={p.itemId} className="flex items-center justify-between gap-3 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => void loadItem(p.itemId)}
+                        className="font-mono text-slate-700 hover:text-violet-700 hover:underline"
+                      >
+                        {p.itemId}
+                      </button>
+                      <span className="text-[11px] text-slate-500">
+                        {p.count} resp · self-eval ⌀ {p.avgScore.toFixed(1)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       <section>
