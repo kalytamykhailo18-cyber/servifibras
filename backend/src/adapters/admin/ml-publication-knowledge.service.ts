@@ -551,9 +551,19 @@ export class MlPublicationKnowledgeService {
     const client = new Anthropic({ apiKey });
     const model = process.env.ML_CONSTRAINED_MODEL || 'claude-haiku-4-5-20251001';
     try {
+      // Marcos 2026-06-25: bumped de 350 a 800 — Marcos reportó casos
+      // donde la respuesta se cortaba al final ("sigue cortando la
+      // respuesta al final"). Con cap más alto el agente igual respeta
+      // las "80 palabras salvo que requiera más" del prompt en casos
+      // normales, pero para preguntas que requieren detalle (rinde por
+      // ml + por mm + por presentación) tiene headroom.
+      const maxOutputTokens = (() => {
+        const raw = Number(process.env.ML_CONSTRAINED_MAX_TOKENS);
+        return Number.isFinite(raw) && raw > 0 ? raw : 800;
+      })();
       const resp = await client.messages.create({
         model,
-        max_tokens: 350,
+        max_tokens: maxOutputTokens,
         temperature: 0,
         // cache_control marca el system block para Anthropic cache.
         // Mismo block en turnos siguientes de la misma publicación se
@@ -567,6 +577,13 @@ export class MlPublicationKnowledgeService {
         ] as any,
         messages: [{ role: 'user', content: userBlock }],
       });
+      // Marcos 2026-06-25: alerta cuando la respuesta toca el cap —
+      // sirve para subir ML_CONSTRAINED_MAX_TOKENS si vemos pattern.
+      if ((resp as any)?.stop_reason === 'max_tokens') {
+        this.logger.warn(
+          `Constrained reply HIT MAX_TOKENS for ${args.itemId} (cap=${maxOutputTokens}). Considera subir ML_CONSTRAINED_MAX_TOKENS si esto pasa seguido.`,
+        );
+      }
       const text = resp.content
         .filter((c: any) => c.type === 'text')
         .map((c: any) => c.text)
