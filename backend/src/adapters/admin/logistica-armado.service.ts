@@ -35,6 +35,15 @@ export interface RowLifecycleLookup {
   listoAt: Date | null;
   stampedAt: Date;
   stampedById: string | null;
+  /**
+   * Marcos 2026-06-25: resolved display name of stampedBy. Antes el
+   * frontend solo veía el opaque user-id en armadoById, así que no
+   * podía mostrar "Armado por dario" sin un fetch por separado.
+   * Resuelto en lookupMany via include de User.name (con fallback a
+   * username / email). Null si el operador fue borrado (cascade
+   * deja stampedById a null).
+   */
+  stampedByName: string | null;
   /** Bloque B item 3.7 — per-item check progress. Empty array when
    *  nothing's been ticked off yet OR for legacy rows. */
   itemsChecked: string[];
@@ -821,6 +830,10 @@ export class LogisticaArmadoService {
         listoAt: true,
         stampedAt: true,
         stampedById: true,
+        // Marcos 2026-06-25: include para resolver el nombre del
+        // armador en un solo round-trip; sin esto el panel mostraba
+        // el id opaco.
+        stampedBy: { select: { name: true, username: true, email: true } },
         itemsChecked: true,
         itemsExpected: true,
         notes: true,
@@ -834,12 +847,19 @@ export class LogisticaArmadoService {
       const itemsChecked = Array.isArray(r.itemsChecked as any)
         ? ((r.itemsChecked as any) as string[])
         : [];
+      const sb = (r as any).stampedBy as
+        | { name: string | null; username: string | null; email: string | null }
+        | null;
+      const stampedByName = sb
+        ? (sb.name?.trim() || sb.username?.trim() || sb.email?.trim() || null)
+        : null;
       map.set(r.rowKey, {
         state: r.state as RowLifecycleState,
         armadoAt: r.armadoAt,
         listoAt: r.listoAt,
         stampedAt: r.stampedAt,
         stampedById: r.stampedById,
+        stampedByName,
         itemsChecked,
         itemsExpected: r.itemsExpected,
         notes: r.notes,

@@ -1589,6 +1589,22 @@ export default function LogisticaDiariaPage() {
                               L: {safeFormatDate(row.listoAt, "dd/MM HH:mm")}
                             </p>
                           )}
+                          {/* Marcos 2026-06-25: nombre del armador
+                              debajo de las fechas para que se vea
+                              de un vistazo quién armó el paquete (en
+                              vez de tener que abrir el detail del
+                              pedido). Antes el equipo escribía el
+                              nombre a mano en la columna notas como
+                              workaround — esto lo hace automático. */}
+                          {row.armadoByName && (
+                            <p
+                              data-testid="logistica-row-armado-by"
+                              className="text-slate-600 font-normal"
+                              title={`Armado por ${row.armadoByName}`}
+                            >
+                              por <span className="font-semibold">{row.armadoByName}</span>
+                            </p>
+                          )}
                           {!row.armadoAt && !row.listoAt && <p>—</p>}
                         </div>
                         </div>

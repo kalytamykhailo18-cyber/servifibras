@@ -114,6 +114,14 @@ export interface DailySectionRow {
    *  when the original record lost its operator (User delete cascade
    *  sets this to null). */
   armadoById: string | null;
+  /**
+   * Marcos 2026-06-25: nombre del operador que stampedó la fila
+   * (último que toco state/courier — armado o pasaje a LISTO). Antes
+   * el frontend solo recibía el id opaco; ahora se resuelve server-side
+   * para mostrar "Armado por dario" en el panel y en el detail del
+   * pedido. Null si el operador fue borrado.
+   */
+  armadoByName: string | null;
   /** Bloque B item 3.6 — Marcos 2026-06-08: 3-state lifecycle.
    *  PENDIENTE (default — picker hasn't touched it),
    *  ARMADO    (pack assembled),
@@ -629,6 +637,7 @@ export class DailyLogisticaAggregatorService {
               armado: false,
               armadoAt: null,
               armadoById: null,
+              armadoByName: null,
               state: 'PENDIENTE' as const,
               itemsChecked: [] as string[],
               notes: null as string | null,
@@ -799,6 +808,7 @@ export class DailyLogisticaAggregatorService {
           armado: false,
           armadoAt: null,
           armadoById: null,
+          armadoByName: null,
           state: 'PENDIENTE' as const,
           itemsChecked: [] as string[],
           notes: null as string | null,
@@ -869,6 +879,7 @@ export class DailyLogisticaAggregatorService {
           armado: true,                // LISTA_CORTADA already implies "armado"
           armadoAt: p.stateChangedAt.toISOString(),
           armadoById: null,
+          armadoByName: null,
           state: 'LISTO' as const,
           listoAt: p.stateChangedAt.toISOString(),
           itemsChecked: [],
@@ -917,6 +928,7 @@ export class DailyLogisticaAggregatorService {
               r.armadoAt = stamp.armadoAt?.toISOString() ?? stamp.stampedAt.toISOString();
               r.listoAt = stamp.listoAt?.toISOString() ?? null;
               r.armadoById = stamp.stampedById;
+              r.armadoByName = stamp.stampedByName;
               r.itemsChecked = Array.isArray(stamp.itemsChecked) ? stamp.itemsChecked : [];
               r.notes = stamp.notes ?? null;
               r.flexCourier = stamp.flexCourier ?? null;

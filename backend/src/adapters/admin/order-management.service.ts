@@ -109,8 +109,54 @@ export class OrderManagementService implements IOrderManagementService {
         returnedBy: { select: { id: true, name: true, email: true } },
       },
     });
+    if (!order) return null;
 
-    return order as OrderDetails | null;
+    // Marcos 2026-06-25: añade trazabilidad de armado/listo del paquete
+    // — quien lo armó, cuándo, en qué state está, y qué courier se lo
+    // llevó. El rowKey del pedido en el panel de logística sigue una
+    // convención por source: TIENDANUBE → 'tn:<id>', el resto (MANUAL /
+    // sync futuro) → 'crm:<id>'. Buscamos por ambos para cubrir packs
+    // del aggregator y no perder traza si la convención cambió.
+    const candidateRowKeys = [`tn:${order.id}`, `crm:${order.id}`];
+    const armadoRow = await this.prisma.logisticaArmado.findFirst({
+      where: { rowKey: { in: candidateRowKeys } },
+      select: {
+        state: true,
+        armadoAt: true,
+        listoAt: true,
+        stampedAt: true,
+        flexCourier: true,
+        itemsChecked: true,
+        itemsExpected: true,
+        stampedBy: { select: { id: true, name: true, username: true, email: true } },
+      },
+    });
+    const armadoBy = armadoRow?.stampedBy
+      ? {
+          id: armadoRow.stampedBy.id,
+          name:
+            armadoRow.stampedBy.name?.trim() ||
+            armadoRow.stampedBy.username?.trim() ||
+            armadoRow.stampedBy.email?.trim() ||
+            null,
+        }
+      : null;
+    const itemsCheckedCount = Array.isArray(armadoRow?.itemsChecked as any)
+      ? ((armadoRow!.itemsChecked as any) as string[]).length
+      : 0;
+    const armadoInfo = armadoRow
+      ? {
+          state: armadoRow.state as 'PENDIENTE' | 'ARMADO' | 'LISTO',
+          armadoAt: armadoRow.armadoAt?.toISOString() ?? null,
+          listoAt: armadoRow.listoAt?.toISOString() ?? null,
+          flexCourier: armadoRow.flexCourier ?? null,
+          itemsChecked: itemsCheckedCount,
+          itemsExpected: armadoRow.itemsExpected ?? null,
+          armadoBy,
+        }
+      : null;
+
+    return { ...order, armadoInfo } as any;
   }
 
   async createOrder(data: CreateOrderData): Promise<OrderDetails> {

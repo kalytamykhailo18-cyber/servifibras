@@ -278,13 +278,40 @@ export default function OrderDetailPage() {
 
       {/* Marcos 2026-06-21: trazabilidad de quien dio de alta el
          pedido (cuando vino por el flow MANUAL — TN/ML sync no
-         tienen createdBy). Pill chiquito para no saturar el header. */}
-      {order.createdBy?.name && (
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
-          <PersonIcon sx={{ fontSize: 12 }} className="text-emerald-600" />
-          Cargado por <span className="font-semibold text-slate-900">{order.createdBy.name}</span>
-        </div>
-      )}
+         tienen createdBy). Pill chiquito para no saturar el header.
+         Marcos 2026-06-25: junto al "Cargado por", el "Armado por"
+         para tener trazabilidad operador → pedido. Si un cliente
+         reclama, en el detail del pedido se ve quién lo cargó y
+         quién lo armó/pasó a Listas. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {order.createdBy?.name && (
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
+            <PersonIcon sx={{ fontSize: 12 }} className="text-emerald-600" />
+            Cargado por <span className="font-semibold text-slate-900">{order.createdBy.name}</span>
+          </div>
+        )}
+        {(order as any).armadoInfo?.armadoBy?.name && (
+          <div
+            data-testid="order-armado-by"
+            className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
+            title={(() => {
+              const a = (order as any).armadoInfo;
+              const parts: string[] = [`Estado: ${a.state}`];
+              if (a.armadoAt) parts.push(`Armado: ${safeFormatDate(a.armadoAt, 'dd/MM/yy HH:mm')}`);
+              if (a.listoAt) parts.push(`Listo: ${safeFormatDate(a.listoAt, 'dd/MM/yy HH:mm')}`);
+              if (a.flexCourier) parts.push(`Courier: ${a.flexCourier}`);
+              if (a.itemsExpected) parts.push(`Items: ${a.itemsChecked}/${a.itemsExpected}`);
+              return parts.join(' · ');
+            })()}
+          >
+            <PersonIcon sx={{ fontSize: 12 }} className="text-violet-600" />
+            Armado por <span className="font-semibold text-violet-900">{(order as any).armadoInfo.armadoBy.name}</span>
+            {(order as any).armadoInfo?.flexCourier && (
+              <span className="ml-1 text-[10px] text-violet-600/80">→ {(order as any).armadoInfo.flexCourier}</span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* MAIN GRID */}
       <div className="grid gap-6 md:grid-cols-3">

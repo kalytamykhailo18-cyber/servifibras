@@ -2644,6 +2644,9 @@ export interface DailySectionRow {
   armado: boolean;
   armadoAt: string | null;
   armadoById: string | null;
+  /** Marcos 2026-06-25: nombre resuelto del armador (User.name /
+   *  username / email). Aparece bajo las fechas A:/L: en el panel. */
+  armadoByName: string | null;
   /** Bloque B item 3.6 — Marcos 2026-06-08: 3-state lifecycle. */
   state: 'PENDIENTE' | 'ARMADO' | 'LISTO';
   /** ISO timestamp of the LISTO transition (null while state≠LISTO). */
