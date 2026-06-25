@@ -79,6 +79,133 @@ export class MercadolibreQaService {
    * con la nueva respuesta; el metadata.mlQuestionId / pendingReview
    * se preservan así el operador puede seguir releasing/discarding.
    */
+  /**
+   * Marcos 2026-06-25: el operador escribe una respuesta rápida + cruda
+   * ("sí 6 litros" / "es shore 20") y Claude la mejora antes de
+   * enviarla — agrega "Hola {apodo}", suma contexto útil de la
+   * publicación, ajusta el tono natural, saca cierres formales. NO
+   * modifica el DB; devuelve la versión mejorada para que el operador
+   * la apruebe (o siga editando) y recién después haga "Enviar".
+   *
+   * Reusa la ficha de la publicación + Q&A curadas si las hay, para
+   * que la mejora aterrice info real y no improvise.
+   */
+  async improveOperatorDraft(args: {
+    messageId: string;
+    operatorText: string;
+  }): Promise<{ ok: boolean; reason?: string; improvedContent?: string }> {
+    const text = (args.operatorText ?? '').trim();
+    if (text.length === 0) return { ok: false, reason: 'Texto vacío' };
+    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return { ok: false, reason: 'CLAUDE_API_KEY no configurada' };
+    if (!this.claude || !this.mercadolibre) return { ok: false, reason: 'AI/ML services not available' };
+
+    const draft = await this.prisma.message.findUnique({
+      where: { id: args.messageId },
+      select: {
+        id: true,
+        conversationId: true,
+        metadata: true,
+      },
+    });
+    if (!draft) return { ok: false, reason: 'Draft no encontrado' };
+    const meta = (draft.metadata as Record<string, unknown> | null) ?? {};
+    const mlQuestionId = typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null;
+    if (!mlQuestionId) return { ok: false, reason: 'Draft sin mlQuestionId' };
+
+    // Buyer question that triggered this draft
+    const customerMsg = await this.prisma.message.findFirst({
+      where: {
+        conversationId: draft.conversationId,
+        isFromAI: false,
+        metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
+      },
+      orderBy: { timestamp: 'desc' },
+      select: { content: true, metadata: true },
+    });
+    if (!customerMsg) return { ok: false, reason: 'Pregunta original no encontrada' };
+    const cipher = getMessageCipher();
+    const buyerQuestion = cipher.decrypt(customerMsg.content);
+    const customerMeta = (customerMsg.metadata as Record<string, unknown> | null) ?? {};
+    const itemId = typeof customerMeta.mlItemId === 'string' ? customerMeta.mlItemId : null;
+    const buyerNickname =
+      (typeof customerMeta.mlBuyerNickname === 'string' && customerMeta.mlBuyerNickname) || 'comprador';
+
+    // Best-effort ficha + curated context
+    let fichaBlock = '';
+    let qaBlock = '';
+    if (itemId && !itemId.startsWith('sandbox-')) {
+      const listing = await this.mercadolibre.fetchListingDetails(itemId).catch(() => null);
+      if (listing) {
+        const parts: string[] = [];
+        if (listing.title) parts.push(`Título: ${listing.title}`);
+        if ((listing as any).price != null) parts.push(`Precio: ${(listing as any).currencyId ?? 'ARS'} ${(listing as any).price}`);
+        if ((listing as any).availableQuantity != null) parts.push(`Stock: ${(listing as any).availableQuantity}`);
+        if (Array.isArray((listing as any).attributes)) {
+          const attrs = (listing as any).attributes.slice(0, 15).map((a: any) => `  - ${a.name ?? a.id}: ${a.value_name ?? a.value ?? ''}`).join('\n');
+          if (attrs) parts.push(`Atributos:\n${attrs}`);
+        }
+        fichaBlock = parts.join('\n');
+      }
+      const curated = await this.prisma.mlPublicationKnowledge.findMany({
+        where: { itemId, curationStatus: { in: ['kept', 'edited'] } },
+        take: 30,
+        select: { questionText: true, answerText: true, curatedAnswer: true },
+      });
+      qaBlock = curated.map((c, i) => `${i + 1}. P: ${c.questionText}\n   R: ${c.curatedAnswer ?? c.answerText ?? ''}`).join('\n\n');
+    }
+
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+    const model = process.env.ML_CONSTRAINED_MODEL || 'claude-haiku-4-5-20251001';
+
+    const systemBlock = [
+      'Sos un mejorador de respuestas para el equipo de Servifibras en Mercado Libre. El operador escribió una respuesta cruda (corta, sin saludo, sin tono) y vos la reescribís en una versión natural, lista para enviar al comprador.',
+      '',
+      'REGLAS:',
+      `- Empezá con "Hola ${buyerNickname},".`,
+      '- NO uses cierre formal ("Quedo a disposición", "Atentamente", "Cordialmente"); cierre natural opcional ("Saludos.", "Cualquier cosa avisame.", o sin cierre).',
+      '- Mantené los HECHOS exactos que el operador escribió (números, presentaciones, links, sí/no). No agregues datos inventados.',
+      '- Si la respuesta del operador es muy corta, podés agregar UNA pieza de info complementaria útil que SÍ esté en la ficha o las Q&A curadas de abajo. Si no hay, no inventes.',
+      '- Tono cercano, voseo argentino, claro, conciso. Max ~80 palabras salvo que la pregunta requiera más.',
+      '- Si la pregunta es yes/no o de elección, la primera oración tiene que ser la respuesta directa.',
+      '- Devolvé SOLO el texto final que se enviaría al comprador. Sin comillas, sin meta-comentarios, sin "Aquí está la versión mejorada:". Directo.',
+      fichaBlock ? '\nFICHA DE LA PUBLICACIÓN:\n' + fichaBlock : '',
+      qaBlock ? '\nQ&A VALIDADAS POR EL EQUIPO PARA ESTA PUBLICACIÓN:\n' + qaBlock : '',
+    ].filter(Boolean).join('\n');
+
+    const userBlock = [
+      `PREGUNTA DEL COMPRADOR:\n${buyerQuestion}`,
+      '',
+      `RESPUESTA CRUDA DEL OPERADOR:\n${text}`,
+      '',
+      'Devolvé la versión mejorada (solo el texto que va al comprador):',
+    ].join('\n');
+
+    try {
+      const resp = await client.messages.create({
+        model,
+        max_tokens: 800,
+        temperature: 0,
+        system: [{ type: 'text', text: systemBlock, cache_control: { type: 'ephemeral' } }] as any,
+        messages: [{ role: 'user', content: userBlock }],
+      });
+      const improved = resp.content
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('')
+        .trim();
+      if (!improved) return { ok: false, reason: 'IA devolvió respuesta vacía' };
+      this.logger.log(
+        `improveOperatorDraft ${args.messageId}: ${text.length}→${improved.length} chars`,
+      );
+      return { ok: true, improvedContent: improved };
+    } catch (err: any) {
+      this.logger.warn(`improveOperatorDraft ${args.messageId} failed: ${err.message}`);
+      return { ok: false, reason: `Mejora falló: ${err.message}` };
+    }
+  }
+
   async regenerateDraft(messageId: string): Promise<{ ok: boolean; reason?: string; newContent?: string }> {
     if (!this.claude || !this.mercadolibre) {
       return { ok: false, reason: 'AI/ML services not available in this runtime' };

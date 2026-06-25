@@ -228,6 +228,26 @@ export class MercadolibreQaController {
   }
 
   /**
+   * Marcos 2026-06-25: el operador escribe una respuesta corta y
+   * Claude la mejora — agrega saludo, suma info complementaria desde
+   * ficha + Q&A curadas, ajusta tono. NO escribe en DB; devuelve el
+   * texto mejorado para que el operador apruebe / siga editando antes
+   * de "Enviar".
+   */
+  @Post('qa/improve-draft/:messageId')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION)
+  async improveDraft(
+    @Param('messageId') messageId: string,
+    @Body() body: { text?: string },
+  ) {
+    const text = typeof body?.text === 'string' ? body.text : '';
+    if (!text.trim()) throw new BadRequestException('text vacío');
+    const r = await this.svc.improveOperatorDraft({ messageId, operatorText: text });
+    if (!r.ok) throw new BadRequestException(r.reason ?? 'No se pudo mejorar');
+    return { success: true, data: { messageId, improved: r.improvedContent } };
+  }
+
+  /**
    * Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
    * usando el prompt actual. Útil cuando ajustamos el prompt + el
    * draft pendiente quedó congelado con la respuesta vieja.
