@@ -377,6 +377,14 @@ model Order {
   // carrier-regex inference that ML/TN orders use. Free-form
   // string so future sections don't require a migration.
   sectionOverride String?
+  // Marcos 2026-06-25: TiendaNube reporta shipping_pickup_type
+  // ('pickup' = el comprador retira en local, 'ship' = se envía).
+  // Antes se stampaba en `notes` como "TN pickup: ship/pickup" y
+  // eso eclipsaba las notas reales del operador en el panel de
+  // logística. Ahora vive en su propio campo y `notes` queda libre
+  // para el operador. Free-text para no requerir migración si TN
+  // agrega nuevos valores.
+  shippingPickupType String?
   // Marcos 2026-06-12: invoicing lifecycle. Manual orders land
   // armado-but-unbilled; the operator ticks them off the "Pendientes
   // de facturación" list once the invoice is issued. Null while

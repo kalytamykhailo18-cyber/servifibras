@@ -311,9 +311,12 @@ export class TiendaNubeOrdersSyncService {
         raw.shipping_option ??
         raw.shipping_option_code ??
         null,
-      notes: raw.shipping_pickup_type
-        ? `TN pickup: ${raw.shipping_pickup_type}`
-        : null,
+      // Marcos 2026-06-25: shipping_pickup_type ahora vive en su propio
+      // campo Order.shippingPickupType. Antes ensuciaba `notes` con
+      // "TN pickup: ship/pickup" y eclipsaba las notas reales del
+      // operador en el panel de logística. Por eso `notes` NO se setea
+      // desde el sync — queda libre para el operador.
+      shippingPickupType: raw.shipping_pickup_type ?? null,
       source: OrderSource.TIENDANUBE,
       externalId,
       shippingCost,

@@ -697,6 +697,9 @@ export class DailyLogisticaAggregatorService {
         source: true,
         status: true,
         sectionOverride: true,
+        // Marcos 2026-06-25: nuevo campo para detectar TN pickup sin
+        // contaminar `notes`. La detección isTnPickup lo lee.
+        shippingPickupType: true,
         createdAt: true,
         contact: { select: { name: true } },
       };
@@ -738,20 +741,17 @@ export class DailyLogisticaAggregatorService {
           continue;
         }
         // Marcos 2026-06-10 — TN orders with shipping_pickup_type=pickup
-        // are buyer-pickup at the Servifibras Caseros store. The TN
-        // sync stamps that into `notes` as "TN pickup: pickup", so
-        // we can route them to the new RETIRA_CASEROS section without
-        // a schema change. Marcos 2026-06-10 follow-up: also catch
-        // rows whose CARRIER label says "Servifibras" / "Retira
-        // Caseros" (e.g. legacy TN options where pickup_type didn't
-        // make it into the sync). Anything else falls through to the
-        // legacy MICROS/MOTOS carrier-regex routing.
+        // are buyer-pickup at the Servifibras Caseros store. Marcos
+        // 2026-06-25: el flag pasó de `notes` (que se mezclaba con
+        // las notas del operador) al campo dedicado `shippingPickupType`.
+        // Fallback al carrier-regex preservado para TN options donde
+        // pickup_type no llega (legacy).
         const pickupCarrierRe = (process.env.PICKUP_CARRIER_PATTERNS || '').trim();
         const isPickupCarrier = pickupCarrierRe.length > 0
           && o.carrier
           && new RegExp(pickupCarrierRe, 'i').test(o.carrier);
         const isTnPickup =
-          /pickup:\s*pickup/i.test(o.notes ?? '') || !!isPickupCarrier;
+          o.shippingPickupType === 'pickup' || !!isPickupCarrier;
         // Marcos 2026-06-12: manual orders carry an explicit "Enviar
         // a" preselection from the operator. Honour it before the
         // legacy carrier-regex inference so the picker finds the row
