@@ -1287,6 +1287,58 @@ export class MercadoLibreService implements IMercadoLibreService {
    * permalink — ese es el dato que el operador necesita ver en el
    * dropdown para elegir.
    */
+  /**
+   * Marcos 2026-06-24: lista TODOS los itemIds activos de una cuenta
+   * (o ambas). Pagina con offset hasta 100 páginas (5000 items cap
+   * defensivo). Devuelve solo IDs — el caller (ingest-all-catalog)
+   * los pasa al bulk-ingest. Mucho más eficiente que iterar items
+   * uno por uno fetcheando ficha.
+   */
+  async listAllActiveItemIds(args: {
+    accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | 'both';
+  } = {}): Promise<Array<{ itemId: string; accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' }>> {
+    const which: Array<'mercadolibre' | 'mercadolibre_cuenta2'> =
+      args.accountKey === 'both' || args.accountKey == null
+        ? ['mercadolibre', 'mercadolibre_cuenta2']
+        : [args.accountKey];
+    const out: Array<{ itemId: string; accountKey: 'mercadolibre' | 'mercadolibre_cuenta2' }> = [];
+    for (const ak of which) {
+      const auth = await this.resolveAuthFor(ak);
+      if (!auth) continue;
+      let offset = 0;
+      const limit = 50;
+      const MAX_PAGES = 100;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const url = `${this.apiUrl}/users/${encodeURIComponent(auth.userId)}/items/search?status=active&limit=${limit}&offset=${offset}`;
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${auth.accessToken}` },
+          });
+          if (!res.ok) {
+            this.logger.warn(`listAllActiveItemIds (${ak}) HTTP ${res.status} at offset ${offset}, stopping`);
+            break;
+          }
+          const j: any = await res.json().catch(() => ({}));
+          const arr = Array.isArray(j?.results) ? j.results : [];
+          if (arr.length === 0) break;
+          for (const id of arr) {
+            if (typeof id === 'string' && /^MLA\d+$/i.test(id)) {
+              out.push({ itemId: id.toUpperCase(), accountKey: ak });
+            }
+          }
+          if (arr.length < limit) break;
+          offset += limit;
+        } catch (err: any) {
+          this.logger.warn(`listAllActiveItemIds (${ak}) error at offset ${offset}: ${err.message}`);
+          break;
+        }
+      }
+    }
+    this.logger.log(`listAllActiveItemIds: ${out.length} items across ${which.length} cuenta(s)`);
+    return out;
+  }
+
   async searchActiveListings(args: {
     q: string;
     limit?: number;

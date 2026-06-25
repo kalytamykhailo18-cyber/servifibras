@@ -509,6 +509,22 @@ enum ReturnState {
   LOST
 }
 
+/// Marcos 2026-06-24: settings por publicación de ML. Hoy es un
+/// single field (closedModeMode) pero el modelo queda abierto para
+/// sumar más controles per-item sin nuevas tablas (cap de turnos,
+/// tono override, etc).
+///   'auto'         — comportamiento default (≥3 curadas → cerrado, < draft)
+///   'always-draft' — siempre queda como pendingReview, no auto-envía
+///   'always-send'  — fuerza auto-envío sin pasar por self-eval (uso experto)
+model MlPublicationSettings {
+  itemId         String   @id
+  closedModeMode String   @default("auto")
+  updatedAt      DateTime @updatedAt
+  updatedById    String?
+
+  @@map("ml_publication_settings")
+}
+
 /// Marcos 2026-06-24: per-publication Q&A knowledge — base de
 /// conocimiento que se ingiere desde /questions/search?item=X&status=
 /// ANSWERED por la API de Mercado Libre. Cada pregunta histórica de

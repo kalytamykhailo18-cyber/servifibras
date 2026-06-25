@@ -506,6 +506,10 @@ export class MercadolibreQaService {
     mlBuyerId: string,
     mlAccountKeyOnMessage: string | null,
     mlAccountKeyResolved: string | null,
+    /** Marcos 2026-06-25: si el reply vino del modo cerrado, el
+     *  inbound handler nos pasa el score 0..10 para que el panel QA
+     *  muestre "self-eval 7.4/10 — quedó draft porque < umbral". */
+    constrainedSelfEvalScore?: number | null,
   ): Promise<void> {
     // Resolve the contact via the ML buyer id stored in
     // contact.metadata.mercadolibreUserId (the convention used by
@@ -539,6 +543,9 @@ export class MercadolibreQaService {
           mlQuestionId: questionId,
           mlAccountKey: mlAccountKeyOnMessage ?? mlAccountKeyResolved ?? null,
           markedPendingAt: new Date().toISOString(),
+          ...(typeof constrainedSelfEvalScore === 'number'
+            ? { constrainedSelfEvalScore }
+            : {}),
         },
       },
     });
@@ -693,6 +700,9 @@ export class MercadolibreQaService {
     itemId: string | null;
     itemTitle: string | null;
     itemPermalink: string | null;
+    /** Marcos 2026-06-25: si el draft vino del modo cerrado con
+     *  self-eval, el score 0..10 (null = vino del pipeline regular). */
+    constrainedSelfEvalScore: number | null;
   }>> {
     const rows = await this.prisma.message.findMany({
       where: {
@@ -761,6 +771,7 @@ export class MercadolibreQaService {
       itemId: string | null;
       itemTitle: string | null;
       itemPermalink: string | null;
+      constrainedSelfEvalScore: number | null;
     }> = [];
     for (const m of rows) {
       const meta = (m.metadata as Record<string, unknown> | null) ?? {};
@@ -806,6 +817,10 @@ export class MercadolibreQaService {
         itemId,
         itemTitle,
         itemPermalink,
+        constrainedSelfEvalScore:
+          typeof meta.constrainedSelfEvalScore === 'number'
+            ? (meta.constrainedSelfEvalScore as number)
+            : null,
       });
     }
     return result;

@@ -63,6 +63,7 @@ export default function MlConocimientoPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [aiPassRunning, setAiPassRunning] = useState(false);
   const [autoKeepRunning, setAutoKeepRunning] = useState(false);
+  const [catalogRunning, setCatalogRunning] = useState(false);
 
   const loadSummary = async () => {
     try {
@@ -108,6 +109,30 @@ export default function MlConocimientoPage() {
       toast.error(err?.response?.data?.message || err?.message || "No se pudo ingestar");
     } finally {
       setIngesting(false);
+    }
+  };
+
+  const onIngestAllCatalog = async () => {
+    if (!window.confirm("Esto va a ingerir TODAS las publicaciones activas de tus cuentas de ML. Puede tardar bastante en catálogos grandes. ¿Continuar?")) return;
+    setCatalogRunning(true);
+    try {
+      const r = await api.mlPublicationKnowledge.ingestAllCatalog('both');
+      toast.success(`Catálogo: ${r.totals.items} publicaciones, ${r.totals.inserted} Q&A nuevas, ${r.totals.skipped} ya existentes`);
+      await loadSummary();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "No se pudo ingestar el catálogo");
+    } finally {
+      setCatalogRunning(false);
+    }
+  };
+
+  const onSetClosedMode = async (itemId: string, mode: 'auto' | 'always-draft' | 'always-send') => {
+    try {
+      await api.mlPublicationKnowledge.setClosedMode(itemId, mode);
+      toast.success(`Modo cerrado: ${mode === 'auto' ? 'automático' : mode === 'always-draft' ? 'siempre draft' : 'siempre enviar'}`);
+      await loadSummary();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "No se pudo cambiar el modo");
     }
   };
 
@@ -214,6 +239,23 @@ export default function MlConocimientoPage() {
             {ingesting ? "Ingestando…" : "Ingestar"}
           </button>
         </div>
+        {/* Marcos 2026-06-25: ingesta del catálogo entero — descubre
+           publicaciones activas via ML API, las ingiere una por una. */}
+        <div className="flex items-center justify-between gap-3 border-t border-blue-200/60 pt-2">
+          <p className="text-[11px] text-slate-600">
+            <strong>O ingestá todo:</strong> auto-descubre tus publicaciones activas y trae el histórico de Q&A de cada una.
+          </p>
+          <button
+            type="button"
+            onClick={onIngestAllCatalog}
+            disabled={catalogRunning}
+            data-testid="ml-knowledge-ingest-all"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+          >
+            <DownloadIcon sx={{ fontSize: 14 }} />
+            {catalogRunning ? "Ingestando catálogo…" : "Ingestar catálogo completo"}
+          </button>
+        </div>
       </section>
 
       <section>
@@ -241,9 +283,22 @@ export default function MlConocimientoPage() {
                       (isSelected ? "border-blue-500 ring-2 ring-blue-200" : "border-slate-200 hover:border-slate-300")
                     }
                   >
-                    <p className="font-mono text-sm font-semibold text-slate-900">{s.itemId}</p>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-mono text-sm font-semibold text-slate-900">{s.itemId}</p>
+                      {/* Marcos 2026-06-25: badge "lista" cuando >= 3 curadas. */}
+                      {s.closedModeReady && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-800" title="Modo cerrado activo en este publicación">
+                          🔒 cerrado
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[10px] uppercase tracking-wider text-slate-400">
                       {s.accountKey === 'mercadolibre' ? 'cuenta 1' : 'cuenta 2'}
+                      {s.closedModeMode !== 'auto' && (
+                        <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-amber-800">
+                          override: {s.closedModeMode === 'always-draft' ? 'draft' : 'send'}
+                        </span>
+                      )}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1 text-[10px]">
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">{s.total} total</span>
@@ -253,6 +308,21 @@ export default function MlConocimientoPage() {
                       {s.discarded > 0 && <span className="rounded bg-slate-200 px-1.5 py-0.5 font-semibold text-slate-600">{s.discarded} descartadas</span>}
                     </div>
                   </button>
+                  {/* Mode override selector — Marcos 2026-06-25 */}
+                  <div className="mt-1 px-1">
+                    <label className="text-[10px] text-slate-500">Modo cerrado:</label>
+                    <select
+                      value={s.closedModeMode}
+                      onChange={(e) => void onSetClosedMode(s.itemId, e.target.value as any)}
+                      onClick={(e) => e.stopPropagation()}
+                      data-testid={`ml-knowledge-mode-${s.itemId}`}
+                      className="ml-1 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px]"
+                    >
+                      <option value="auto">Automático</option>
+                      <option value="always-draft">Siempre draft</option>
+                      <option value="always-send">Siempre enviar</option>
+                    </select>
+                  </div>
                 </li>
               );
             })}

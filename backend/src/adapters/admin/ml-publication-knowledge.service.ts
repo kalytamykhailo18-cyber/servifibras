@@ -149,7 +149,9 @@ export class MlPublicationKnowledgeService {
     }));
   }
 
-  /** Resumen por publicación: counts por status. Útil para el dashboard. */
+  /** Resumen por publicación: counts por status + estado de modo cerrado.
+   *  Marcos 2026-06-24: agrega closedModeMode + closedModeReady para
+   *  que el panel muestre quién está listo para responder solo. */
   async summary(): Promise<Array<{
     itemId: string;
     accountKey: string;
@@ -158,11 +160,26 @@ export class MlPublicationKnowledgeService {
     kept: number;
     edited: number;
     discarded: number;
+    closedModeMode: 'auto' | 'always-draft' | 'always-send';
+    /** True cuando la publicación cumple el threshold para que el modo
+     *  cerrado se active en automatic (>= ML_CONSTRAINED_MIN_CURATED). */
+    closedModeReady: boolean;
   }>> {
-    const rows = await this.prisma.mlPublicationKnowledge.groupBy({
-      by: ['itemId', 'accountKey', 'curationStatus'],
-      _count: { _all: true },
-    });
+    const minRequired = (() => {
+      const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED);
+      return Number.isFinite(raw) && raw > 0 ? raw : 3;
+    })();
+    const [rows, settingsRows] = await Promise.all([
+      this.prisma.mlPublicationKnowledge.groupBy({
+        by: ['itemId', 'accountKey', 'curationStatus'],
+        _count: { _all: true },
+      }),
+      this.prisma.mlPublicationSettings.findMany({
+        select: { itemId: true, closedModeMode: true },
+      }),
+    ]);
+    const settingsByItem = new Map<string, string>();
+    for (const s of settingsRows) settingsByItem.set(s.itemId, s.closedModeMode);
     const byItem = new Map<string, {
       itemId: string;
       accountKey: string;
@@ -171,9 +188,12 @@ export class MlPublicationKnowledgeService {
       kept: number;
       edited: number;
       discarded: number;
+      closedModeMode: 'auto' | 'always-draft' | 'always-send';
+      closedModeReady: boolean;
     }>();
     for (const r of rows) {
       const key = `${r.itemId}__${r.accountKey}`;
+      const mode = settingsByItem.get(r.itemId) ?? 'auto';
       const e = byItem.get(key) ?? {
         itemId: r.itemId,
         accountKey: r.accountKey,
@@ -182,6 +202,8 @@ export class MlPublicationKnowledgeService {
         kept: 0,
         edited: 0,
         discarded: 0,
+        closedModeMode: (mode === 'always-draft' || mode === 'always-send' ? mode : 'auto') as 'auto' | 'always-draft' | 'always-send',
+        closedModeReady: false,
       };
       const n = r._count._all;
       e.total += n;
@@ -189,6 +211,8 @@ export class MlPublicationKnowledgeService {
       if (r.curationStatus === 'kept') e.kept = n;
       if (r.curationStatus === 'edited') e.edited = n;
       if (r.curationStatus === 'discarded') e.discarded = n;
+      // Ready cuando hay >= minRequired curadas (kept + edited).
+      e.closedModeReady = (e.kept + e.edited) >= minRequired;
       byItem.set(key, e);
     }
     return Array.from(byItem.values()).sort((a, b) => b.pending - a.pending);
@@ -329,8 +353,10 @@ export class MlPublicationKnowledgeService {
     model: string;
   }): Promise<{ score: number; reason?: string }> {
     try {
-      const prompt = [
-        'Sos un evaluador de calidad de respuestas de Mercado Libre para Servifibras. Te paso una pregunta del comprador, la ficha de la publicación, las Q&A validadas que el equipo curó, y la respuesta que el agente generó. Calificás la respuesta de 0 a 10 según:',
+      // System block estable por publicación → CACHEABLE. La pregunta+respuesta
+      // del turno van en user block. Mismo cache hit en turnos seguidos.
+      const evalSystem = [
+        'Sos un evaluador de calidad de respuestas de Mercado Libre para Servifibras. Por cada turno te paso una pregunta del comprador + la respuesta que el agente generó. Calificás de 0 a 10 según:',
         '- Directness (si la pregunta era yes/no o de elección, la primera oración tiene que ser la respuesta directa)',
         '- Fidelidad: NO inventa precios, atributos, stock, links ni info que no está en la ficha ni en las Q&A',
         '- Tono natural sin cierres de oficina ("Quedo a disposición", "Atentamente", etc)',
@@ -339,12 +365,15 @@ export class MlPublicationKnowledgeService {
         '',
         'Devolvé EXCLUSIVAMENTE JSON: { "score": 0.0-10.0, "reason": "una oración corta" }',
         '',
+        'CONTEXTO DE LA PUBLICACIÓN (constante):',
+        '',
         'FICHA:',
         args.ficha,
         '',
         'Q&A VALIDADAS:',
         args.qaBlock,
-        '',
+      ].join('\n');
+      const evalUser = [
         'PREGUNTA DEL COMPRADOR:',
         args.buyerQuestion,
         '',
@@ -355,7 +384,10 @@ export class MlPublicationKnowledgeService {
         model: args.model,
         max_tokens: 150,
         temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
+        system: [
+          { type: 'text', text: evalSystem, cache_control: { type: 'ephemeral' } },
+        ] as any,
+        messages: [{ role: 'user', content: evalUser }],
       });
       const text = resp.content
         .filter((c: any) => c.type === 'text')
@@ -463,6 +495,14 @@ export class MlPublicationKnowledgeService {
         reason: `curated=${curated.length} < min=${minRequired}`,
       };
     }
+    // Marcos 2026-06-24: per-publication override del modo cerrado.
+    // 'always-draft' = nunca auto-envía aunque self-eval pase. Devolvemos
+    // la reply pero con autoSendAllowed=false forzado.
+    const settings = await this.prisma.mlPublicationSettings.findUnique({
+      where: { itemId: args.itemId },
+      select: { closedModeMode: true },
+    });
+    const closedMode = settings?.closedModeMode ?? 'auto';
     // Ficha actual — el caller puede pasarla pre-fetched (común en el
     // pipeline ML porque mlListing ya se cargó).
     const listing = args.listing
@@ -479,7 +519,12 @@ export class MlPublicationKnowledgeService {
     const nickname = (args.buyerNickname ?? '').trim() || 'comprador';
     const FALLBACK = `Hola ${nickname}, le paso esta consulta al equipo y te respondemos en breve. Gracias por la paciencia.`;
 
-    const prompt = [
+    // Marcos 2026-06-24: split en system (ficha + Q&A — estable por
+    // publicación, CACHEABLE) + user (pregunta del comprador). Anthropic
+    // cache lifetime ~5min — turnos 2-N en la misma publicación leen
+    // del cache al 10% del precio normal. En una publicación caliente
+    // con preguntas seguidas el ahorro real es ~50% del costo de input.
+    const systemBlock = [
       'Sos un asistente de Mercado Libre para Servifibras. Respondés SOLO con información que está abajo. NO podés improvisar, inventar precios, atributos, stock, links ni nada que no esté literalmente acá.',
       '',
       'FICHA ACTUAL DE LA PUBLICACIÓN:',
@@ -488,13 +533,16 @@ export class MlPublicationKnowledgeService {
       'PREGUNTAS Y RESPUESTAS YA VALIDADAS POR EL EQUIPO PARA ESTA PUBLICACIÓN:',
       qaBlock,
       '',
-      'REGLAS:',
-      `- Empezá con "Hola ${nickname},". No uses cierre formal ("Quedo a disposición", "Atentamente", "Cordialmente"); si querés cerrar, usá "Saludos."`,
+      'REGLAS GENERALES:',
+      '- No uses cierre formal ("Quedo a disposición", "Atentamente", "Cordialmente"); si querés cerrar, usá "Saludos."',
       '- Si la pregunta nueva ya está cubierta arriba (o muy parecida), respondé reutilizando esa respuesta validada — adaptala al apodo del comprador si hace falta.',
       '- Si la pregunta NO está cubierta pero se contesta directo desde la ficha, respondé citando ESTRICTAMENTE la ficha.',
-      `- Si NO se puede responder con info de arriba, devolvé EXACTAMENTE este texto (sin agregar nada más): "${FALLBACK}"`,
+      '- Si NO se puede responder con info de arriba, devolvé EXACTAMENTE: "Hola {nick}, le paso esta consulta al equipo y te respondemos en breve. Gracias por la paciencia." (reemplazando {nick} por el apodo)',
       '- Máximo 80 palabras salvo que la pregunta requiera más.',
       '- Si la pregunta es yes/no o de elección, primera oración es la respuesta directa (sí/no/cuál).',
+    ].join('\n');
+    const userBlock = [
+      `Apodo del comprador: ${nickname} (empezá la respuesta con "Hola ${nickname},")`,
       '',
       'PREGUNTA NUEVA:',
       args.buyerQuestion,
@@ -507,7 +555,17 @@ export class MlPublicationKnowledgeService {
         model,
         max_tokens: 350,
         temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
+        // cache_control marca el system block para Anthropic cache.
+        // Mismo block en turnos siguientes de la misma publicación se
+        // sirve del cache al 10% del precio normal.
+        system: [
+          {
+            type: 'text',
+            text: systemBlock,
+            cache_control: { type: 'ephemeral' },
+          },
+        ] as any,
+        messages: [{ role: 'user', content: userBlock }],
       });
       const text = resp.content
         .filter((c: any) => c.type === 'text')
@@ -527,19 +585,31 @@ export class MlPublicationKnowledgeService {
         return { reply: null, usedConstrained: false, reason: 'model declined', curatedRowsUsed: curated.length };
       }
       // Marcos 2026-06-24 (Phase D): self-eval del reply.
-      const selfEval = await this.selfEvalReply({
-        ficha: fichaBlock,
-        qaBlock,
-        buyerQuestion: args.buyerQuestion,
-        reply: text,
-        client,
-        model,
-      });
-      const threshold = (() => {
-        const raw = Number(process.env.ML_CONSTRAINED_AUTOSEND_THRESHOLD);
-        return Number.isFinite(raw) && raw > 0 && raw <= 10 ? raw : 8.5;
-      })();
-      const autoSendAllowed = selfEval.score >= threshold;
+      // 'always-send' override: skip self-eval, autoSendAllowed=true.
+      // 'always-draft' override: skip self-eval, autoSendAllowed=false.
+      let selfEval: { score: number; reason?: string };
+      let autoSendAllowed: boolean;
+      if (closedMode === 'always-send') {
+        selfEval = { score: 10, reason: 'override always-send' };
+        autoSendAllowed = true;
+      } else if (closedMode === 'always-draft') {
+        selfEval = { score: 0, reason: 'override always-draft' };
+        autoSendAllowed = false;
+      } else {
+        selfEval = await this.selfEvalReply({
+          ficha: fichaBlock,
+          qaBlock,
+          buyerQuestion: args.buyerQuestion,
+          reply: text,
+          client,
+          model,
+        });
+        const threshold = (() => {
+          const raw = Number(process.env.ML_CONSTRAINED_AUTOSEND_THRESHOLD);
+          return Number.isFinite(raw) && raw > 0 && raw <= 10 ? raw : 8.5;
+        })();
+        autoSendAllowed = selfEval.score >= threshold;
+      }
       this.logger.log(
         `Constrained reply ${args.itemId}: OK (${text.length} chars, ${curated.length} curated rows, self-eval=${selfEval.score.toFixed(1)}, autoSend=${autoSendAllowed})`,
       );
@@ -586,6 +656,83 @@ export class MlPublicationKnowledgeService {
     });
     this.logger.log(`autoKeepHighScore ${args.itemId}: ${r.count} rows kept (min score ${min})`);
     return { keptCount: r.count };
+  }
+
+  /**
+   * Marcos 2026-06-24: ingesta de TODO el catálogo activo. Llama a
+   * mercadolibre.listAllActiveItemIds para descubrir las publicaciones
+   * activas de la(s) cuenta(s), después ingiere cada una. Devuelve
+   * totales agregados. Si el ML service no está disponible, devuelve
+   * un resultado vacío con note.
+   */
+  async ingestAllCatalog(args: {
+    accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | 'both';
+  } = {}): Promise<{
+    totals: { items: number; fetched: number; inserted: number; skipped: number; errored: number };
+    note?: string;
+  }> {
+    if (!this.mercadolibre) {
+      return {
+        totals: { items: 0, fetched: 0, inserted: 0, skipped: 0, errored: 0 },
+        note: 'ML service not available',
+      };
+    }
+    const items = await this.mercadolibre.listAllActiveItemIds({
+      accountKey: args.accountKey ?? 'both',
+    });
+    if (items.length === 0) {
+      return {
+        totals: { items: 0, fetched: 0, inserted: 0, skipped: 0, errored: 0 },
+        note: 'no active items found',
+      };
+    }
+    const totals = { items: items.length, fetched: 0, inserted: 0, skipped: 0, errored: 0 };
+    for (const it of items) {
+      try {
+        const r = await this.ingestForItem({ itemId: it.itemId, accountKey: it.accountKey });
+        totals.fetched += r.fetched;
+        totals.inserted += r.inserted;
+        totals.skipped += r.skipped;
+        totals.errored += r.errored;
+      } catch (err: any) {
+        totals.errored++;
+        this.logger.warn(`ingest-all-catalog row ${it.itemId} failed: ${err.message}`);
+      }
+    }
+    this.logger.log(
+      `ingest-all-catalog DONE: items=${totals.items} new=${totals.inserted} skipped=${totals.skipped} err=${totals.errored}`,
+    );
+    return { totals };
+  }
+
+  /**
+   * Marcos 2026-06-24: set/unset el closedModeMode de una publicación.
+   * 'auto' | 'always-draft' | 'always-send'.
+   */
+  async setClosedModeMode(args: {
+    itemId: string;
+    mode: 'auto' | 'always-draft' | 'always-send';
+    userId?: string | null;
+  }): Promise<{ ok: boolean }> {
+    if (!['auto', 'always-draft', 'always-send'].includes(args.mode)) {
+      return { ok: false };
+    }
+    await this.prisma.mlPublicationSettings.upsert({
+      where: { itemId: args.itemId },
+      create: { itemId: args.itemId, closedModeMode: args.mode, updatedById: args.userId ?? null },
+      update: { closedModeMode: args.mode, updatedById: args.userId ?? null },
+    });
+    return { ok: true };
+  }
+
+  /** Mode actual de una publicación (para el panel). */
+  async getClosedModeMode(itemId: string): Promise<'auto' | 'always-draft' | 'always-send'> {
+    const s = await this.prisma.mlPublicationSettings.findUnique({
+      where: { itemId },
+      select: { closedModeMode: true },
+    });
+    const v = s?.closedModeMode ?? 'auto';
+    return (v === 'always-draft' || v === 'always-send') ? v : 'auto';
   }
 
   /** Cuántas Q&A curadas tiene cada publicación — útil para que el panel

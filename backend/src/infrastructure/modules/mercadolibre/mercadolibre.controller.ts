@@ -55,6 +55,9 @@ export class MercadoLibreController {
     resourceId: string,
     mlBuyerId: string,
     mlAccountKey: string | null,
+    // Marcos 2026-06-25: si el reply vino del modo cerrado, opcional el
+    // score del self-eval para que el panel QA lo muestre.
+    constrainedSelfEvalScore: number | null = null,
     // Marcos 2026-06-17: tag the draft with its source kind so the
     // QA panel can split into Preguntas / Mensajes / Reclamos. The
     // existing `mlQuestionId` field stays so the release flow can
@@ -98,6 +101,9 @@ export class MercadoLibreController {
           mlDraftKind: kind,
           mlAccountKey: mlAccountKey ?? null,
           markedPendingAt: new Date().toISOString(),
+          ...(typeof constrainedSelfEvalScore === 'number'
+            ? { constrainedSelfEvalScore }
+            : {}),
         } as any,
       },
     });
@@ -264,15 +270,21 @@ export class MercadoLibreController {
       const reviewMode = !(await this.isAutoReplyOn());
       const forceAutoSend = (result as any)?.forceAutoSend === true;
       if (reviewMode && !forceAutoSend) {
+        // Marcos 2026-06-25: si el reply vino del modo cerrado con
+        // un self-eval bajo, pasamos el score a la metadata del draft
+        // para que el panel QA muestre "self-eval 7.4/10 — quedó draft
+        // porque < umbral".
+        const selfEvalScore = typeof (result as any)?.selfEvalScore === 'number' ? (result as any).selfEvalScore : null;
         await this.markLatestDraftPending(
           question.id,
           question.fromId,
           mlAccountKey ?? null,
+          selfEvalScore,
         ).catch((err: any) =>
           this.logger.warn(`mark-pending failed for ${questionId}: ${err?.message ?? err}`),
         );
         this.logger.log(
-          `📝 ML draft pending review for ${questionId} — auto-send disabled by ML_QA_REVIEW_MODE`,
+          `📝 ML draft pending review for ${questionId}${selfEvalScore != null ? ` (self-eval=${selfEvalScore.toFixed(1)})` : ''}`,
         );
         return;
       }
@@ -347,6 +359,7 @@ export class MercadoLibreController {
           packId,
           message.fromId,
           account,
+          null,  // constrainedSelfEvalScore — N/A para post-venta
           'message',
         ).catch((err: any) =>
           this.logger.warn(`mark-pending failed for pack ${packId}: ${err?.message ?? err}`),

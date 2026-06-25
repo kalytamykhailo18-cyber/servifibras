@@ -76,6 +76,20 @@ export class MlPublicationKnowledgeController {
   }
 
   /**
+   * Marcos 2026-06-24: ingesta de TODO el catálogo activo (ambas
+   * cuentas o una específica via accountKey). Auto-descubre las
+   * publicaciones activas y las ingiere una por una. ADMIN-only.
+   */
+  @Post('ingest-all-catalog')
+  @Roles(UserRole.ADMIN)
+  async ingestAllCatalog(
+    @Body() body: { accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | 'both' } = {},
+  ) {
+    const data = await this.svc.ingestAllCatalog({ accountKey: body?.accountKey ?? 'both' });
+    return { success: true, data };
+  }
+
+  /**
    * Marcos 2026-06-24: bulk-ingest. Recibe lista de MLA ids + accountKey
    * y los ingiere uno por uno. Devuelve resumen por publicación.
    */
@@ -129,6 +143,35 @@ export class MlPublicationKnowledgeController {
     const lim = limit ? Math.max(1, Math.min(200, parseInt(limit, 10))) : 100;
     const data = await this.svc.aiStalenessPassForItem({ itemId: itemId.toUpperCase(), limit: lim });
     return { success: true, data };
+  }
+
+  /**
+   * Marcos 2026-06-25: setea el closedModeMode de una publicación.
+   * 'auto' (default) — modo cerrado se activa cuando hay >= 3 curadas.
+   * 'always-draft' — fuerza que TODAS las respuestas queden como draft.
+   * 'always-send' — bypass del self-eval, auto-envío directo.
+   */
+  @Post(':itemId/closed-mode')
+  @Roles(UserRole.ADMIN)
+  async setClosedMode(
+    @Param('itemId') itemId: string,
+    @Body() body: { mode?: 'auto' | 'always-draft' | 'always-send' },
+    @Request() req: any,
+  ) {
+    if (!itemId || !/^MLA\d+$/i.test(itemId)) {
+      throw new BadRequestException('itemId debe ser un MLA válido');
+    }
+    const mode = body?.mode;
+    if (!mode || !['auto', 'always-draft', 'always-send'].includes(mode)) {
+      throw new BadRequestException('mode debe ser auto | always-draft | always-send');
+    }
+    const r = await this.svc.setClosedModeMode({
+      itemId: itemId.toUpperCase(),
+      mode,
+      userId: req.user?.id ?? null,
+    });
+    if (!r.ok) throw new BadRequestException('No se pudo aplicar el setting');
+    return { success: true, data: { itemId: itemId.toUpperCase(), mode } };
   }
 
   @Get('knowledge/summary')

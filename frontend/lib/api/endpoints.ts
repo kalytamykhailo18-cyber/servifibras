@@ -2412,6 +2412,9 @@ export const mercadolibreApi = {
     itemId: string | null;
     itemTitle: string | null;
     itemPermalink: string | null;
+    /** Marcos 2026-06-25: self-eval score (0..10) cuando el draft vino
+     *  del modo cerrado. null si vino del pipeline regular. */
+    constrainedSelfEvalScore: number | null;
   }>> => {
     const url = `/admin/mercadolibre/qa/pending-drafts${limit ? `?limit=${limit}` : ''}`;
     const r = await apiClient.get<any>(url);
@@ -3108,6 +3111,10 @@ export type MlKnowledgeSummaryRow = {
   kept: number;
   edited: number;
   discarded: number;
+  /** Marcos 2026-06-25: override del modo cerrado por publicación. */
+  closedModeMode: 'auto' | 'always-draft' | 'always-send';
+  /** True cuando hay >= 3 (env) curadas → el modo cerrado se activa solo. */
+  closedModeReady: boolean;
 };
 export const mlPublicationKnowledgeApi = {
   ingest: async (itemId: string, accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2'): Promise<{
@@ -3169,6 +3176,21 @@ export const mlPublicationKnowledgeApi = {
   }> => {
     const r = await apiClient.post<any>(`/admin/mercadolibre/publications/bulk-ingest`, { itemIds, accountKey });
     return r.data?.data ?? r.data;
+  },
+  /**
+   * Marcos 2026-06-25: ingiere TODO el catálogo activo. Auto-descubre
+   * las publicaciones via ML API y las pasa por bulk-ingest. ADMIN-only.
+   */
+  ingestAllCatalog: async (accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | 'both'): Promise<{
+    totals: { items: number; fetched: number; inserted: number; skipped: number; errored: number };
+    note?: string;
+  }> => {
+    const r = await apiClient.post<any>(`/admin/mercadolibre/publications/ingest-all-catalog`, { accountKey: accountKey ?? 'both' });
+    return r.data?.data ?? r.data;
+  },
+  /** Marcos 2026-06-25: setea el override del modo cerrado por publicación. */
+  setClosedMode: async (itemId: string, mode: 'auto' | 'always-draft' | 'always-send'): Promise<void> => {
+    await apiClient.post<any>(`/admin/mercadolibre/publications/${encodeURIComponent(itemId)}/closed-mode`, { mode });
   },
 };
 

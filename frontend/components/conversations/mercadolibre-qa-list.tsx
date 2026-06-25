@@ -103,6 +103,9 @@ type PendingDraft = {
   itemId: string | null;
   itemTitle: string | null;
   itemPermalink: string | null;
+  /** Marcos 2026-06-25: si el draft vino del modo cerrado, score
+   *  0..10 del self-eval. null si vino del pipeline regular. */
+  constrainedSelfEvalScore: number | null;
 };
 
 // Marcos 2026-06-17: open reclamos. Claims escalate to human handoff
@@ -730,8 +733,25 @@ export function MercadolibreQaList() {
                   className="rounded-xl border border-amber-200/70 bg-white/90 p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>
+                    <span className="flex items-center gap-2">
                       {d.contactName ?? 'comprador'} · {d.mlAccountKey === 'mercadolibre_cuenta2' ? 'cuenta 2' : 'cuenta 1'}
+                      {/* Marcos 2026-06-25: badge cuando el draft vino
+                         del modo cerrado con su score de self-eval. */}
+                      {typeof d.constrainedSelfEvalScore === 'number' && (
+                        <span
+                          title="Self-eval del modo cerrado — < 8.5 quedó como draft en lugar de auto-enviarse"
+                          className={
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                            (d.constrainedSelfEvalScore >= 8.5
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : d.constrainedSelfEvalScore >= 6
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800')
+                          }
+                        >
+                          🔒 self-eval {d.constrainedSelfEvalScore.toFixed(1)}
+                        </span>
+                      )}
                     </span>
                     <span className="font-mono">{d.mlQuestionId ?? 'sin id'}</span>
                   </div>
