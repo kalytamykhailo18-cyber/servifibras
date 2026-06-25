@@ -147,7 +147,7 @@ export function MercadolibreQaList() {
   // prioridad máxima.
   const [claimsBucket, setClaimsBucket] = useState<'seller' | 'buyer' | 'ml'>('seller');
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
-  const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | 'regen' | null>>({});
+  const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | 'regen' | 'improve' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
   // server-side save so the textarea can render a subtle "guardado"
   // hint after a debounce flushes. Per-id timer holder.
@@ -276,6 +276,25 @@ export function MercadolibreQaList() {
   // Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
   // con el prompt actual. Reemplaza el content del borrador in-place
   // para que el operador pueda compararlo con la versión vieja.
+  // Marcos 2026-06-25: el operador escribe una respuesta cruda y
+  // Claude la mejora — agrega saludo, suma info útil de la ficha +
+  // Q&A curadas, ajusta tono. Reemplaza el textarea en su sitio para
+  // que el operador pueda seguir editando si quiere antes de Enviar.
+  const improveDraft = useCallback(async (d: PendingDraft) => {
+    const text = (draftEdits[d.messageId] ?? d.content).trim();
+    if (!text) { toast.error('Escribí algo primero — la mejora necesita un texto base'); return; }
+    setDraftBusy((prev) => ({ ...prev, [d.messageId]: 'improve' }));
+    try {
+      const r = await api.mercadolibre.improveDraft(d.messageId, text);
+      setDraftEdits((prev) => ({ ...prev, [d.messageId]: r.improved }));
+      toast.success('Respuesta mejorada por IA — revisá y enviá');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? err?.message ?? 'No se pudo mejorar');
+    } finally {
+      setDraftBusy((prev) => ({ ...prev, [d.messageId]: null }));
+    }
+  }, [draftEdits]);
+
   const regenerateDraft = useCallback(async (d: PendingDraft) => {
     setDraftBusy((prev) => ({ ...prev, [d.messageId]: 'regen' }));
     try {
@@ -822,6 +841,21 @@ export function MercadolibreQaList() {
                     </p>
                   )}
                   <div className="flex items-center justify-end gap-2">
+                    {/* Marcos 2026-06-25: Mejorar IA toma el texto
+                       actual (lo que el operador haya escrito o lo
+                       que tenga el draft) y lo rewrite con saludo +
+                       info de la ficha + tono natural. Reemplaza el
+                       textarea para que se pueda seguir editando. */}
+                    <button
+                      type="button"
+                      onClick={() => void improveDraft(d)}
+                      disabled={!!busy}
+                      data-testid="ml-draft-improve"
+                      title="Claude mejora el texto actual del draft — agrega saludo, info útil de la ficha y de las Q&A curadas, y ajusta el tono. Lo podés seguir editando después."
+                      className="inline-flex h-8 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                    >
+                      {busy === 'improve' ? '…' : '✨ Mejorar con IA'}
+                    </button>
                     {/* Marcos 2026-06-24: regenerar reusa la misma
                        pregunta + el prompt actual. Útil cuando se
                        cambia una regla del agente y el draft ya

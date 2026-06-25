@@ -2439,6 +2439,19 @@ export const mercadolibreApi = {
     return r.data?.data ?? r.data;
   },
   /**
+   * Marcos 2026-06-25: el operador escribe una respuesta corta y
+   * Claude la mejora — saludo, info complementaria desde ficha + Q&A
+   * curadas, tono natural. Devuelve solo el texto mejorado; el
+   * operador decide si lo acepta antes de "Enviar".
+   */
+  improveDraft: async (messageId: string, text: string): Promise<{ messageId: string; improved: string }> => {
+    const r = await apiClient.post<any>(
+      `/admin/mercadolibre/qa/improve-draft/${encodeURIComponent(messageId)}`,
+      { text },
+    );
+    return r.data?.data ?? r.data;
+  },
+  /**
    * Marcos 2026-06-24: re-correr el agente sobre la misma pregunta
    * que originó el draft, con el prompt actual. Devuelve el nuevo
    * texto generado para que el frontend lo muestre sin recargar.

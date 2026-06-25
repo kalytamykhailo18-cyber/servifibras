@@ -1158,21 +1158,16 @@ export class ConversationHandlerService implements IConversationHandler {
         // Fall through — AI continues to reply via the cotizador tool.
       }
 
-      // Mayorista detection: still classify for analytics, but on ML
-      // we never escalate the UI flag. If the canned reply exists, the
-      // AI uses it (one self-contained answer); if not, Claude generates.
-      const mayorista = await this.escalateMayoristaIfDetected({
-        conversationId: conversation.id,
-        contactId: contact.id,
-        text: message.text,
-        channel: Channel.MERCADOLIBRE,
-        suppressEscalation: true,
-      });
-      if (mayorista.shouldStopAi && mayorista.cannedReply) {
-        await this.saveMessage(conversation.id, MessageSender.AI, mayorista.cannedReply, true);
-        this.logger.log(`💼 Mayorista detected on ${conversation.id} (ML) — canned reply emitted, no UI escalation`);
-        return { success: true, response: mayorista.cannedReply, error: null };
-      }
+      // Marcos 2026-06-25 (MLA860890755 — "20mt2 de fibra de vidrio + resina
+      // para reparar cono de silo"): el detector de mayorista venía
+      // disparando el canned "te conviene contactar al vendedor" sobre
+      // preguntas técnicas legítimas que mencionaban volumen (20m², 12 tn).
+      // En ML el comprador YA está hablando con nosotros — no hay otro
+      // canal donde "derivarlo". Skipeamos el canned reply en ML y
+      // dejamos que Claude responda la consulta técnica. La clasificación
+      // de mayorista sigue corriendo para analytics (taggea el lead).
+      void this.tryAutoAssignLead(contact.id, conversation.id, Channel.MERCADOLIBRE, message.text)
+        .catch((err: any) => this.logger.warn(`mayorista tagging failed (non-fatal): ${err.message}`));
 
       // Complexity classifier: on ML we log it AND use the level to pick
       // a cheaper model for L1. L3 does NOT silence the AI here (unlike
