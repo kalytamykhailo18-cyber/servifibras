@@ -102,6 +102,12 @@ export default function LogisticaDiariaPage() {
   // Loaded once on mount; lets the dropdown stay in sync with the
   // FLEX_COURIERS env without a redeploy.
   const [flexCouriers, setFlexCouriers] = useState<string[]>([]);
+  // Marcos 2026-06-25: edición inline del courier en filas que ya
+  // tienen uno asignado. Sin esto, una vez stampeado el courier (o si
+  // la fila pasó a Despachadas con courier ya fijo) no había forma de
+  // cambiarlo desde el panel — el pill era read-only y el dropdown se
+  // escondía. Click en el pill → toggle a dropdown para esa rowKey.
+  const [editingCourierRow, setEditingCourierRow] = useState<Set<string>>(new Set());
   // Marcos 2026-06-10: surface the "links favoritos" configured in
   // Settings → Logística at the top of the panel so the armador
   // doesn't have to flip to another tab to reach the carriers'
@@ -1334,37 +1340,97 @@ export default function LogisticaDiariaPage() {
                           {row.orderRef && (
                             <p className="truncate text-[11px] text-slate-500 font-mono">
                               {row.orderRef}
-                              {row.flexCourier && (
-                                <span
+                              {/* Marcos 2026-06-12 (4): inline per-row
+                                  courier pick. Marcos 2026-06-25: el
+                                  edit ahora también está disponible
+                                  en Despachadas — antes una fila que
+                                  pasaba a Despachadas sin courier
+                                  quedaba sin forma de stampearlo, y
+                                  una con courier mal asignado tampoco
+                                  era editable. Hidden en Pendientes
+                                  (todavía no se decide). */}
+                              {row.flexCourier && !editingCourierRow.has(row.rowKey) && (
+                                <button
+                                  type="button"
                                   data-testid="logistica-row-flex-courier"
-                                  title={`Despachado con ${row.flexCourier}`}
-                                  className="ml-2 inline-flex h-4 items-center rounded-full bg-violet-100 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 align-middle"
+                                  title={
+                                    tab === 'pendientes'
+                                      ? `Asignado: ${row.flexCourier}`
+                                      : `Despachado con ${row.flexCourier} — click para cambiar`
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (tab === 'pendientes' || row.isCancelled || flexCouriers.length === 0) return;
+                                    setEditingCourierRow((prev) => {
+                                      const next = new Set(prev);
+                                      next.add(row.rowKey);
+                                      return next;
+                                    });
+                                  }}
+                                  className={
+                                    'ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold uppercase tracking-wider align-middle ' +
+                                    (tab === 'pendientes' || row.isCancelled || flexCouriers.length === 0
+                                      ? 'bg-violet-100 text-violet-700 cursor-default'
+                                      : 'bg-violet-100 text-violet-700 hover:bg-violet-200 cursor-pointer')
+                                  }
                                 >
                                   {row.flexCourier}
+                                </button>
+                              )}
+                              {/* Sin courier asignado: en Despachadas
+                                  es una alerta — sin courier no podemos
+                                  rastrear quién se llevó el paquete si
+                                  el comprador reclama. */}
+                              {tab === 'despachadas' && !row.flexCourier && flexCouriers.length > 0 && !row.isCancelled && !editingCourierRow.has(row.rowKey) && (
+                                <span
+                                  data-testid="logistica-row-no-courier"
+                                  title="Despachada sin courier registrado — no podemos rastrear quién la llevó si hay reclamo"
+                                  className="ml-2 inline-flex h-4 items-center rounded-full bg-rose-100 px-1.5 text-[9px] font-semibold uppercase tracking-wider text-rose-700 align-middle"
+                                >
+                                  SIN COURIER
                                 </span>
                               )}
-                              {/* Marcos 2026-06-12 (4): inline per-row
-                                  courier pick on Listas tab. Stays
-                                  hidden on Pendientes (operator hasn't
-                                  decided yet) and on Despachadas
-                                  (already on its way). */}
-                              {tab === 'listas' && !row.flexCourier && flexCouriers.length > 0 && !row.isCancelled && (
+                              {tab !== 'pendientes' && flexCouriers.length > 0 && !row.isCancelled
+                                && (!row.flexCourier || editingCourierRow.has(row.rowKey)) && (
                                 <select
                                   data-testid={`logistica-row-courier-pick-${row.rowKey.replace(/[^a-z0-9]+/gi, '-')}`}
                                   onChange={(e) => {
                                     e.stopPropagation();
                                     const v = e.target.value;
-                                    if (v) void setRowCourier(row.rowKey, v);
+                                    if (v === '__clear__') {
+                                      void setRowCourier(row.rowKey, null);
+                                    } else if (v) {
+                                      void setRowCourier(row.rowKey, v);
+                                    }
+                                    setEditingCourierRow((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(row.rowKey);
+                                      return next;
+                                    });
                                     e.currentTarget.value = '';
+                                  }}
+                                  onBlur={() => {
+                                    setEditingCourierRow((prev) => {
+                                      if (!prev.has(row.rowKey)) return prev;
+                                      const next = new Set(prev);
+                                      next.delete(row.rowKey);
+                                      return next;
+                                    });
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   defaultValue=""
+                                  autoFocus={editingCourierRow.has(row.rowKey)}
                                   className="ml-2 h-5 rounded-full border border-amber-300 bg-amber-50 px-2 text-[10px] font-semibold uppercase tracking-wider text-amber-800 align-middle hover:bg-amber-100"
                                 >
-                                  <option value="" disabled>Asignar courier…</option>
+                                  <option value="" disabled>
+                                    {row.flexCourier ? `Cambiar (actual: ${row.flexCourier})` : 'Asignar courier…'}
+                                  </option>
                                   {flexCouriers.map((c) => (
                                     <option key={c} value={c}>{c}</option>
                                   ))}
+                                  {row.flexCourier && (
+                                    <option value="__clear__">— quitar courier —</option>
+                                  )}
                                 </select>
                               )}
                             </p>
