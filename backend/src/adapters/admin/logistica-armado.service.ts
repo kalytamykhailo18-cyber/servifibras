@@ -106,6 +106,12 @@ export class LogisticaArmadoService {
     const existing = await this.prisma.logisticaArmado.findUnique({
       where: { rowKey: args.rowKey },
     });
+    // Marcos 2026-06-25: ver guardItemsCompleteForListo — el bulk
+    // "Enviar a Listas para despachar" llegaba acá sin chequeo y
+    // dejaba paquetes en Despachadas con items pendientes.
+    if (args.targetState === LogisticaArmadoState.LISTO && existing) {
+      this.guardItemsCompleteForListo(existing);
+    }
     const armadoAt =
       args.targetState === LogisticaArmadoState.ARMADO ||
       args.targetState === LogisticaArmadoState.LISTO
@@ -179,19 +185,7 @@ export class LogisticaArmadoService {
             ? LogisticaArmadoState.LISTO
             : LogisticaArmadoState.LISTO; // already LISTO → idempotent
     if (nextState === LogisticaArmadoState.LISTO && existing) {
-      const expected = existing.itemsExpected ?? 0;
-      const checked = Array.isArray(existing.itemsChecked as any)
-        ? (existing.itemsChecked as string[]).length
-        : 0;
-      if (expected > 1 && checked < expected) {
-        const err: any = new Error(
-          `LISTO bloqueado: faltan ${expected - checked} items por tildar (${checked}/${expected}).`,
-        );
-        err.code = 'ITEMS_INCOMPLETE';
-        err.checked = checked;
-        err.expected = expected;
-        throw err;
-      }
+      this.guardItemsCompleteForListo(existing);
     }
     return this.setState({
       rowKey: args.rowKey,
@@ -199,6 +193,35 @@ export class LogisticaArmadoService {
       targetState: nextState,
       stampedById: args.stampedById,
     });
+  }
+
+  /**
+   * Marcos 2026-06-25: el guard "no se puede mandar a LISTO sin todos
+   * los items tildados" antes vivía solo en advance(), así que
+   * bulkSetState (botón "Enviar a Listas para despachar") y
+   * setFlexCourier (auto-promote al asignar courier) lo bypasseaban.
+   * Eso producía packs en Despachadas con items sin marcar — Marcos
+   * lo reportó porque no podía verificar si un reclamo era válido.
+   * Helper compartido: cualquier path que mueva a LISTO lo invoca.
+   * itemsExpected ≤ 1 ⇒ no per-item flow (pack chico o sin tracking),
+   * skip silencioso. Mismo BadRequestException-equivalente (Error con
+   * code='ITEMS_INCOMPLETE') que advance() ya tiraba — el frontend
+   * lo cazaba y mostraba al operador.
+   */
+  private guardItemsCompleteForListo(existing: LogisticaArmado): void {
+    const expected = existing.itemsExpected ?? 0;
+    const checked = Array.isArray(existing.itemsChecked as any)
+      ? (existing.itemsChecked as string[]).length
+      : 0;
+    if (expected > 1 && checked < expected) {
+      const err: any = new BadRequestException(
+        `Faltan ${expected - checked} de ${expected} items por tildar antes de enviar a Listas (${checked}/${expected} tildados).`,
+      );
+      err.code = 'ITEMS_INCOMPLETE';
+      err.checked = checked;
+      err.expected = expected;
+      throw err;
+    }
   }
 
   /**
@@ -273,8 +296,21 @@ export class LogisticaArmadoService {
     dayDate: string;
     targetState: LogisticaArmadoState;
     stampedById: string | null;
-  }): Promise<{ updated: number; created: number; failed: string[] }> {
-    const result = { updated: 0, created: 0, failed: [] as string[] };
+  }): Promise<{
+    updated: number;
+    created: number;
+    failed: string[];
+    // Marcos 2026-06-25: motivos per-row para que el frontend pueda
+    // mostrar "Cliente X: faltan 2 items" en lugar de un genérico
+    // "N con error". Mismo patrón que bulkSetManualDispatch.
+    failedReasons?: Array<{ rowKey: string; reason: string }>;
+  }> {
+    const result = {
+      updated: 0,
+      created: 0,
+      failed: [] as string[],
+      failedReasons: [] as Array<{ rowKey: string; reason: string }>,
+    };
     if (args.rowKeys.length === 0) return result;
     for (const rowKey of args.rowKeys) {
       try {
@@ -292,6 +328,7 @@ export class LogisticaArmadoService {
       } catch (err: any) {
         this.logger.warn(`bulkSetState: ${rowKey} failed: ${err.message}`);
         result.failed.push(rowKey);
+        result.failedReasons.push({ rowKey, reason: err?.message ?? 'error' });
       }
     }
     this.logger.log(
@@ -375,6 +412,13 @@ export class LogisticaArmadoService {
       value !== null &&
       existing != null &&
       existing.state !== LogisticaArmadoState.LISTO;
+    // Marcos 2026-06-25: si vamos a promover a LISTO, aplicamos el
+    // mismo guard que advance()/setState — no se permite LISTO con
+    // items pendientes. Esto evita que asignar courier desde Pendientes
+    // saltee la verificación de contenido del pack.
+    if (shouldPromoteToListo) {
+      this.guardItemsCompleteForListo(existing);
+    }
     if (existing) {
       return this.prisma.logisticaArmado.update({
         where: { rowKey: args.rowKey },
@@ -682,8 +726,16 @@ export class LogisticaArmadoService {
     dayDate: string;
     courier: string | null;
     stampedById: string | null;
-  }): Promise<{ updated: number; failed: string[] }> {
-    const result = { updated: 0, failed: [] as string[] };
+  }): Promise<{
+    updated: number;
+    failed: string[];
+    failedReasons?: Array<{ rowKey: string; reason: string }>;
+  }> {
+    const result = {
+      updated: 0,
+      failed: [] as string[],
+      failedReasons: [] as Array<{ rowKey: string; reason: string }>,
+    };
     for (const rowKey of args.rowKeys) {
       try {
         await this.setFlexCourier({
@@ -696,6 +748,7 @@ export class LogisticaArmadoService {
       } catch (err: any) {
         this.logger.warn(`bulkSetFlexCourier: ${rowKey} failed: ${err.message}`);
         result.failed.push(rowKey);
+        result.failedReasons.push({ rowKey, reason: err?.message ?? 'error' });
       }
     }
     return result;

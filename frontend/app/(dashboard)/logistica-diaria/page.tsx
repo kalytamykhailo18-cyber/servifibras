@@ -375,7 +375,28 @@ export default function LogisticaDiariaPage() {
     try {
       const r = await api.dailyLogistica.bulkSetState(Array.from(selected), date, targetState);
       const ok = r.created + r.updated;
-      toast.success(`${ok} fila${ok === 1 ? '' : 's'} → ${targetState}${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
+      if (ok > 0) {
+        toast.success(`${ok} fila${ok === 1 ? '' : 's'} → ${targetState}${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
+      }
+      // Marcos 2026-06-25: cuando hay rechazos (típicamente "Faltan N
+      // items por tildar..."), surface el cliente afectado + motivo
+      // concreto en lugar de un genérico "N con error".
+      if (r.failed.length > 0) {
+        const reasons = (r as any).failedReasons as
+          | Array<{ rowKey: string; reason: string }>
+          | undefined;
+        const labelByKey = new Map<string, string>();
+        for (const rows of Object.values(data?.sections ?? {})) {
+          for (const row of (rows as any[])) {
+            labelByKey.set(row.rowKey, row.clienteName || row.cliente || row.orderRef || row.rowKey);
+          }
+        }
+        const items = (reasons ?? r.failed.map((rk) => ({ rowKey: rk, reason: '' })))
+          .slice(0, 3)
+          .map((f) => `${labelByKey.get(f.rowKey) ?? f.rowKey}: ${f.reason || 'error'}`);
+        const more = r.failed.length > 3 ? ` (+${r.failed.length - 3} más)` : '';
+        toast.error(`No se pudieron pasar a ${targetState}:\n${items.join('\n')}${more}`, { duration: 10_000 });
+      }
       clearSelection();
       await load();
     } catch (err: any) {
@@ -436,10 +457,32 @@ export default function LogisticaDiariaPage() {
       const promoteHint = courier && tab === 'pendientes'
         ? ' (pasan a Listas para despachar)'
         : '';
-      toast.success(
-        `${r.updated} fila${r.updated === 1 ? '' : 's'} → ${courierLabel}${promoteHint}` +
-        `${r.failed.length ? ` (${r.failed.length} con error)` : ''}`,
-      );
+      if (r.updated > 0) {
+        toast.success(
+          `${r.updated} fila${r.updated === 1 ? '' : 's'} → ${courierLabel}${promoteHint}` +
+          `${r.failed.length ? ` (${r.failed.length} con error)` : ''}`,
+        );
+      }
+      // Marcos 2026-06-25: cuando una asignación de courier desde
+      // Pendientes falla porque el pack tiene items sin tildar, el
+      // backend rechaza la auto-promoción a LISTO. Surface el cliente
+      // + motivo para que el operador sepa qué pack le falta tildar.
+      if (r.failed.length > 0) {
+        const reasons = (r as any).failedReasons as
+          | Array<{ rowKey: string; reason: string }>
+          | undefined;
+        const labelByKey = new Map<string, string>();
+        for (const rows of Object.values(data?.sections ?? {})) {
+          for (const row of (rows as any[])) {
+            labelByKey.set(row.rowKey, row.clienteName || row.cliente || row.orderRef || row.rowKey);
+          }
+        }
+        const items = (reasons ?? r.failed.map((rk) => ({ rowKey: rk, reason: '' })))
+          .slice(0, 3)
+          .map((f) => `${labelByKey.get(f.rowKey) ?? f.rowKey}: ${f.reason || 'error'}`);
+        const more = r.failed.length > 3 ? ` (+${r.failed.length - 3} más)` : '';
+        toast.error(`No se pudo asignar courier:\n${items.join('\n')}${more}`, { duration: 10_000 });
+      }
       clearSelection();
       await load();
     } catch (err: any) {
@@ -1624,6 +1667,15 @@ export default function LogisticaDiariaPage() {
                               {row.items.map((it, idx) => {
                                 const k = itemKeyFor(it, idx);
                                 const ticked = checkedSet.has(k);
+                                // Marcos 2026-06-25: una vez que la
+                                // fila está LISTO o despachada, los
+                                // items quedan congelados — no se
+                                // permiten cambios post-hoc para que
+                                // el estado tildado al despachar quede
+                                // como evidencia auditable si después
+                                // hay un reclamo. Para corregirlos hay
+                                // que revertir la fila a PENDIENTE.
+                                const itemsLocked = row.state === 'LISTO' || row.isDispatched;
                                 return (
                                 <li
                                   key={`${row.rowKey}-${idx}-${it.sku ?? "no-sku"}`}
@@ -1651,9 +1703,16 @@ export default function LogisticaDiariaPage() {
                                     type="checkbox"
                                     checked={ticked}
                                     onChange={() => toggleItemCheck(row, k, !ticked)}
+                                    disabled={itemsLocked}
+                                    title={itemsLocked
+                                      ? 'El paquete ya está LISTO/despachado — los items quedaron congelados como evidencia. Para corregirlos revertí a Pendiente.'
+                                      : undefined}
                                     data-testid="logistica-item-check"
                                     aria-label={ticked ? `Desmarcar ${it.alias ?? it.name}` : `Marcar ${it.alias ?? it.name} en la caja`}
-                                    className="h-4 w-4 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-300"
+                                    className={
+                                      'h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-300 ' +
+                                      (itemsLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')
+                                    }
                                   />
                                   <div className="min-w-0">
                                     <p className={'truncate font-medium ' + (ticked ? 'text-slate-500 line-through' : 'text-slate-800')}>
