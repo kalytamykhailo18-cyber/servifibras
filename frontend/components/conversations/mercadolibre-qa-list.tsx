@@ -103,6 +103,9 @@ type PendingDraft = {
   itemId: string | null;
   itemTitle: string | null;
   itemPermalink: string | null;
+  /** Marcos 2026-06-26: thumbnail de la publicación servido desde la
+   *  API de ML — el card pinta foto + título al lado del MLA. */
+  itemThumbnailUrl: string | null;
   /** Marcos 2026-06-25: si el draft vino del modo cerrado, score
    *  0..10 del self-eval. null si vino del pipeline regular. */
   constrainedSelfEvalScore: number | null;
@@ -774,27 +777,48 @@ export function MercadolibreQaList() {
                     </span>
                     <span className="font-mono">{d.mlQuestionId ?? 'sin id'}</span>
                   </div>
-                  {/* Marcos 2026-06-12: surface the publication +
-                      buyer question above the AI draft so the
-                      operator can validate the answer before
-                      releasing. itemTitle from cache when warm; bare
-                      MLA id + permalink when cold. */}
+                  {/* Marcos 2026-06-26: en lugar del MLA pelado, foto
+                      + título de la publicación + el MLA en chico
+                      debajo. La foto viene del thumbnail de la API de
+                      ML (pre-fetched server-side y cacheado). Si el
+                      thumbnail falla / falta, render con placeholder
+                      gris para no romper el layout. */}
                   {d.itemId && (
                     <div
                       data-testid="ml-draft-publication"
-                      className="flex items-center gap-2 rounded-md border border-amber-200/60 bg-amber-50/40 px-2 py-1 text-[12px] text-amber-900"
+                      className="flex items-center gap-2.5 rounded-md border border-amber-200/60 bg-amber-50/40 px-2 py-1.5 text-[12px] text-amber-900"
                     >
-                      <span className="text-amber-700">Publicación:</span>
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {d.itemTitle ?? d.itemId}
-                      </span>
+                      {d.itemThumbnailUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={d.itemThumbnailUrl}
+                          alt={d.itemTitle ?? d.itemId}
+                          loading="lazy"
+                          className="h-10 w-10 shrink-0 rounded border border-amber-300/60 bg-white object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="grid h-10 w-10 shrink-0 place-items-center rounded border border-amber-300/60 bg-white text-[9px] text-amber-700">
+                          <span>ML</span>
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-amber-900" title={d.itemTitle ?? d.itemId}>
+                          {d.itemTitle ?? d.itemId}
+                        </p>
+                        <p className="truncate font-mono text-[10.5px] text-amber-700/80">
+                          {d.itemId}
+                        </p>
+                      </div>
                       {d.itemPermalink && (
                         <a
                           href={d.itemPermalink}
                           target="_blank"
                           rel="noopener noreferrer"
                           data-testid="ml-draft-publication-link"
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 underline-offset-2 hover:underline"
+                          className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-amber-700 underline-offset-2 hover:underline"
                         >
                           Abrir
                           <LaunchIcon sx={{ fontSize: 11 }} />

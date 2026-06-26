@@ -2412,6 +2412,10 @@ export const mercadolibreApi = {
     itemId: string | null;
     itemTitle: string | null;
     itemPermalink: string | null;
+    /** Marcos 2026-06-26: thumbnail de la publicación que viene de la
+     *  API de ML — el panel QA lo muestra al lado del MLA para que el
+     *  operador valide visualmente sin abrir el link. */
+    itemThumbnailUrl: string | null;
     /** Marcos 2026-06-25: self-eval score (0..10) cuando el draft vino
      *  del modo cerrado. null si vino del pipeline regular. */
     constrainedSelfEvalScore: number | null;

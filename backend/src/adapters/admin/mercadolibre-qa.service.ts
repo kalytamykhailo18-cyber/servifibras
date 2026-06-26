@@ -827,6 +827,11 @@ export class MercadolibreQaService {
     itemId: string | null;
     itemTitle: string | null;
     itemPermalink: string | null;
+    /** Marcos 2026-06-26: thumbnail de la publicación. La API de ML
+     *  ya lo expone en MercadoLibreListing.thumbnailUrl. Render del
+     *  panel QA pone foto + título al lado del MLA para que el
+     *  operador valide visualmente sin abrir la publicación. */
+    itemThumbnailUrl: string | null;
     /** Marcos 2026-06-25: si el draft vino del modo cerrado con
      *  self-eval, el score 0..10 (null = vino del pipeline regular). */
     constrainedSelfEvalScore: number | null;
@@ -898,8 +903,48 @@ export class MercadolibreQaService {
       itemId: string | null;
       itemTitle: string | null;
       itemPermalink: string | null;
+      itemThumbnailUrl: string | null;
       constrainedSelfEvalScore: number | null;
     }> = [];
+
+    // Marcos 2026-06-26: el panel QA mostraba sólo el MLA id sin
+    // título ni foto cuando el listing cache estaba frío. Acá
+    // pre-fetcheamos los listings que faltan en paralelo (cada call
+    // está cacheado dentro de MercadoLibreService, así que la próxima
+    // carga del panel es instantánea). Llamamos fetchListingDetails
+    // (que también puebla la cache para futuros usos) en vez de
+    // peekCachedListingTitle, así sumamos titulo + thumbnailUrl en
+    // una sola pasada.
+    const itemIdSet = new Set<string>();
+    for (const m of rows) {
+      const candidates = byConv.get(m.conversationId) ?? [];
+      const q = candidates.find((cm) => cm.timestamp.getTime() <= m.timestamp.getTime());
+      const qMeta = (q?.metadata as Record<string, unknown> | null) ?? {};
+      const iid = (typeof qMeta.mlItemId === 'string' && qMeta.mlItemId) || null;
+      if (iid) itemIdSet.add(iid);
+    }
+    const listingByItem = new Map<string, { title: string | null; thumbnailUrl: string | null }>();
+    if (this.mercadolibre && itemIdSet.size > 0) {
+      const ids = Array.from(itemIdSet);
+      const fetched = await Promise.all(
+        ids.map(async (iid) => {
+          try {
+            const listing = await this.mercadolibre!.fetchListingDetails(iid);
+            return {
+              iid,
+              title: listing?.title ?? null,
+              thumbnailUrl: (listing as any)?.thumbnailUrl ?? null,
+            };
+          } catch {
+            return { iid, title: null, thumbnailUrl: null };
+          }
+        }),
+      );
+      for (const r of fetched) {
+        listingByItem.set(r.iid, { title: r.title, thumbnailUrl: r.thumbnailUrl });
+      }
+    }
+
     for (const m of rows) {
       const meta = (m.metadata as Record<string, unknown> | null) ?? {};
       // Find the most recent CUSTOMER message just before the draft.
@@ -907,13 +952,9 @@ export class MercadolibreQaService {
       const question = candidates.find((cm) => cm.timestamp.getTime() <= m.timestamp.getTime());
       const qMeta = (question?.metadata as Record<string, unknown> | null) ?? {};
       const itemId = (typeof qMeta.mlItemId === 'string' && qMeta.mlItemId) || null;
-      // Best-effort title from the in-process listing cache. Never
-      // round-trips ML on a UI render — if the cache is cold we just
-      // return null and the UI shows the bare id + permalink.
-      let itemTitle: string | null = null;
-      if (itemId && this.mercadolibre && typeof (this.mercadolibre as any).peekCachedListingTitle === 'function') {
-        itemTitle = (this.mercadolibre as any).peekCachedListingTitle(itemId) ?? null;
-      }
+      const listingInfo = itemId ? listingByItem.get(itemId) : null;
+      const itemTitle = listingInfo?.title ?? null;
+      const itemThumbnailUrl = listingInfo?.thumbnailUrl ?? null;
       // Canonical permalink. The bare `MLA{digits}` 404s; the
       // article host expects `MLA-{digits}-_JM`.
       const itemPermalink = itemId
@@ -944,6 +985,7 @@ export class MercadolibreQaService {
         itemId,
         itemTitle,
         itemPermalink,
+        itemThumbnailUrl,
         constrainedSelfEvalScore:
           typeof meta.constrainedSelfEvalScore === 'number'
             ? (meta.constrainedSelfEvalScore as number)
