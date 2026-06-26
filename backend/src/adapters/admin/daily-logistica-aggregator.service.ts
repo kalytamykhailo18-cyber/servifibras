@@ -749,6 +749,18 @@ export class DailyLogisticaAggregatorService {
         if (testOrderRe && o.orderNumber && testOrderRe.test(o.orderNumber)) {
           continue;
         }
+        // Marcos 2026-06-26: TN orders con pago PENDIENTE no entran a
+        // la cola de armado. mapStatus del TN sync pone PROCESSING
+        // ⟺ payment_status='pending'; CONFIRMED se setea solo cuando
+        // el pago está acreditado (paid/authorized). Los rows MANUAL
+        // del operador se crean siempre en CONFIRMED, así que el
+        // filtro no los afecta — solo skip las TN sin pagar para que
+        // no aparezcan en el panel hasta que TN confirme la
+        // acreditación. Marcos reportó múltiples órdenes "pendientes
+        // de pago" listadas para armar el 2026-06-26.
+        if (o.source === 'TIENDANUBE' && o.status === OrderStatus.PROCESSING) {
+          continue;
+        }
         // Marcos 2026-06-10 — TN orders with shipping_pickup_type=pickup
         // are buyer-pickup at the Servifibras Caseros store. Marcos
         // 2026-06-25: el flag pasó de `notes` (que se mezclaba con
@@ -957,14 +969,27 @@ export class DailyLogisticaAggregatorService {
                 // don't have an ML status feedback loop to disprove
                 // the manual stamp.
                 const isMlRow = r.source === 'ML_CUENTA_1' || r.source === 'ML_CUENTA_2';
+                // Marcos 2026-06-26: ventana de "trust absoluto" para
+                // confirmaciones manuales viejas. Después de N horas
+                // (default 5 días = 120h) asumimos que la
+                // confirmación del operador es definitiva — ML a
+                // veces no actualiza el substatus past in_hub aunque
+                // el paquete entregó, y rebotar a "ATASCADO EN HUB"
+                // pedidos manualmente despachados hace 10 días
+                // contamina el panel con falsos positivos (Marcos
+                // 2026-06-26: pack CALU2441483 del 16/06).
+                const trustHours = envHours('ML_MANUAL_DISPATCH_TRUST_HOURS', 120);
+                const trustedOld = isMlRow && dispatchedHoursAgo >= trustHours;
                 const stale =
-                  isMlRow
+                  !trustedOld
+                  && isMlRow
                   && dispatchedHoursAgo >= envHours('ML_MANUAL_DISPATCH_STALE_HOURS', 24)
                   && mlSub !== 'delivered';
                 if (stale) {
                   r.isStuckInHub = true;
                   r.isDispatched = false;
                 } else {
+                  r.isStuckInHub = false;
                   r.isDispatched = true;
                 }
               }
