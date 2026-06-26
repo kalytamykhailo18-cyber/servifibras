@@ -17,6 +17,10 @@ import { PendingInvoicingList } from "@/components/orders/pending-invoicing-list
 import { PendingReturnsList } from "@/components/orders/pending-returns-list";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/endpoints";
+import {
+  loadOrdersSnapshot,
+  saveOrdersSnapshot,
+} from "@/lib/cache/orders-cache";
 import type { Order } from "@/types";
 import { ORDER_STATUS_LABELS, UserRole } from "@/types";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
@@ -60,6 +64,14 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Marcos 2026-06-26 (mitigación caché): cuando la API se cae y hay
+  // un snapshot en localStorage, mostramos esos datos en vez de la
+  // pantalla de error. staleSnapshotAt marca el timestamp del snapshot
+  // que se está mostrando — cuando es non-null el banner amarillo
+  // "Datos del [hora], reconectando…" se renderiza arriba de la tabla.
+  // El reintento en background (cada 30s) lo limpia cuando la API
+  // vuelve. Pensado para Pedidos por el incidente del 06-25.
+  const [staleSnapshotAt, setStaleSnapshotAt] = useState<Date | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
@@ -101,10 +113,21 @@ export default function OrdersPage() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  const fetchOrders = async () => {
+  // Marcos 2026-06-26: el fetch ahora tiene 3 caminos:
+  //   1. OK → renderiza data fresca + guarda snapshot (solo la vista
+  //      default sin filtros, para no pisar la cache con resultados
+  //      filtrados).
+  //   2. Falla con cache válido → renderiza cache + activa banner
+  //      stale + (en silencio) el caller arranca el reintento en
+  //      background.
+  //   3. Falla sin cache → cae al bloque de error pleno como antes.
+  const fetchOrders = async (opts?: { background?: boolean }) => {
+    const isBackground = opts?.background === true;
     try {
-      setIsLoading(true);
-      setError(null);
+      if (!isBackground) {
+        setIsLoading(true);
+        setError(null);
+      }
       const params: any = { limit: 1000 };
       if (statusFilter !== "all") {
         params.status = statusFilter;
@@ -114,17 +137,53 @@ export default function OrdersPage() {
       }
       const response = await api.orders.list(params);
       setOrders(response.data);
+      // Cache solo cuando estamos en la vista default (sin filtros).
+      // Una vista filtrada no debe pisar el snapshot completo.
+      if (statusFilter === "all" && searchDebounced.length === 0) {
+        saveOrdersSnapshot(response.data as unknown[], response.total ?? response.data.length);
+      }
+      setStaleSnapshotAt(null);
+      setError(null);
     } catch (err: any) {
-      setError(err.message || "Error al cargar pedidos");
-      toast.error("Error al cargar pedidos");
+      const msg = err?.message || "Error al cargar pedidos";
+      // Solo intentamos hidratar desde cache si NO estamos filtrando
+      // (la cache solo guardó la vista default). Cuando hay filtros,
+      // mostramos el error de toda la vida.
+      const canTryCache = statusFilter === "all" && searchDebounced.length === 0;
+      const snapshot = canTryCache ? loadOrdersSnapshot() : null;
+      if (snapshot) {
+        setOrders(snapshot.data as Order[]);
+        setStaleSnapshotAt(snapshot.savedAt);
+        setError(null);
+        if (!isBackground) {
+          toast.warning("La API no respondió. Mostrando últimos datos guardados localmente.");
+        }
+      } else if (!isBackground) {
+        setError(msg);
+        toast.error("Error al cargar pedidos");
+      }
     } finally {
-      setIsLoading(false);
+      if (!isBackground) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     if (isAllowed) fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchDebounced, isAllowed]);
+
+  // Marcos 2026-06-26: reintento automático cuando estamos en modo
+  // stale (banner amarillo). Cada 30s tratamos de recuperar la data
+  // fresca; el primer éxito limpia staleSnapshotAt y vuelve todo a
+  // normal. No spamea toasts — el background flag silencia ambos.
+  useEffect(() => {
+    if (!staleSnapshotAt || !isAllowed) return;
+    const id = window.setInterval(() => {
+      void fetchOrders({ background: true });
+    }, 30_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleSnapshotAt, isAllowed]);
 
   // Silent refresh when a new wholesale order lands while the page is open.
   // No toast here — RealtimeNotifications already surfaces it globally.
@@ -232,7 +291,7 @@ export default function OrdersPage() {
           </div>
           <button
             type="button"
-            onClick={fetchOrders}
+            onClick={() => void fetchOrders()}
             className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.97]"
           >
             <RefreshIcon sx={{ fontSize: 16 }} className="text-blue-600" />
@@ -277,7 +336,7 @@ export default function OrdersPage() {
 
           <button
             type="button"
-            onClick={fetchOrders}
+            onClick={() => void fetchOrders()}
             disabled={isLoading}
             aria-label="Actualizar"
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-[0_8px_20px_-6px_rgb(59_130_246/0.25)] active:translate-y-0 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:px-4"
@@ -301,6 +360,39 @@ export default function OrdersPage() {
           </button>
         </div>
       </div>
+
+      {/* Marcos 2026-06-26 (mitigación): cuando la API se cayó y el
+          componente está mostrando datos guardados localmente, el banner
+          amarillo arriba avisa cuán viejos son los datos + reintenta en
+          background cada 30s. Si la API vuelve, desaparece solo. */}
+      {staleSnapshotAt && (
+        <div
+          data-testid="orders-stale-banner"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-300/70 bg-amber-50/80 px-4 py-3 text-sm text-amber-900"
+        >
+          <ErrorOutlineIcon sx={{ fontSize: 18 }} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">Mostrando datos guardados localmente</p>
+            <p className="text-[12px] text-amber-800">
+              Última sincronización: {staleSnapshotAt.toLocaleString("es-AR", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}. La API no respondió — reintentando en background cada 30s.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void fetchOrders()}
+            disabled={isLoading}
+            className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-amber-400 bg-white px-3 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+          >
+            <RefreshIcon sx={{ fontSize: 14 }} className={isLoading ? "animate-spin" : ""} />
+            Reintentar ahora
+          </button>
+        </div>
+      )}
 
       {/* VIEW TABS — Marcos 2026-06-12; partidos en TN / Otros 2026-06-18 PM */}
       <div className="flex flex-wrap items-center gap-1.5" data-testid="orders-view-tabs">
