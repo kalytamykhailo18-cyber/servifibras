@@ -63,17 +63,25 @@ interface FormState {
   id: string | null;
   email: string; username: string; name: string;
   role: string; password: string;
-  /** Marcos 2026-06-10 prod incident: the password input was being
-   *  autofilled by the browser with the admin's own saved password
-   *  whenever the edit form opened, which then got hashed into the
-   *  target user's record on submit and locked them out of their
-   *  account. `passwordTouched` is set true only when the admin
-   *  actually types in the field; submit sends `password` only when
-   *  this flag is on. Combined with autoComplete="new-password" on
-   *  the input the autofill door is closed. */
+  /** Marcos 2026-06-10 + 2026-06-22 prod incidents: el input de
+   *  contraseña estaba siendo autofilleado por el browser con la
+   *  contraseña guardada del propio admin al abrir el form de edit;
+   *  el password autofilleado entraba al payload y terminaba hasheado
+   *  sobre el row del target user, dejando 6 cuentas sin poder
+   *  loguear (Aldo, Admin, Marcos, Matias, Franco, Brenda — todas
+   *  editadas el mismo día). El guard original (passwordTouched
+   *  bumpeado en onChange + autoComplete="new-password") no alcanzó
+   *  porque algunos browsers (Chrome, Edge) disparan onChange en el
+   *  autofill — passwordTouched terminaba en true sin que el admin
+   *  haya tipeado nada. Marcos 2026-06-27 (post-incidente): en edit
+   *  ocultamos el input por default y solo lo mostramos cuando el
+   *  admin toggle el checkbox `wantsPasswordChange`. Un autofill no
+   *  puede togglear un checkbox, así que el campo no llega al DOM
+   *  ni al payload a menos que el admin lo pida explícitamente. */
   passwordTouched: boolean;
+  wantsPasswordChange: boolean;
 }
-const EMPTY: FormState = { id: null, email: '', username: '', name: '', role: 'VENTAS', password: '', passwordTouched: false };
+const EMPTY: FormState = { id: null, email: '', username: '', name: '', role: 'VENTAS', password: '', passwordTouched: false, wantsPasswordChange: false };
 
 export default function UsersPage() {
   const { isAllowed } = useRoleGuard(ROLES);
@@ -105,7 +113,7 @@ export default function UsersPage() {
   const startEdit = (u: UserRow) => {
     setForm({
       id: u.id, email: u.email, username: u.username, name: u.name,
-      role: u.role, password: '', passwordTouched: false,
+      role: u.role, password: '', passwordTouched: false, wantsPasswordChange: false,
     });
     setFormOpen(true);
   };
@@ -129,17 +137,16 @@ export default function UsersPage() {
         const payload: any = {
           email: form.email, username: form.username, name: form.name, role: form.role,
         };
-        // Marcos 2026-06-10 prod incident: include the new password
-        // ONLY when the admin explicitly typed in the field
-        // (passwordTouched + length check). The previous gate
-        // (`form.password.length > 0`) allowed browser autofill to
-        // smuggle the admin's own saved password into the payload,
-        // which then got hashed onto the target user and locked them
-        // out. This guard plus autoComplete="new-password" on the
-        // input closes both paths.
-        if (form.passwordTouched && form.password.length >= 6) {
+        // Marcos 2026-06-27 (post-incidente del 06-22): el guard
+        // ahora es triple — wantsPasswordChange (checkbox que el
+        // admin tiene que togglear explícito, autofill no puede
+        // disparar) + passwordTouched (onChange real) + length
+        // check. Sin wantsPasswordChange=true el password ni siquiera
+        // llega al DOM, así que browser autofill no tiene field
+        // donde inyectarse.
+        if (form.wantsPasswordChange && form.passwordTouched && form.password.length >= 6) {
           payload.password = form.password;
-        } else if (form.passwordTouched && form.password.length > 0 && form.password.length < 6) {
+        } else if (form.wantsPasswordChange && form.passwordTouched && form.password.length > 0 && form.password.length < 6) {
           toast.error('La contraseña debe tener al menos 6 caracteres');
           setSaving(false);
           return;
@@ -431,26 +438,65 @@ export default function UsersPage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1">
-                  Contraseña {form.id && <span className="font-normal normal-case text-slate-400">(dejar vacío para no cambiar)</span>}
-                </label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value, passwordTouched: true })}
-                  // Marcos 2026-06-10 prod incident: the browser was
-                  // autofilling the admin's own saved password into
-                  // this field whenever the edit modal opened, which
-                  // ended up hashed into the target user's record on
-                  // save. autoComplete="new-password" tells the
-                  // browser this is a *new* secret it shouldn't pull
-                  // from its password store.
-                  autoComplete="new-password"
-                  data-testid="users-form-password"
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15"
-                />
-              </div>
+              {/* Marcos 2026-06-27 (post-incidente 06-22): en edit
+                  mode el input de contraseña ahora vive detrás de un
+                  toggle explícito que el admin tiene que prender.
+                  Sin el toggle el input no se renderiza, así que
+                  browser autofill no tiene field donde inyectar la
+                  contraseña guardada del propio admin. En create
+                  mode el input siempre se muestra y es required. */}
+              {!form.id ? (
+                <div>
+                  <label className="block text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1">
+                    Contraseña
+                  </label>
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value, passwordTouched: true })}
+                    autoComplete="new-password"
+                    data-testid="users-form-password"
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-200/70 bg-amber-50/40 p-3 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.wantsPasswordChange}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          wantsPasswordChange: e.target.checked,
+                          // Reset relacionados cuando se apaga el toggle.
+                          password: e.target.checked ? form.password : '',
+                          passwordTouched: e.target.checked ? form.passwordTouched : false,
+                        })
+                      }
+                      data-testid="users-form-want-password-change"
+                      className="mt-0.5 h-4 w-4 cursor-pointer rounded border-amber-400 text-amber-600"
+                    />
+                    <span className="text-[12px] text-amber-900">
+                      <strong>Cambiar contraseña</strong>
+                      <span className="block text-[11px] text-amber-800">
+                        Sin tildar esto el campo no se modifica.
+                      </span>
+                    </span>
+                  </label>
+                  {form.wantsPasswordChange && (
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value, passwordTouched: true })}
+                      placeholder="Nueva contraseña (mínimo 6 caracteres)"
+                      autoComplete="new-password"
+                      data-testid="users-form-password"
+                      className="h-10 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/15"
+                    />
+                  )}
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
