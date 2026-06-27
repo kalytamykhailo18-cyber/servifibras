@@ -254,6 +254,18 @@ export class LogisticaArmadoService {
     const existing = await this.prisma.logisticaArmado.findUnique({
       where: { rowKey: args.rowKey },
     });
+    // Marcos 2026-06-27 (audit fix): congelar el state de los items
+    // una vez que la fila pasó a LISTO. El frontend ya disabilita los
+    // checkboxes en ese state (page.tsx:1757), pero un call directo a
+    // la API podía cambiarlos igual y corromper la evidencia que el
+    // operador puede mirar después en un reclamo. Para corregir items
+    // post-LISTO el operador tiene que revertir a Pendiente primero,
+    // que es el flujo intencionado.
+    if (existing && existing.state === LogisticaArmadoState.LISTO) {
+      throw new BadRequestException(
+        'No se pueden modificar items en una fila LISTO. Revertí a Pendiente primero.',
+      );
+    }
     const prevChecked = Array.isArray(existing?.itemsChecked as any)
       ? ((existing!.itemsChecked as any) as string[])
       : [];
@@ -446,18 +458,25 @@ export class LogisticaArmadoService {
         },
       });
     }
-    // Sin LogisticaArmado row previo: si se asigna courier, lo
-    // creamos directamente en LISTO (no tiene sentido stampar courier
-    // a un row que ni siquiera está armado — eso ES armado-y-listo).
+    // Sin LogisticaArmado row previo: si se asigna courier, creamos
+    // la fila en ARMADO (no LISTO). Marcos 2026-06-27 (audit fix):
+    // antes auto-promovíamos a LISTO acá también, pero sin existing
+    // no tenemos itemsExpected/itemsChecked para correr el guard del
+    // contenido. Para packs multi-item esto dejaba el pack como
+    // LISTO sin que el operador haya verificado items — exactamente
+    // el caso que Marcos reportó el 06-25 ("aparece en despachados
+    // con items sin marcar"). Si el operador quiere mandarlo a
+    // Listas, hace click "Enviar a Listas" después y ahí corre el
+    // guard. Para packs de 1 item el "extra click" es trivial.
     return this.prisma.logisticaArmado.create({
       data: {
         rowKey: args.rowKey,
         dayDate: args.dayDate,
         state: value !== null
-          ? LogisticaArmadoState.LISTO
+          ? LogisticaArmadoState.ARMADO
           : LogisticaArmadoState.PENDIENTE,
         flexCourier: value,
-        ...(value !== null ? { armadoAt: now, listoAt: now } : {}),
+        ...(value !== null ? { armadoAt: now } : {}),
         stampedById: args.stampedById ?? null,
       },
     });

@@ -23,6 +23,7 @@ import {
   type MlKnowledgeSummaryRow,
 } from "@/lib/api/endpoints";
 import { UserRole } from "@/types";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { toast } from "sonner";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -52,6 +53,14 @@ function STATUS_PILL(status: string): { label: string; cls: string } {
 
 export default function MlConocimientoPage() {
   const { isAllowed } = useRoleGuard(ROLES);
+  // Marcos 2026-06-27 (audit fix): ingestAllCatalog y setClosedMode son
+  // ADMIN-only en el backend. La página entera admite ATENCION, pero
+  // esas dos acciones específicas le tiraban 403 silencioso si la
+  // clickeaba. Acá hideamos los controles puntuales sin sacar a
+  // ATENCION de la página (puede ingestar publicación-por-publicación,
+  // curar, correr Pasada IA, auto-keep — todo eso sí allow).
+  const currentRole = useAuthStore((s) => s.user?.role ?? null);
+  const isAdmin = currentRole === UserRole.ADMIN;
   const [summary, setSummary] = useState<MlKnowledgeSummaryRow[] | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [rows, setRows] = useState<MlKnowledgeRow[] | null>(null);
@@ -324,22 +333,27 @@ export default function MlConocimientoPage() {
           </button>
         </div>
         {/* Marcos 2026-06-25: ingesta del catálogo entero — descubre
-           publicaciones activas via ML API, las ingiere una por una. */}
-        <div className="flex items-center justify-between gap-3 border-t border-blue-200/60 pt-2">
-          <p className="text-[11px] text-slate-600">
-            <strong>O ingestá todo:</strong> auto-descubre tus publicaciones activas y trae el histórico de Q&A de cada una.
-          </p>
-          <button
-            type="button"
-            onClick={onIngestAllCatalog}
-            disabled={catalogRunning}
-            data-testid="ml-knowledge-ingest-all"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
-          >
-            <DownloadIcon sx={{ fontSize: 14 }} />
-            {catalogRunning ? "Ingestando catálogo…" : "Ingestar catálogo completo"}
-          </button>
-        </div>
+           publicaciones activas via ML API, las ingiere una por una.
+           Marcos 2026-06-27 (audit): ADMIN-only en el backend, así
+           que ocultamos el botón para ATENCION para evitar 403
+           silencioso. */}
+        {isAdmin && (
+          <div className="flex items-center justify-between gap-3 border-t border-blue-200/60 pt-2">
+            <p className="text-[11px] text-slate-600">
+              <strong>O ingestá todo:</strong> auto-descubre tus publicaciones activas y trae el histórico de Q&A de cada una.
+            </p>
+            <button
+              type="button"
+              onClick={onIngestAllCatalog}
+              disabled={catalogRunning}
+              data-testid="ml-knowledge-ingest-all"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+            >
+              <DownloadIcon sx={{ fontSize: 14 }} />
+              {catalogRunning ? "Ingestando catálogo…" : "Ingestar catálogo completo"}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Marcos 2026-06-25 (Phase D widget): actividad del modo cerrado.
@@ -515,20 +529,36 @@ export default function MlConocimientoPage() {
                       {s.discarded > 0 && <span className="rounded bg-slate-200 px-1.5 py-0.5 font-semibold text-slate-600">{s.discarded} descartadas</span>}
                     </div>
                   </button>
-                  {/* Mode override selector — Marcos 2026-06-25 */}
+                  {/* Mode override selector — Marcos 2026-06-25.
+                      Marcos 2026-06-27 (audit): ADMIN-only en el
+                      backend — para ATENCION mostramos solo lectura
+                      del modo actual sin permitir cambio. */}
                   <div className="mt-1 px-1">
                     <label className="text-[10px] text-slate-500">Modo cerrado:</label>
-                    <select
-                      value={s.closedModeMode}
-                      onChange={(e) => void onSetClosedMode(s.itemId, e.target.value as any)}
-                      onClick={(e) => e.stopPropagation()}
-                      data-testid={`ml-knowledge-mode-${s.itemId}`}
-                      className="ml-1 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px]"
-                    >
-                      <option value="auto">Automático</option>
-                      <option value="always-draft">Siempre draft</option>
-                      <option value="always-send">Siempre enviar</option>
-                    </select>
+                    {isAdmin ? (
+                      <select
+                        value={s.closedModeMode}
+                        onChange={(e) => void onSetClosedMode(s.itemId, e.target.value as any)}
+                        onClick={(e) => e.stopPropagation()}
+                        data-testid={`ml-knowledge-mode-${s.itemId}`}
+                        className="ml-1 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px]"
+                      >
+                        <option value="auto">Automático</option>
+                        <option value="always-draft">Siempre draft</option>
+                        <option value="always-send">Siempre enviar</option>
+                      </select>
+                    ) : (
+                      <span
+                        title="Solo administradores pueden cambiar el modo"
+                        className="ml-1 inline-flex rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-600"
+                      >
+                        {s.closedModeMode === 'auto'
+                          ? 'Automático'
+                          : s.closedModeMode === 'always-draft'
+                            ? 'Siempre draft'
+                            : 'Siempre enviar'}
+                      </span>
+                    )}
                   </div>
                 </li>
               );

@@ -30,7 +30,14 @@ import { Channel, PrismaClient } from '@prisma/client';
 
 @Controller('admin/mercadolibre')
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS)
+// Marcos 2026-06-23 originalmente sumó ENCARGADO al sub-tab ML del
+// frontend para supervisión cross-role (memoria: "ENCARGADO sumado
+// al sub-tab ML de Conversaciones — Preguntas / Mensajes / Reclamos").
+// El gate a nivel controller acá tenía que matchear: sin ENCARGADO los
+// clicks dentro del tab caían 403 silenciosos. Audit 2026-06-27 lo
+// detectó. Los handlers que igual quieran restringir más (ej.
+// configuración) llevan @Roles propio.
+@Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.ENCARGADO)
 export class MercadolibreQaController {
   private readonly prisma = new PrismaClient();
   private readonly logger = new Logger(MercadolibreQaController.name);

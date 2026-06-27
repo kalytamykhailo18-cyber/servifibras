@@ -24,6 +24,7 @@ import {
 import type { Order } from "@/types";
 import { ORDER_STATUS_LABELS, UserRole } from "@/types";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { useClientPagination } from "@/lib/hooks/use-client-pagination";
 import { Pagination } from "@/components/ui/pagination";
 
@@ -61,6 +62,18 @@ import {
 export default function OrdersPage() {
   const router = useRouter();
   const { isAllowed } = useRoleGuard(ORDERS_ROLES);
+  // Marcos 2026-06-27 (audit fix): backend gate de Pendientes-facturación
+  // es ADMIN+VENTAS+ATENCION; el rol-inheritance no agrega LOGISTICA ni
+  // ENCARGADO porque no hay ATENCION-or-LOGISTICA en la lista. Antes la
+  // tab era visible para LOGISTICA/ENCARGADO y al clickearla daba 403
+  // silencioso. Acá hideamos la tab para roles que no pueden ver el
+  // contenido. (Pendientes-regreso allows ENCARGADO así que ese sigue
+  // visible.)
+  const currentRole = useAuthStore((s) => s.user?.role ?? null);
+  const canSeeBillingTab =
+    currentRole === UserRole.ADMIN
+    || currentRole === UserRole.VENTAS
+    || currentRole === UserRole.ATENCION;
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -399,7 +412,11 @@ export default function OrdersPage() {
         {([
           { id: 'tiendanube' as const,               label: 'Tienda Nube' },
           { id: 'otros' as const,                    label: 'Otros medios' },
-          { id: 'pendientes-facturacion' as const,   label: 'Pendientes de facturación' },
+          // Marcos 2026-06-27: hide billing tab from LOGISTICA/ENCARGADO
+          // (backend rejects them — silent 403).
+          ...(canSeeBillingTab
+            ? [{ id: 'pendientes-facturacion' as const, label: 'Pendientes de facturación' }]
+            : []),
           { id: 'pendientes-regreso' as const,       label: 'Pendientes de regreso' },
         ]).map((t) => {
           // Conteos por canal — el operador lee el peso de cada tab
