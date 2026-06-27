@@ -24,6 +24,15 @@ import { Channel, MessageSender, PrismaClient } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
+// Marcos 2026-06-27: import regular (no type-only / lazy). Antes era
+// `import('../ai/claude.service').ClaudeService` como type annotation
+// del parámetro del constructor, lo que TypeScript borraba en compile
+// → Nest emitía Object como metadata del parámetro → DI no podía
+// resolver ClaudeService → this.claude quedaba undefined → "AI/ML
+// services not available" en Mejorar con IA + Regenerar. No hay
+// circular dep con claude.service (verificado con grep), así que el
+// import regular es seguro.
+import { ClaudeService } from '../ai/claude.service';
 
 export interface MlQaRow {
   conversationId: string;
@@ -68,7 +77,7 @@ export class MercadolibreQaService {
     // regenerateDraft que re-corre el agente sobre la misma pregunta
     // con el prompt actual.
     @Optional()
-    private readonly claude?: import('../ai/claude.service').ClaudeService,
+    private readonly claude?: ClaudeService,
   ) {}
 
   /**
@@ -98,7 +107,17 @@ export class MercadolibreQaService {
     if (text.length === 0) return { ok: false, reason: 'Texto vacío' };
     const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { ok: false, reason: 'CLAUDE_API_KEY no configurada' };
-    if (!this.claude || !this.mercadolibre) return { ok: false, reason: 'AI/ML services not available' };
+    // Marcos 2026-06-27: log explícito de qué service falta — el toast
+    // "AI/ML services not available" venía sin diagnóstico, hacía falta
+    // saber si era claude o mercadolibre el undefined para wirearlo bien.
+    if (!this.claude) {
+      this.logger.warn(`improveOperatorDraft: ClaudeService no inyectada (DI miss)`);
+      return { ok: false, reason: 'ClaudeService no inyectada' };
+    }
+    if (!this.mercadolibre) {
+      this.logger.warn(`improveOperatorDraft: MercadoLibreService no inyectada (DI miss)`);
+      return { ok: false, reason: 'MercadoLibreService no inyectada' };
+    }
 
     const draft = await this.prisma.message.findUnique({
       where: { id: args.messageId },
@@ -207,8 +226,13 @@ export class MercadolibreQaService {
   }
 
   async regenerateDraft(messageId: string): Promise<{ ok: boolean; reason?: string; newContent?: string }> {
-    if (!this.claude || !this.mercadolibre) {
-      return { ok: false, reason: 'AI/ML services not available in this runtime' };
+    if (!this.claude) {
+      this.logger.warn(`regenerateDraft: ClaudeService no inyectada (DI miss)`);
+      return { ok: false, reason: 'ClaudeService no inyectada' };
+    }
+    if (!this.mercadolibre) {
+      this.logger.warn(`regenerateDraft: MercadoLibreService no inyectada (DI miss)`);
+      return { ok: false, reason: 'MercadoLibreService no inyectada' };
     }
     const draft = await this.prisma.message.findUnique({
       where: { id: messageId },
