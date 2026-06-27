@@ -26,6 +26,10 @@ import {
   type DailySection,
   type DailySectionRow,
 } from "@/lib/api/endpoints";
+import {
+  loadLogisticaSnapshot,
+  saveLogisticaSnapshot,
+} from "@/lib/cache/logistica-cache";
 import { UserRole } from "@/types";
 import { toast } from "sonner";
 import { safeFormatDate } from "@/lib/date";
@@ -131,18 +135,51 @@ export default function LogisticaDiariaPage() {
   // borrar" — the archive action must be confirmed (also matches the
   // standing UI rule: never native confirm(), always AlertDialog).
   const [archiveTarget, setArchiveTarget] = useState<string[] | null>(null);
+  // Marcos 2026-06-27: mismo patrón que /orders — si el aggregator
+  // se cae o timeoutea, mostramos el snapshot guardado en
+  // localStorage con un banner amarillo "Mostrando datos guardados".
+  // Reintento automático cada 30s mientras esté en stale. El operador
+  // pidió esto expresamente después de ver "Error de red" sin
+  // fallback.
+  const [staleSnapshotAt, setStaleSnapshotAt] = useState<Date | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { background?: boolean }) => {
+    const isBackground = opts?.background === true;
     try {
       const result = await api.dailyLogistica.aggregate(date);
       setData(result);
+      saveLogisticaSnapshot(date, result);
+      setStaleSnapshotAt(null);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo cargar la agregación");
+      const snapshot = loadLogisticaSnapshot(date);
+      if (snapshot) {
+        setData(snapshot.data as AggregatedDay);
+        setStaleSnapshotAt(snapshot.savedAt);
+        if (!isBackground) {
+          toast.warning("La API no respondió. Mostrando últimos datos guardados localmente.");
+        }
+      } else if (!isBackground) {
+        toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo cargar la agregación");
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!isBackground) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [date]);
+
+  // Marcos 2026-06-27: reintento en background cuando estamos en
+  // modo stale. Cada 30s tratamos de recuperar la data fresca; el
+  // primer éxito limpia staleSnapshotAt y vuelve todo a normal.
+  useEffect(() => {
+    if (!staleSnapshotAt || !isAllowed) return;
+    const id = window.setInterval(() => {
+      void load({ background: true });
+    }, 30_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleSnapshotAt, isAllowed, date]);
 
   useEffect(() => {
     if (isAllowed) {
@@ -706,6 +743,40 @@ export default function LogisticaDiariaPage() {
           </button>
         </div>
       </div>
+
+      {/* Marcos 2026-06-27: cuando el aggregator timeoutea o devuelve
+          error y hay snapshot en localStorage, banner amarillo arriba
+          con la fecha/hora del snapshot. Reintento automático cada
+          30s en background — desaparece solo cuando la API vuelve.
+          Mismo patrón que /orders. */}
+      {staleSnapshotAt && (
+        <div
+          data-testid="logistica-stale-banner"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-300/70 bg-amber-50/80 px-4 py-3 text-sm text-amber-900"
+        >
+          <WarningAmberIcon sx={{ fontSize: 18 }} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">Mostrando datos guardados localmente</p>
+            <p className="text-[12px] text-amber-800">
+              Última sincronización: {staleSnapshotAt.toLocaleString("es-AR", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}. La agregación no respondió — reintentando en background cada 30s.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setRefreshing(true); void load(); }}
+            disabled={refreshing}
+            className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-amber-400 bg-white px-3 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+          >
+            <RefreshIcon sx={{ fontSize: 14 }} className={refreshing ? "animate-spin" : ""} />
+            Reintentar ahora
+          </button>
+        </div>
+      )}
 
       {/* Marcos 2026-06-10: links favoritos from Settings →
           Logística surfaced as one-click chips at the top of the

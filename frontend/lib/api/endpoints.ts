@@ -2733,7 +2733,16 @@ export const dailyLogisticaApi = {
   aggregate: async (date?: string): Promise<AggregatedDay> => {
     const params = new URLSearchParams();
     if (date) params.set('date', date);
-    const r = await apiClient.get<any>(`/admin/daily-logistica?${params.toString()}`);
+    // Marcos 2026-06-27: el aggregator del panel agrega ML + TN + PRFV
+    // con calls a ML que pueden tardar (~30s observados). El timeout
+    // default del apiClient es 30s, que se cumplía justo cuando el
+    // backend recién estaba devolviendo → operador veía "Error de red"
+    // a pesar de que el servidor SÍ estaba respondiendo. 60s da margen
+    // suficiente sin que el operador tenga que reintentar manualmente.
+    const r = await apiClient.get<any>(
+      `/admin/daily-logistica?${params.toString()}`,
+      { timeout: 60_000 },
+    );
     return r.data?.data ?? r.data;
   },
   markArmado: async (rowKey: string, dayDate: string): Promise<void> => {
