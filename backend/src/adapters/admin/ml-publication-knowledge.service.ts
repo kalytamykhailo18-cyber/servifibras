@@ -60,6 +60,62 @@ export class MlPublicationKnowledgeService {
    * upsert por mlQuestionId evita duplicados en re-ingestas. Devuelve
    * conteos para que el operador vea cuánto entró.
    */
+  /**
+   * Marcos 2026-06-29: el ingest histórico era one-shot (ingestForItem
+   * lo corre cuando el admin clickea). Las preguntas que el agente +
+   * operador responden DESPUÉS del ingest inicial no estaban
+   * apareciendo en /ml-conocimiento — el historial quedaba congelado
+   * en lo que ML devolvió esa única vez. Este helper agrega la Q&A
+   * a la knowledge table apenas la respuesta sale a ML (release del
+   * draft o auto-send del modo cerrado). Idempotente vía mlQuestionId
+   * único — si la fila ya existe por re-ingest manual previo, no se
+   * duplica.
+   *
+   * curationStatus='kept' porque el operador la aprobó (en el caso
+   * de release manual) o el self-eval pasó el umbral (en auto-send)
+   * — el Phase D ya filtró calidad.
+   */
+  async appendAnsweredQuestion(args: {
+    itemId: string;
+    accountKey: 'mercadolibre' | 'mercadolibre_cuenta2';
+    mlQuestionId: string;
+    questionText: string;
+    answerText: string;
+    questionAt?: Date | null;
+    answeredAt?: Date | null;
+  }): Promise<{ created: boolean; reason?: string }> {
+    if (!args.itemId || !args.mlQuestionId || !args.questionText?.trim() || !args.answerText?.trim()) {
+      return { created: false, reason: 'missing required fields' };
+    }
+    try {
+      const existing = await this.prisma.mlPublicationKnowledge.findUnique({
+        where: { mlQuestionId: args.mlQuestionId },
+        select: { id: true },
+      });
+      if (existing) return { created: false, reason: 'already exists' };
+      const now = new Date();
+      await this.prisma.mlPublicationKnowledge.create({
+        data: {
+          itemId: args.itemId,
+          accountKey: args.accountKey,
+          mlQuestionId: args.mlQuestionId,
+          questionText: args.questionText.trim(),
+          answerText: args.answerText.trim(),
+          questionAt: args.questionAt ?? now,
+          answeredAt: args.answeredAt ?? now,
+          curationStatus: 'kept',
+        },
+      });
+      this.logger.log(
+        `appendAnsweredQuestion ${args.itemId} q=${args.mlQuestionId} ok (curated kept)`,
+      );
+      return { created: true };
+    } catch (err: any) {
+      this.logger.warn(`appendAnsweredQuestion ${args.mlQuestionId} failed: ${err.message}`);
+      return { created: false, reason: err.message };
+    }
+  }
+
   async ingestForItem(args: {
     itemId: string;
     accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2';

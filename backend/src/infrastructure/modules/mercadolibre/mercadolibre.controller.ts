@@ -10,6 +10,10 @@ import { Channel, PrismaClient } from '@prisma/client';
 import { MercadoLibreService } from '../../../adapters/mercadolibre/mercadolibre.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
 import { ChannelGateService } from '../../../adapters/channel-gate/channel-gate.service';
+// Marcos 2026-06-29: inyectada Optional para appendear las
+// preguntas auto-respondidas al historial /ml-conocimiento.
+import { Optional } from '@nestjs/common';
+import { MlPublicationKnowledgeService } from '../../../adapters/admin/ml-publication-knowledge.service';
 import { MercadoLibreMessageType } from '../../../domain/entities/mercadolibre-message.entity';
 
 @Controller('mercadolibre')
@@ -166,6 +170,8 @@ export class MercadoLibreController {
     private readonly mercadolibreService: MercadoLibreService,
     private readonly conversationHandler: ConversationHandlerService,
     private readonly channelGate: ChannelGateService,
+    @Optional()
+    private readonly mlKnowledge?: MlPublicationKnowledgeService,
   ) {}
 
   /**
@@ -376,6 +382,23 @@ export class MercadoLibreController {
 
       if (sendResult.success) {
         this.logger.log(`✅ Answered question ${questionId}`);
+        // Marcos 2026-06-29: auto-sent answers también suman al
+        // historial /ml-conocimiento — antes el ingest era one-shot
+        // y las preguntas respondidas después del último click manual
+        // no aparecían. Best-effort: failure no rompe el flow.
+        if (question.itemId && question.text) {
+          const ak: 'mercadolibre' | 'mercadolibre_cuenta2' =
+            mlAccountKey === 'mercadolibre_cuenta2' ? 'mercadolibre_cuenta2' : 'mercadolibre';
+          void this.mlKnowledge?.appendAnsweredQuestion({
+            itemId: String(question.itemId),
+            accountKey: ak,
+            mlQuestionId: question.id,
+            questionText: question.text,
+            answerText: result.response,
+          }).catch((err) => {
+            this.logger.warn(`appendAnsweredQuestion non-fatal for auto-send ${questionId}: ${err?.message ?? err}`);
+          });
+        }
       } else {
         this.logger.error(`Failed to send answer: ${sendResult.error}`);
       }

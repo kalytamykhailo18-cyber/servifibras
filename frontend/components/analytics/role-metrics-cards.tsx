@@ -61,7 +61,41 @@ function deltaPill(deltaPct: number) {
   );
 }
 
-// ---------- Brenda (ATENCION) ----------
+// Marcos 2026-06-29: chip row con los agentes activos de cada rol.
+// Antes los cards tenían el nombre del agente hardcodeado (Brenda /
+// Franco / Aldo) — cuando Marcos sumaba un agente nuevo con su email
+// la métrica seguía mostrando el viejo. Ahora pull dinámico de
+// /admin/users + chips por rol. Métrica per-user (filtrar por
+// assignedTo del user) sigue como follow-up (requiere refactor del
+// backend role-metrics).
+function AgentChips({ role }: { role: UserRole }) {
+  const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
+  useEffect(() => {
+    api.users
+      .list({ activeOnly: true })
+      .then((rows) => setUsers((rows ?? []).filter((u: any) => u.role === role).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))))
+      .catch(() => setUsers([]));
+  }, [role]);
+  if (!users || users.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider text-slate-500">
+        {users.length === 1 ? 'Agente' : `${users.length} agentes`}
+      </span>
+      {users.map((u) => (
+        <span
+          key={u.id}
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50/70 px-2 py-0.5 text-[10.5px] font-medium text-slate-700"
+          title={u.email}
+        >
+          {u.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Atención ----------
 
 function AtencionCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getAtencionMetrics>> | null>(null);
@@ -78,9 +112,10 @@ function AtencionCard() {
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-[0_4px_12px_-2px_rgb(59_130_246/0.45)]">
           <SupportAgentIcon sx={{ fontSize: 18 }} />
         </span>
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Atención · Brenda</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-slate-900">Atención</h3>
           <p className="text-[11px] text-slate-500">Cola, latencia, conversaciones sin resolver</p>
+          <AgentChips role={UserRole.ATENCION} />
         </div>
       </div>
 
@@ -166,9 +201,10 @@ function VentasCard() {
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-orange-500 to-red-400 text-white shadow-[0_4px_12px_-2px_rgb(249_115_22/0.45)]">
           <TrendingUpIcon sx={{ fontSize: 18 }} />
         </span>
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Ventas · Franco</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-slate-900">Ventas</h3>
           <p className="text-[11px] text-slate-500">Mayoristas, presupuestos y conversión</p>
+          <AgentChips role={UserRole.VENTAS} />
         </div>
       </div>
 
@@ -261,9 +297,10 @@ function LogisticaCard() {
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-[0_4px_12px_-2px_rgb(20_184_166/0.45)]">
           <LocalShippingIcon sx={{ fontSize: 18 }} />
         </span>
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">Logística · Aldo</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-slate-900">Logística</h3>
           <p className="text-[11px] text-slate-500">Pedidos por despachar, atrasos y stock bajo</p>
+          <AgentChips role={UserRole.LOGISTICA} />
         </div>
       </div>
 

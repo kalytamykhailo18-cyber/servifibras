@@ -21,6 +21,7 @@ import {
 import { MercadoLibreService } from '../../../adapters/mercadolibre/mercadolibre.service';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
 import { ConversationScorerService } from '../../../adapters/quality/conversation-scorer.service';
+import { MlPublicationKnowledgeService } from '../../../adapters/admin/ml-publication-knowledge.service';
 import {
   MercadoLibreIncomingMessage,
   MercadoLibreMessageType,
@@ -46,6 +47,11 @@ export class MercadolibreQaController {
     private readonly mlService: MercadoLibreService,
     private readonly conversationHandler: ConversationHandlerService,
     private readonly scorer: ConversationScorerService,
+    // Marcos 2026-06-29: inyectada para append-on-release —
+    // toda Q&A que sale por este endpoint queda registrada como
+    // fila kept en MlPublicationKnowledge para que el historial
+    // del panel /ml-conocimiento siga vivo.
+    private readonly mlKnowledge: MlPublicationKnowledgeService,
   ) {}
 
   @Get('qa/counts')
@@ -195,6 +201,25 @@ export class MercadolibreQaController {
       throw new BadRequestException(`ML rejected the answer: ${send.error ?? 'unknown'}`);
     }
     await this.svc.clearPendingReview(messageId, finalText);
+    // Marcos 2026-06-29: appendea la Q&A a MlPublicationKnowledge
+    // como fila curated 'kept' — el panel /ml-conocimiento muestra
+    // el historial creciendo en vivo en vez de quedar congelado en
+    // el último ingest manual. Idempotente vía mlQuestionId único.
+    // Best-effort: si falla no rompemos el release (el send a ML
+    // ya pasó), sólo logueamos.
+    if (draft.itemId && draft.questionText) {
+      const ak: 'mercadolibre' | 'mercadolibre_cuenta2' =
+        accountKey === 'mercadolibre_cuenta2' ? 'mercadolibre_cuenta2' : 'mercadolibre';
+      void this.mlKnowledge.appendAnsweredQuestion({
+        itemId: draft.itemId,
+        accountKey: ak,
+        mlQuestionId: draft.mlQuestionId,
+        questionText: draft.questionText,
+        answerText: finalText,
+      }).catch((err) => {
+        this.logger.warn(`appendAnsweredQuestion non-fatal failure for ${draft.mlQuestionId}: ${err?.message ?? err}`);
+      });
+    }
 
     // Marcos 2026-06-12: when the operator EDITED the draft before
     // releasing, the edited text is a correction signal — promote it
