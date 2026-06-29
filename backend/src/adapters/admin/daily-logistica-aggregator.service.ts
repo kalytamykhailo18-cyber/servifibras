@@ -444,6 +444,18 @@ export class DailyLogisticaAggregatorService {
   ) {}
 
   async aggregate(date: Date): Promise<AggregatedDay> {
+    // Marcos 2026-06-29 (perf investigation): instrumentación temporal
+    // de cada stage del aggregator. Marcos reportó timeouts de ~30s y
+    // pidió cazar la causa raíz en vez de mitigarlo solo con caché.
+    // Los timings se loguean al final como "aggregate timing total=...
+    // mlCuentas=... localOrders=... prfv=... mergeArmado=... unread=...".
+    // Una vez identificada y atacada la stage culpable, se puede sacar
+    // este logging si genera ruido — pero la idea es dejarlo como hint
+    // de performance permanente.
+    const tAll = Date.now();
+    const timings: Record<string, number> = {};
+    const stamp = (k: string, t0: number) => { timings[k] = Date.now() - t0; };
+
     const { fromIso, toIso, isoDay, backlogFromIso } = isoDayBounds(date);
     // Bloque B item 3.11 — backlog window for ML + local fetch.
     // `fromIso/toIso` still drives the operational-day stamping
@@ -468,6 +480,7 @@ export class DailyLogisticaAggregatorService {
     };
 
     // ─── ML cuenta 1 + cuenta 2 ─────────────────────────────────────
+    const tMl = Date.now();
     if (!this.mercadolibre) {
       out.notes.push({
         source: 'mercadolibre',
@@ -478,20 +491,49 @@ export class DailyLogisticaAggregatorService {
         { provider: 'mercadolibre', suffix: '_1' },
         { provider: 'mercadolibre_cuenta2', suffix: '_2' },
       ];
-      for (const { provider, suffix } of cuentaProviders) {
+      // Marcos 2026-06-29 (perf): antes este loop era secuencial — cada
+      // cuenta esperaba a que la anterior terminara antes de empezar.
+      // Con dos cuentas que cada una tarda ~10-15s contra la API de
+      // ML, el aggregator quedaba en ~25-30s solo por el await en
+      // serie. Las dos cuentas son independientes (no comparten
+      // estado, escriben a `out.sections[*]` cuyo .push es seguro en
+      // single-threaded JS), así que las corremos en paralelo.
+      // hydrateMlUnreadFlags sigue afuera del Promise.all porque
+      // necesita el merge completo de ambas cuentas para deduplicar
+      // el cache hit.
+      const subTimings: Record<string, number> = {};
+      const processCuenta = async ({ provider, suffix }: { provider: string; suffix: '_1' | '_2' }) => {
+        const tCuentaTotal = Date.now();
+        const cuentaTimings = { fetch: 0, alias: 0, process: 0 };
         try {
+          const tFetch = Date.now();
           const result = await this.mercadolibre.fetchOrdersForRange({
             fromIso: backlogFromIso,
             toIso,
             provider,
           });
+          cuentaTimings.fetch = Date.now() - tFetch;
           if (!result) {
             out.notes.push({
               source: `mercadolibre${suffix}`,
               message: `${provider} no tiene credenciales — sección vacía.`,
             });
-            continue;
+            return;
           }
+          // Marcos 2026-06-29 (perf): pre-cargo el aliasMap UNA sola
+          // vez para todos los SKUs de esta cuenta (antes el loop
+          // per-pack tiraba 2 queries Prisma cada uno). Saca el N+1
+          // que era el bottleneck principal del mlCuentas stage.
+          const tAlias = Date.now();
+          const allSkusInCuenta: string[] = [];
+          for (const o of result.orders) {
+            for (const it of o.items) {
+              if (it.sku) allSkusInCuenta.push(it.sku);
+            }
+          }
+          const aliasMap = await this.loadProductAliasMap(allSkusInCuenta);
+          cuentaTimings.alias = Date.now() - tAlias;
+          const tProcess = Date.now();
           // Bloque B item 3.5 — Marcos 2026-06-08: cart/pack grouping.
           // ML attaches a `pack_id` to every order that belongs to a
           // multi-item cart. From the picker's POV one pack = one
@@ -542,7 +584,7 @@ export class DailyLogisticaAggregatorService {
             }
             // Flatten items across every order in the pack.
             const allItems = ordersInGroup.flatMap((g) => g.items);
-            const allItemsExpanded = await this.expandMlItems(allItems);
+            const allItemsExpanded = await this.expandMlItems(allItems, aliasMap);
             // Pack-aware rowKey: orders sharing a packId become one
             // row so armado state persists at the pack level — the
             // picker ticks once for the whole box, not once per
@@ -555,8 +597,8 @@ export class DailyLogisticaAggregatorService {
             const sourceId = head.packId ?? head.id;
             // Aggregate the producto label across the pack's items.
             const groupedProducto = head.packId
-              ? await this.formatMlProductoFromItems(allItems)
-              : await this.formatMlProducto(head);
+              ? await this.formatMlProductoFromItems(allItems, aliasMap)
+              : await this.formatMlProducto(head, aliasMap);
             const groupedCliente = head.packId
               ? this.formatMlPackCliente(head, ordersInGroup.length, allItems.length)
               : this.formatMlCliente(head);
@@ -660,13 +702,21 @@ export class DailyLogisticaAggregatorService {
               items: allItemsExpanded,
             });
           }
+          cuentaTimings.process = Date.now() - tProcess;
         } catch (err: any) {
           out.errors.push({
             source: `mercadolibre${suffix}`,
             message: err?.message ?? String(err),
           });
         }
-      }
+        subTimings[`cuenta${suffix}_total`] = Date.now() - tCuentaTotal;
+        subTimings[`cuenta${suffix}_fetch`] = cuentaTimings.fetch;
+        subTimings[`cuenta${suffix}_alias`] = cuentaTimings.alias;
+        subTimings[`cuenta${suffix}_process`] = cuentaTimings.process;
+      };
+      const tHydrate = Date.now();
+      await Promise.all(cuentaProviders.map(processCuenta));
+      subTimings['ml_pre_hydrate'] = Date.now() - tHydrate;
 
       // Marcos 2026-06-10: post-venta unread indicator. For every ML
       // pendiente row (across both cuentas), check if the buyer has
@@ -677,6 +727,7 @@ export class DailyLogisticaAggregatorService {
       //      count by ~10× and keeps the panel under 5s.
       // Cache results per pack/order id with a short TTL so cross-tab
       // navigation reuses the same lookup.
+      const tHy = Date.now();
       try {
         await this.hydrateMlUnreadFlags(out);
       } catch (err: any) {
@@ -684,9 +735,13 @@ export class DailyLogisticaAggregatorService {
         // envelope chip on rows.
         this.logger.warn(`ML unread hydration failed: ${err?.message ?? err}`);
       }
+      subTimings['ml_hydrate'] = Date.now() - tHy;
+      Object.assign(timings, subTimings);
     }
+    stamp('mlCuentas', tMl);
 
     // ─── Local Order rows (WA / mayorista / manual) → MOTOS / MICROS ──
+    const tLocal = Date.now();
     try {
       // Marcos 2026-06-16: pendientes (CONFIRMED / PROCESSING) must
       // NEVER drop off the panel because they're old — they carry
@@ -847,6 +902,7 @@ export class DailyLogisticaAggregatorService {
     } catch (err: any) {
       out.errors.push({ source: 'crm-orders', message: err?.message ?? String(err) });
     }
+    stamp('localOrders', tLocal);
 
     // ─── TN orders ────────────────────────────────────────────────────
     // Bloque B item 3 (Marcos 2026-06-08): TN orders are now synced
@@ -866,6 +922,7 @@ export class DailyLogisticaAggregatorService {
     // these in the same daily panel under LAMINADOS_PRFV so the
     // operator doesn't have to switch pages. DESPACHADA_RETIRADA is
     // the terminal state — those don't show up here.
+    const tPrfv = Date.now();
     try {
       const placas = await this.prisma.prfvPlaca.findMany({
         where: { state: 'LISTA_CORTADA' },
@@ -914,8 +971,10 @@ export class DailyLogisticaAggregatorService {
     } catch (err: any) {
       out.errors.push({ source: 'prfv-placas', message: err?.message ?? String(err) });
     }
+    stamp('prfv', tPrfv);
 
     // ─── Merge armado state ──────────────────────────────────────────
+    const tMerge = Date.now();
     // Single bulk lookup across all rows we just collected, then
     // mutate each row in-place. This keeps the per-row population
     // path simple and lets the picker UI / Excel generator render
@@ -1083,6 +1142,13 @@ export class DailyLogisticaAggregatorService {
         return b.createdAtIso.localeCompare(a.createdAtIso);
       });
     }
+    stamp('mergeArmado', tMerge);
+
+    const totalMs = Date.now() - tAll;
+    const rowsTotal = SECTION_ORDER.reduce((acc, s) => acc + out.sections[s].length, 0);
+    this.logger.log(
+      `aggregate timing date=${isoDay} total=${totalMs}ms rows=${rowsTotal} ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' ')}`,
+    );
 
     return out;
   }
@@ -1137,36 +1203,62 @@ export class DailyLogisticaAggregatorService {
    */
   private async formatMlProductoFromItems(
     items: Array<{ itemId: string; title: string; sku: string | null; quantity: number }>,
+    aliasMap?: Map<string, { alias: string; warehouseLocation: string | null }>,
   ): Promise<string> {
-    return this.formatMlProducto({ items });
+    return this.formatMlProducto({ items }, aliasMap);
+  }
+
+  /**
+   * Marcos 2026-06-29 (perf): el aggregator estaba haciendo 2 queries
+   * Prisma por cada pack ML (uno para producto-string, otro para
+   * items expandidos) × ~1200 packs = 2400 round-trips por load del
+   * panel — pesaba ~12-20s del total. Esta función carga UNA sola
+   * vez todos los SKUs del set y devuelve un map compartido que
+   * formatMlProducto + expandMlItems usan para resolver alias sin
+   * tocar la DB en el per-pack loop.
+   */
+  private async loadProductAliasMap(skus: string[]): Promise<Map<string, {
+    alias: string;
+    warehouseLocation: string | null;
+  }>> {
+    const map = new Map<string, { alias: string; warehouseLocation: string | null }>();
+    const unique = Array.from(new Set(skus.filter((s) => !!s)));
+    if (unique.length === 0) return map;
+    try {
+      const rows = await this.prisma.product.findMany({
+        where: { sku: { in: unique } },
+        select: { sku: true, armadorAlias: true, name: true, warehouseLocation: true },
+      });
+      for (const r of rows) {
+        map.set(r.sku, {
+          alias: r.armadorAlias || (r.name ?? '').slice(0, 40),
+          warehouseLocation: r.warehouseLocation ?? null,
+        });
+      }
+    } catch {
+      /* DB issue — caller falls back to ML titles */
+    }
+    return map;
   }
 
   private async formatMlProducto(o: {
     items: Array<{ itemId: string; title: string; sku: string | null; quantity: number }>;
-  }): Promise<string> {
+  }, aliasMap?: Map<string, { alias: string; warehouseLocation: string | null }>): Promise<string> {
     if (o.items.length === 0) return '';
     // Use the catalog `armadorAlias` per SKU when we have a matching
     // Product row in our DB (sync'd from TN). Falls back to the
-    // shortened ML title when no match.
-    const skus = o.items.map((it) => it.sku).filter((s): s is string => !!s);
-    let aliasMap: Map<string, string> = new Map();
-    if (skus.length > 0) {
-      try {
-        const rows = await this.prisma.product.findMany({
-          where: { sku: { in: skus } },
-          select: { sku: true, armadorAlias: true, name: true },
-        });
-        for (const r of rows) {
-          aliasMap.set(r.sku, r.armadorAlias || (r.name ?? '').slice(0, 40));
-        }
-      } catch {
-        /* DB issue — fall back to ML titles */
-      }
+    // shortened ML title when no match. Marcos 2026-06-29: ahora
+    // recibe el aliasMap pre-cargado del caller — si está, evita la
+    // Prisma query y solo lee del map. Si NO está (uso standalone),
+    // hace la query como antes.
+    if (!aliasMap) {
+      const skus = o.items.map((it) => it.sku).filter((s): s is string => !!s);
+      aliasMap = await this.loadProductAliasMap(skus);
     }
     return o.items
       .map((it) => {
-        const aliasFromSku = it.sku ? aliasMap.get(it.sku) : null;
-        const label = aliasFromSku || (it.title ? it.title.slice(0, 40) : 'producto');
+        const aliasInfo = it.sku ? aliasMap!.get(it.sku) : null;
+        const label = aliasInfo?.alias || (it.title ? it.title.slice(0, 40) : 'producto');
         return it.quantity > 1 ? `${it.quantity} x ${label}` : label;
       })
       .join(' + ');
@@ -1299,40 +1391,36 @@ export class DailyLogisticaAggregatorService {
     );
   }
 
-  private async expandMlItems(items: Array<{
-    itemId: string;
-    title: string;
-    sku: string | null;
-    quantity: number;
-    unitPrice: number | null;
-  }>): Promise<DailySectionRow['items']> {
+  private async expandMlItems(
+    items: Array<{
+      itemId: string;
+      title: string;
+      sku: string | null;
+      quantity: number;
+      unitPrice: number | null;
+    }>,
+    sharedAliasMap?: Map<string, { alias: string; warehouseLocation: string | null }>,
+  ): Promise<DailySectionRow['items']> {
     if (!Array.isArray(items) || items.length === 0) return [];
-    const skus = items.map((it) => it.sku).filter((s): s is string => !!s);
-    const aliasMap = new Map<string, string>();
-    const locationMap = new Map<string, string>();
-    if (skus.length > 0) {
-      try {
-        const rows = await this.prisma.product.findMany({
-          where: { sku: { in: skus } },
-          select: { sku: true, armadorAlias: true, name: true, warehouseLocation: true },
-        });
-        for (const r of rows) {
-          aliasMap.set(r.sku, r.armadorAlias || (r.name ?? '').slice(0, 40));
-          if (r.warehouseLocation) locationMap.set(r.sku, r.warehouseLocation);
-        }
-      } catch {
-        /* non-fatal — items still render with ML titles */
-      }
-    }
-    return items.map((it) => ({
-      sku: it.sku,
-      name: it.title || (it.sku ?? 'producto'),
-      quantity: it.quantity,
-      alias: it.sku ? (aliasMap.get(it.sku) ?? null) : null,
-      imageUrl: null,
-      unitPrice: it.unitPrice ?? null,
-      warehouseLocation: it.sku ? (locationMap.get(it.sku) ?? null) : null,
-    }));
+    // Marcos 2026-06-29 (perf): si el caller pre-cargó el aliasMap
+    // compartido para toda la batch (común desde processCuenta),
+    // usamos eso y skipeamos la query. Si NO está, fall back a la
+    // query per-pack del comportamiento original (preserva uso
+    // standalone). Antes este path tiraba ~1200 queries por load.
+    const aliasMap = sharedAliasMap
+      ?? (await this.loadProductAliasMap(items.map((it) => it.sku).filter((s): s is string => !!s)));
+    return items.map((it) => {
+      const info = it.sku ? aliasMap.get(it.sku) ?? null : null;
+      return {
+        sku: it.sku,
+        name: it.title || (it.sku ?? 'producto'),
+        quantity: it.quantity,
+        alias: info?.alias ?? null,
+        imageUrl: null,
+        unitPrice: it.unitPrice ?? null,
+        warehouseLocation: info?.warehouseLocation ?? null,
+      };
+    });
   }
 
   /**

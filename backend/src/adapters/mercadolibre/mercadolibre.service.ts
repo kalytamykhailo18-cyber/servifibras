@@ -66,6 +66,22 @@ export class MercadoLibreService implements IMercadoLibreService {
   // don't hammer the API. Memory footprint: ~80 chars per entry, so
   // tens of thousands of buyers fit comfortably.
   private readonly nicknameCache = new Map<string, { nickname: string | null; cachedAt: number }>();
+  // Marcos 2026-06-29 (perf): cache de la respuesta de
+  // fetchOrdersForRange por (provider, fromIso, toIso) con TTL
+  // corto. La API de ML /orders/search es genuinamente lenta
+  // (~400ms × ~40 páginas = ~17s para cuenta_1). El panel de
+  // logística se recarga seguido — sin caché cada load paga ese
+  // costo. Con TTL 60s, el primer load del minuto paga, los
+  // siguientes son instantáneos. Los cambios manuales del operador
+  // (armado, courier, despachado) NO dependen de esta data — vienen
+  // del merge con LogisticaArmado local que se hace después.
+  private readonly ordersRangeCache = new Map<string, {
+    value: {
+      orders: any[];
+      sellerId: string;
+    };
+    expiresAt: number;
+  }>();
   private readonly NICKNAME_CACHE_TTL_MS = 60 * 60 * 1000;
 
   constructor(private readonly credentials: OAuthCredentialsService) {
@@ -1470,6 +1486,19 @@ export class MercadoLibreService implements IMercadoLibreService {
     sellerId: string;
   } | null> {
     const provider = args.provider ?? 'mercadolibre';
+
+    // Marcos 2026-06-29 (perf): cache check antes de cualquier work.
+    // Hit warm → ~5ms; miss → ~5-20s. TTL configurable via env.
+    const ttlMs = (Number(process.env.MERCADOLIBRE_ORDERS_CACHE_TTL_SECONDS) || 60) * 1000;
+    const cacheKey = `${provider}|${args.fromIso}|${args.toIso}|${args.limit ?? 50}`;
+    const cached = this.ordersRangeCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        orders: cached.value.orders as any,
+        sellerId: cached.value.sellerId,
+      };
+    }
+
     const stored = await this.credentials.getFresh(
       provider,
       (refreshToken) => this.refreshAccessToken(refreshToken),
@@ -1487,8 +1516,6 @@ export class MercadoLibreService implements IMercadoLibreService {
     const perPage = Math.min(50, Math.max(1, args.limit ?? 50));
     const fromIso = encodeURIComponent(args.fromIso);
     const toIso = encodeURIComponent(args.toIso);
-    const ordersAcc: Array<any> = [];
-    let offset = 0;
     // Marcos 2026-06-19 (vista unificada bugfix): default 20 páginas ×
     // 50/page = 1000 órdenes, capaz para el panel diario pero MUY
     // corto para "Ventas unificadas — este mes". Cuenta 1 corta
@@ -1497,20 +1524,30 @@ export class MercadoLibreService implements IMercadoLibreService {
     // colchón). El .env lo puede bajar si Marcos quiere acotar
     // latencia.
     const maxPages = Number(process.env.MERCADOLIBRE_ORDERS_MAX_PAGES) || 80;
-    for (let page = 0; page < maxPages; page++) {
-      const url =
-        `${this.apiUrl}/orders/search` +
-        `?seller=${encodeURIComponent(sellerId)}` +
-        `&order.date_created.from=${fromIso}` +
-        `&order.date_created.to=${toIso}` +
-        // Marcos 2026-06-09: ML's default sort is date_asc (oldest
-        // first). Without an explicit sort the pagination cap eats
-        // the OLDEST 1000 orders and the daily panel misses the
-        // recent backlog Marcos is trying to prepare. Force date_desc
-        // so the first pages always carry the freshest orders.
-        `&sort=date_desc` +
-        `&limit=${perPage}&offset=${offset}`;
-      const res = await fetch(url, {
+
+    // Marcos 2026-06-29 (perf): este loop era el ~95% del tiempo del
+    // aggregator. Antes pagineaba secuencial — para 1200+ órdenes
+    // eran ~24 round-trips × ~500ms cada uno = ~12s SOLO por cuenta.
+    // Ahora fetcheamos page 0 primero (para saber el total), después
+    // disparamos las páginas restantes en paralelo con batches de 8
+    // (cap de concurrencia para no bursteear contra ML rate-limit).
+    // Resultado esperado: ~24 round-trips secuenciales pasan a
+    // 1 + ceil((N-1)/8) batches paralelos → de 12s a ~2-3s por cuenta.
+    const buildUrl = (offset: number) =>
+      `${this.apiUrl}/orders/search` +
+      `?seller=${encodeURIComponent(sellerId)}` +
+      `&order.date_created.from=${fromIso}` +
+      `&order.date_created.to=${toIso}` +
+      // Marcos 2026-06-09: ML's default sort is date_asc (oldest
+      // first). Without an explicit sort the pagination cap eats
+      // the OLDEST 1000 orders and the daily panel misses the
+      // recent backlog Marcos is trying to prepare. Force date_desc
+      // so the first pages always carry the freshest orders.
+      `&sort=date_desc` +
+      `&limit=${perPage}&offset=${offset}`;
+
+    const fetchPage = async (offset: number): Promise<{ results: any[]; total: number } | null> => {
+      const res = await fetch(buildUrl(offset), {
         method: 'GET',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -1518,14 +1555,41 @@ export class MercadoLibreService implements IMercadoLibreService {
         this.logger.warn(
           `ML orders fetch (${provider}): HTTP ${res.status} at offset=${offset}`,
         );
-        break;
+        return null;
       }
       const json: any = await res.json().catch(() => ({}));
       const results = Array.isArray(json?.results) ? json.results : [];
-      ordersAcc.push(...results);
       const total = Number(json?.paging?.total ?? results.length);
-      offset += results.length;
-      if (results.length === 0 || offset >= total) break;
+      return { results, total };
+    };
+
+    const ordersAcc: Array<any> = [];
+    const firstPage = await fetchPage(0);
+    if (!firstPage) {
+      return { orders: [], sellerId };
+    }
+    ordersAcc.push(...firstPage.results);
+    const totalAvailable = firstPage.total;
+    const totalCap = Math.min(totalAvailable, maxPages * perPage);
+    if (firstPage.results.length > 0 && firstPage.results.length < totalCap) {
+      const remainingOffsets: number[] = [];
+      for (let off = perPage; off < totalCap; off += perPage) {
+        remainingOffsets.push(off);
+      }
+      const PARALLEL = 8;
+      for (let i = 0; i < remainingOffsets.length; i += PARALLEL) {
+        const batch = remainingOffsets.slice(i, i + PARALLEL);
+        const pages = await Promise.all(batch.map((off) => fetchPage(off)));
+        let earlyStop = false;
+        for (const p of pages) {
+          if (!p) { earlyStop = true; continue; }
+          if (p.results.length === 0) { earlyStop = true; continue; }
+          ordersAcc.push(...p.results);
+        }
+        // If any page came back empty/null we've gone past the end —
+        // stop bursting more useless batches.
+        if (earlyStop) break;
+      }
     }
 
     const mapped = ordersAcc.map((o: any) => {
@@ -1664,6 +1728,13 @@ export class MercadoLibreService implements IMercadoLibreService {
     this.logger.debug(
       `ML orders fetched (${provider}): seller=${sellerId} count=${mapped.length} shipments-resolved=${queue.length}`,
     );
+    // Marcos 2026-06-29 (perf): guardamos el resultado final ya
+    // procesado (mapped + shipments hydrated) — re-pegar la misma
+    // ventana dentro del TTL es instantáneo.
+    this.ordersRangeCache.set(cacheKey, {
+      value: { orders: mapped as any[], sellerId },
+      expiresAt: Date.now() + ttlMs,
+    });
     return { orders: mapped, sellerId };
   }
 
