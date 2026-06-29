@@ -71,9 +71,20 @@ function deltaPill(deltaPct: number) {
 function AgentChips({ role }: { role: UserRole }) {
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
   useEffect(() => {
+    // Marcos 2026-06-29: incluyo ENCARGADO en cada card operacional —
+    // verificado con la data en /admin/users: Brenda y Aldo, que el
+    // título antes hardcodeaba en Atención y Logística, son role=
+    // ENCARGADO (no role=ATENCION/LOGISTICA). El RolesGuard ya hace
+    // herencia (ENCARGADO accede a endpoints ATENCION/LOGISTICA);
+    // la analítica refleja esa misma inclusión.
+    const acceptedRoles = new Set<string>([role as string, UserRole.ENCARGADO as string]);
     api.users
       .list({ activeOnly: true })
-      .then((rows) => setUsers((rows ?? []).filter((u: any) => u.role === role).map((u: any) => ({ id: u.id, name: u.name, email: u.email }))))
+      .then((rows) => setUsers(
+        (rows ?? [])
+          .filter((u: any) => acceptedRoles.has(u.role))
+          .map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+      ))
       .catch(() => setUsers([]));
   }, [role]);
   if (!users || users.length === 0) return null;
