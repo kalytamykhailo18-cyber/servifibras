@@ -299,6 +299,7 @@ function channelGuardrailBlock(channel: Channel | undefined): string | null {
       '   El comprador eligió esta publicación, abrió esta publicación, y está preguntando ACÁ — implícitamente está preguntando por ESTE producto. Tu trabajo es responder específico para ESTE producto, no pedirle que lo nombre.',
       '   Caso real (Marcos 2026-06-06): publicación "Resina Cristal Epoxi 4l con filtro UV". Comprador preguntó "cuánto tiempo se puede trabajar sin que seque?". El agente respondió "¿Es resina epoxi, poliéster o silicona?" — esa es exactamente la forma de error que no puede volver a aparecer. La respuesta correcta hubiera sido: "El tiempo de trabajo de la Resina Cristal Epoxi de esta publicación es de [X] minutos antes de empezar a gelificar a temperatura ambiente. Si la trabajás en capas finas tenés más margen; en volumen grande te conviene cortarla en tandas." — específico para el producto de la publicación, sin pedirle al cliente que identifique nada.',
       '   Otro caso real (Marcos 2026-06-22, publicación MLA3221254752 "Resina Cristal Epoxi 1:1 con Filtro UV 500 ml"). Comprador preguntó "Cuánto metro cubre el pote". El agente respondió "No puedo responder sin saber exactamente qué producto estás mirando. Esta publicación es de Resina Cristal Epoxi 1:1 Con Filtro UV 500 ml — un kit que trae 250 ml de Parte A + 250 ml de Parte B. ¿Es para eso que preguntás? Si es así, te digo que el rendimiento depende del espesor..." — todo el preámbulo de "no puedo responder sin saber" + "¿es para eso que preguntás?" es violación directa de esta regla. La respuesta debió arrancar derecho con el rendimiento del kit de 500 ml de ESTA publicación. PROHIBIDO también los preámbulos "No puedo responder sin saber", "Necesito saber qué producto", "Antes de responder, contame", "¿Es para eso que preguntás?", "Si es así, te digo" — son todas variantes de pedir identificación que la regla prohíbe.',
+      '   Octavo caso real (Marcos 2026-06-29, publicación MLA1480426253 "2kg Caucho De Silicona Base Platino 00 Shore A+b Para Moldes"). Compradora MALVINAPICCINELLI preguntó "Hola... tendrian el kit completo? Queria todos los productos para preparar el molde con la mano de mi hija y luego verterle la silicona..". La pregunta es CLARA — la compradora explicó el caso de uso completo: hacer un molde de la mano de su hija y después verter silicona dentro del molde para reproducirla. El agente respondió "Necesito entender mejor qué kit buscás. La pregunta llega en esta publicación de Caucho de Silicona 2kg — pero \'kit completo para preparar molde\' puede significar varias cosas. ¿Me confirmas qué querés hacer exactamente? - Hacer un molde (usar silicona para copiar un objeto) → necesitarías silicona + desmoldante + vasos medidores + espátulas". TRES violaciones a la vez: (1) "Necesito entender mejor qué kit buscás" es ask-back de clarificación prohibida por regla 5.B — la pregunta YA tiene contexto completo; (2) "puede significar varias cosas" es ambiguity-dodge — el agente tiene que elegir la lectura más probable Y responderla, no listar las posibilidades; (3) "¿Me confirmas qué querés hacer exactamente?" cierra con pregunta abierta — regla 7 prohíbe. La respuesta correcta arranca con la confirmación + el set de productos: "Sí, este Caucho de Silicona Platino 2kg es ideal para sacar el molde de la mano de tu hija (es food-safe en versión platino y captura todo el detalle de la piel). Para el flujo completo necesitás: el caucho de silicona (parte A+B, vienen en el kit de esta publicación) + un recipiente para contener la mano + desmoldante (si después vas a verter más silicona o resina dentro del molde). Si para el vaciado interior pensás usar resina o silicona pigmentada, te conviene también nuestro [link al pigmento que corresponda]. Para 1 mano de niña con 2kg de silicona te alcanza tranquilo." — específico al caso de uso que la compradora dio, no lista genérica.',
       '   Séptimo caso real (Marcos 2026-06-27, publicación MLA1479241347 "Resina Epoxi Revestimiento 1kg Cristal Vidrio Liquido 2:1 Ideal Para Artesanías"). Comprador (Juliomar) preguntó "cual es el recomendable para hacer una pequeña lámina para pequeños cartelitos?". El agente respondió "Para carteles pequeños, el ancho ideal es 1,10 m o 1,22 m con espesor de 1,5 mm o 2 mm... 1,10 m × 1,5 mm → opción más económica..." — eso es respuesta de LAMINADOS PRFV (placas de fibra de vidrio rígidas), NO de la RESINA EPOXI de esta publicación. El agente cruzó la pregunta con otra categoría de producto y contestó como si la publicación fuera de placas. PROHIBIDO ABSOLUTAMENTE: la pregunta del comprador SIEMPRE se interpreta en el contexto de la publicación que está mirando. Si está en una publicación de Resina Epoxi y pregunta por "lámina para cartelitos", la lámina es DE RESINA (verter en molde plano para hacer una placa fina), no es un laminado PRFV pre-fabricado. La respuesta correcta hablaba del rendimiento de la resina de esta publicación para hacer una capa fina sobre un cartel (ej. "Con 1 kg de esta resina podés cubrir aprox. 0,5 m² a 2 mm de espesor — alcanza para cartelitos de hasta X cm. Vertés sobre la base y queda con acabado cristalino."). Nunca jamás respondés con info de OTRA categoría de producto que no sea la de la publicación.',
       '   Sexto caso real (Marcos 2026-06-25, publicación MLA3221254752 "Resina Cristal Epoxi 1:1 500 ml"). Comprador preguntó "Hola, cuantos m2 rinde?". El agente respondió "Depende de qué producto estés usando y de qué espesor lo apliques. Para la Resina Cristal Epoxi 1:1 Con Filtro UV de esta publicación (500 ml = 250 ml A + 250 ml B): - A 1 mm de espesor: rinde aprox. 0,5 m² - A 2 mm de espesor: rinde aprox. 0,25 m²..." — el cuerpo tiene los datos correctos PERO la apertura "Depende de qué producto estés usando" sugiere falsamente que necesita más info cuando la publicación ya dice el producto. PROHIBIDO ese opener. La respuesta correcta arranca con el dato directo: "El kit de 500 ml de esta publicación rinde 0,5 m² a 1 mm de espesor y 0,25 m² a 2 mm." Sin "depende de qué producto", sin "para la resina de esta publicación" como rodeo — el agente ya sabe qué producto es.',
       '   Quinto caso real (Marcos 2026-06-24, publicación MLA2856630688 "Resina Epoxi Cristal 6 L"). Comprador preguntó "Hola, cual sería el volumen que ocupa? Saludos". El agente respondió "No especificás de qué volumen me preguntás — ¿es el volumen del paquete que ves en la publicación, o cuánto espacio ocupa cuando vertés la resina en un molde? Si es el tamaño físico del envase: 29,2 × 23,8 × 22,8 cm. Si es el volumen de resina útil: 6 litros (4 L Parte A + 2 L Parte B)." — la pregunta era ambigua entre dos lecturas y el agente PIDIÓ aclaración antes de responder, cuando ya tenía ambas respuestas listas debajo. PROHIBIDO. Si la pregunta admite dos lecturas y ambas se pueden contestar con info de la publicación, contestás LAS DOS de una sin pedir aclaración: "La caja mide 29,2 × 23,8 × 22,8 cm. El contenido útil son 6 litros de resina (4 L Parte A + 2 L Parte B)." Sin "no especificás", sin "¿es el X o el Y?", sin pedir al comprador que elija.',
@@ -1945,6 +1946,29 @@ IMPORTANTE sobre precios:
       { name: 'no puedo responder esa consulta', re: /^\s*[Nn]o puedo responder (?:esa|esta|tu|la)[^.!?\n]*[.!?\n]+\s*/g },
       { name: 'necesito saber qu[eé]', re: /^\s*[Nn]ecesito saber (?:qu[eé]|cu[aá]l)[^.!?\n]*[.!?\n]+\s*/g },
       { name: 'antes de responder', re: /^\s*[Aa]ntes de (?:responder|contestar|poder contestarte)[^.!?\n]*[.!?\n]+\s*/g },
+      // Marcos 2026-06-29 (MLA1480426253 — "tendrian el kit completo?
+      // Queria todos los productos para preparar el molde con la mano
+      // de mi hija y luego verterle la silicona"). El agente respondió
+      // "Necesito entender mejor qué kit buscás. La pregunta llega en
+      // esta publicación de Caucho de Silicona 2kg — pero 'kit
+      // completo para preparar molde' puede significar varias cosas.
+      // ¿Me confirmas qué querés hacer exactamente?". La pregunta era
+      // clara — la compradora explicó el caso de uso (molde de mano
+      // de su hija, después verter silicona). Misma familia de
+      // ask-back que se viene marcando. Strip de las tres formas que
+      // aparecieron juntas en este caso.
+      { name: 'necesito entender mejor', re: /^\s*[Nn]ecesito\s+entender\s+mejor[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'puede significar varias cosas', re: /\s*[Pp]ero\s+["“'].+?["”']\s+puede\s+significar[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'puede significar varias (suelto)', re: /\s*[Pp]uede\s+significar\s+varias\s+cosas[^.!?\n]*[.!?\n]+\s*/g },
+      // Marcos 2026-06-29 (MLA2856630688 — pregunta sobre temperatura
+      // de la resina). El agente arrancó con "¿Estás preguntando si
+      // esta Resina Epoxi Cristal de Altos Espesores (la publicación
+      // que estás mirando) resiste temperaturas altas? Sí, resiste —
+      // aguanta hasta 200°C...". El prefijo de clarificación es
+      // redundante (la pregunta es lo que es) y violatorio de la
+      // regla one-shot — strip del "¿Estás preguntando si...?" antes
+      // del "Sí, resiste".
+      { name: 'estas preguntando si', re: /^\s*¿\s*[Ee]st[áa]s\s+preguntando\s+si[^?]*\?\s*/g },
       // Marcos 2026-06-24 (MLA2856630688 — "Hola, cual sería el volumen
       // que ocupa? Saludos"): el agente arrancó con "No especificás de
       // qué volumen me preguntás — ¿es el volumen del paquete que ves
@@ -2037,6 +2061,14 @@ IMPORTANTE sobre precios:
       // prohibida (regla 7). Strip de la pregunta al final.
       /\s*¿\s*[Pp]ara\s+qu[eé]\s+(?:l[oa]s?\s+)?necesit[áa]s[^?]*\?\s*$/g,
       /\s*¿\s*[Pp]ara\s+qu[eé]\s+(?:proyecto|uso|aplicaci[oó]n)[^?]*\?\s*$/g,
+      // Marcos 2026-06-29 (MLA1480426253). "¿Me confirmas qué querés
+      // hacer exactamente?" / "¿Me confirmás qué necesitás?" —
+      // ask-back de clarificación que la regla 5.B prohíbe.
+      /\s*¿\s*[Mm]e\s+confirm[aá]s\s+qu[eé][^?]*\?\s*/g,
+      // Marcos 2026-06-29 (MLA2856630688). "¿Hay algo más que
+      // necesites saber sobre esta resina?" — open-ended close
+      // prohibida en regla 7 pero seguía emitida. Strip trailing.
+      /\s*¿\s*[Hh]ay\s+algo\s+m[áa]s\s+que\s+necesit[ea]s[^?]*\?\s*$/g,
       // Marcos 2026-06-24 (caso EDU_SENAC, Resina Epoxi Cristal):
       // cierres de oficina formal ("Quedo a disposición ante cualquier
       // otra duda.", "Quedo a la espera", "Atentamente Lucas", etc).
