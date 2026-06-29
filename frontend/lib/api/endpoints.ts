@@ -1011,7 +1011,9 @@ export const analyticsApi = {
   /**
    * GET /admin/analytics/role/atencion — Brenda's metrics cut.
    */
-  getAtencionMetrics: async (): Promise<{
+  // Marcos 2026-06-29: opts.userId opcional narrowea la métrica al
+  // agente puntual (chip click en el header). Sin arg = aggregado.
+  getAtencionMetrics: async (opts?: { userId?: string }): Promise<{
     alertThresholdMin: number;
     queueWaitingOverThreshold: number;
     avgFirstResponseSeconds: number | null;
@@ -1020,15 +1022,12 @@ export const analyticsApi = {
       lastMessage: string | null; escalatedAt: string | null; waitingMinutes: number;
     }>;
   }> => {
-    const r = await apiClient.get<any>("/admin/analytics/role/atencion");
-    // Backend wraps in { success, data } — unwrap.
+    const qs = opts?.userId ? `?userId=${encodeURIComponent(opts.userId)}` : '';
+    const r = await apiClient.get<any>(`/admin/analytics/role/atencion${qs}`);
     return r.data?.data ?? r.data;
   },
 
-  /**
-   * GET /admin/analytics/role/ventas — Franco's metrics cut.
-   */
-  getVentasMetrics: async (): Promise<{
+  getVentasMetrics: async (opts?: { userId?: string }): Promise<{
     mayoristasToday: number;
     mayoristasWeek: number;
     quoteFollowupMinutes: number;
@@ -1039,14 +1038,12 @@ export const analyticsApi = {
     conversionRate30d: number;
     conversionRate30dDetail: { won: number; lost: number; openQuoted: number };
   }> => {
-    const r = await apiClient.get<any>("/admin/analytics/role/ventas");
+    const qs = opts?.userId ? `?userId=${encodeURIComponent(opts.userId)}` : '';
+    const r = await apiClient.get<any>(`/admin/analytics/role/ventas${qs}`);
     return r.data?.data ?? r.data;
   },
 
-  /**
-   * GET /admin/analytics/role/logistica — Aldo's queue + stock view.
-   */
-  getLogisticaMetrics: async (): Promise<{
+  getLogisticaMetrics: async (opts?: { userId?: string }): Promise<{
     pendingOrders: number;
     overdueOrders: number;
     overdueThresholdHours: number;
@@ -1063,7 +1060,8 @@ export const analyticsApi = {
       status: string;
     }>;
   }> => {
-    const r = await apiClient.get<any>("/admin/analytics/role/logistica");
+    const qs = opts?.userId ? `?userId=${encodeURIComponent(opts.userId)}` : '';
+    const r = await apiClient.get<any>(`/admin/analytics/role/logistica${qs}`);
     return r.data?.data ?? r.data;
   },
 

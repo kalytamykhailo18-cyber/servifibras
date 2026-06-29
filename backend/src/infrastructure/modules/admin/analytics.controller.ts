@@ -56,22 +56,24 @@ export class AnalyticsController {
    * Per-role dashboard cuts (Marcos's redesign).
    * Each route is gated to the role that should see it; ADMIN sees all.
    */
+  // Marcos 2026-06-29: ?userId= opcional para narrowear la métrica al
+  // agente puntual (chip click del header). Sin param = aggregado.
   @Get('role/atencion')
-  @Roles(UserRole.ADMIN, UserRole.ATENCION)
-  async getAtencionMetrics() {
-    return { success: true, data: await this.roleMetrics.getAtencionMetrics() };
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.ENCARGADO)
+  async getAtencionMetrics(@Query('userId') userId?: string) {
+    return { success: true, data: await this.roleMetrics.getAtencionMetrics(userId || undefined) };
   }
 
   @Get('role/ventas')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS)
-  async getVentasMetrics() {
-    return { success: true, data: await this.roleMetrics.getVentasMetrics() };
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ENCARGADO)
+  async getVentasMetrics(@Query('userId') userId?: string) {
+    return { success: true, data: await this.roleMetrics.getVentasMetrics(userId || undefined) };
   }
 
   @Get('role/logistica')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
-  async getLogisticaMetrics() {
-    return { success: true, data: await this.roleMetrics.getLogisticaMetrics() };
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  async getLogisticaMetrics(@Query('userId') userId?: string) {
+    return { success: true, data: await this.roleMetrics.getLogisticaMetrics(userId || undefined) };
   }
 
   @Get('role/admin')

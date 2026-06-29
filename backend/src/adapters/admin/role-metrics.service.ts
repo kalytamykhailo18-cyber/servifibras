@@ -155,7 +155,12 @@ export class RoleMetricsService {
   private readonly prisma = new PrismaClient();
 
   // ATENCION ----------------------------------------------------------------
-  async getAtencionMetrics(): Promise<AtencionMetrics> {
+  // Marcos 2026-06-29: `userId` opcional para narrowear la card al
+  // agente puntual (click en chip del header). Cuando no viene =
+  // métrica agregada como siempre. La attribution se hace por
+  // (a) conversation.assignedTo (cola + unresueltas) y por
+  // (b) message.authorId (latencia primera-respuesta).
+  async getAtencionMetrics(userId?: string): Promise<AtencionMetrics> {
     const threshold = num('BRENDA_ALERT_THRESHOLD_MIN', 10);
     const cutoff = new Date(Date.now() - threshold * 60 * 1000);
 
@@ -164,15 +169,17 @@ export class RoleMetricsService {
         isSandbox: false,
         needsHumanAttention: true,
         escalatedAt: { lt: cutoff },
+        ...(userId ? { assignedTo: userId } : {}),
       },
     });
 
-    // Avg first-response latency over last 7d. For each conversation that
-    // has at least one customer message AND at least one staff/admin reply,
-    // compute (firstStaffAt - firstCustomerAt) and average them.
     const since = new Date(Date.now() - recentWindowMs());
     const recentConvs = await this.prisma.conversation.findMany({
-      where: { isSandbox: false, createdAt: { gte: since } },
+      where: {
+        isSandbox: false,
+        createdAt: { gte: since },
+        ...(userId ? { assignedTo: userId } : {}),
+      },
       include: {
         messages: {
           orderBy: { timestamp: 'asc' },
@@ -186,7 +193,13 @@ export class RoleMetricsService {
     const latencies: number[] = [];
     for (const c of recentConvs) {
       const firstCust = c.messages.find((m) => m.sender === MessageSender.CUSTOMER);
-      const firstStaff = c.messages.find((m) => STAFF.includes(m.sender));
+      // Cuando hay userId filtramos por authorId — el primer mensaje de
+      // staff que sale del CRM con authorId === userId; el enum sender
+      // no distingue users individuales así que sin authorId el match
+      // sería ambiguo. Sin userId vale cualquier staff.
+      const firstStaff = userId
+        ? c.messages.find((m) => m.authorId === userId && STAFF.includes(m.sender))
+        : c.messages.find((m) => STAFF.includes(m.sender));
       if (!firstCust || !firstStaff) continue;
       if (firstStaff.timestamp.getTime() <= firstCust.timestamp.getTime()) continue;
       latencies.push(firstStaff.timestamp.getTime() - firstCust.timestamp.getTime());
@@ -195,11 +208,13 @@ export class RoleMetricsService {
       ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000)
       : null;
 
-    // Unresolved-by-AI: conversation status WAITING + last message is from AI
-    // (or last message is from CUSTOMER followed by no human reply, but the
-    // simpler proxy is the WAITING+needsHumanAttention combination).
     const unresolved = await this.prisma.conversation.findMany({
-      where: { isSandbox: false, needsHumanAttention: true, status: ConversationStatus.WAITING },
+      where: {
+        isSandbox: false,
+        needsHumanAttention: true,
+        status: ConversationStatus.WAITING,
+        ...(userId ? { assignedTo: userId } : {}),
+      },
       include: {
         contact: { select: { name: true } },
       },
@@ -223,16 +238,21 @@ export class RoleMetricsService {
   }
 
   // VENTAS ------------------------------------------------------------------
-  async getVentasMetrics(): Promise<VentasMetrics> {
+  // Marcos 2026-06-29: userId opcional. Filtro por lead.assignedTo en
+  // todas las consultas para narrowear los mayoristas/quotes/conversion
+  // al agente puntual.
+  async getVentasMetrics(userId?: string): Promise<VentasMetrics> {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const weekAgo = new Date(Date.now() - recentWindowMs());
 
+    const assignFilter = userId ? { assignedTo: userId } : {};
+
     const mayoristasToday = await this.prisma.lead.count({
-      where: { createdAt: { gte: startOfDay } },
+      where: { createdAt: { gte: startOfDay }, ...assignFilter },
     });
     const mayoristasWeek = await this.prisma.lead.count({
-      where: { createdAt: { gte: weekAgo } },
+      where: { createdAt: { gte: weekAgo }, ...assignFilter },
     });
 
     const followupMinutes = quoteFollowupMinutes();
@@ -241,6 +261,7 @@ export class RoleMetricsService {
       where: {
         status: LeadStatus.QUOTE_SENT,
         updatedAt: { lt: followupCutoff },
+        ...assignFilter,
       },
       include: { contact: { select: { name: true } } },
       orderBy: { updatedAt: 'asc' },
@@ -250,7 +271,7 @@ export class RoleMetricsService {
     const since30 = new Date(Date.now() - longWindowMs());
     const buckets = await this.prisma.lead.groupBy({
       by: ['status'],
-      where: { updatedAt: { gte: since30 } },
+      where: { updatedAt: { gte: since30 }, ...assignFilter },
       _count: { _all: true },
     });
     const counts = Object.fromEntries(
@@ -280,7 +301,14 @@ export class RoleMetricsService {
   }
 
   // LOGISTICA ---------------------------------------------------------------
-  async getLogisticaMetrics(): Promise<LogisticaMetrics> {
+  // Marcos 2026-06-29: userId opcional. Para logística la attribution
+  // se hace por dos vías: (a) conversationsAssigned filtra
+  // conversation.assignedTo === userId; (b) dispatchedRecent narrowea
+  // a las filas logistica_armado stampedById === userId con listoAt
+  // o manuallyDispatchedAt dentro de la ventana. pendingOrders /
+  // overdueOrders / lowStockProducts / pendingTop son del sistema y
+  // no per-agente — quedan agregados.
+  async getLogisticaMetrics(userId?: string): Promise<LogisticaMetrics> {
     const overdueThresholdHours = num('LOGISTICA_OVERDUE_HOURS', 48);
     const dispatchedWindowDays = num('LOGISTICA_DISPATCHED_WINDOW_DAYS', 7);
     const now = Date.now();
@@ -304,10 +332,6 @@ export class RoleMetricsService {
           createdAt: { lt: overdueCutoff },
         },
       }),
-      // Low-stock: stockQuantity <= per-product threshold (or env
-      // fallback). Counted on inStock=true rows so we don't double-flag
-      // already-out products. Prisma can't compare two columns
-      // natively, so we fan out a raw query.
       this.prisma.$queryRaw<Array<{ count: bigint }>>`
         SELECT COUNT(*) AS count
         FROM "products"
@@ -323,13 +347,27 @@ export class RoleMetricsService {
         where: {
           isSandbox: false,
           status: { in: [ConversationStatus.ACTIVE, ConversationStatus.WAITING] },
-          assigned: { role: UserRole.LOGISTICA },
+          ...(userId
+            ? { assignedTo: userId }
+            : { assigned: { role: UserRole.LOGISTICA } }),
         },
       }),
-      this.prisma.order.count({
+      // Marcos 2026-06-29: ambos paths usan logistica_armado como
+      // fuente de verdad de "despachado" — el OR (listoAt OR
+      // manuallyDispatchedAt) en la ventana. Antes el aggregate
+      // contaba Order.status=DISPATCHED + dispatchedAt, que en este
+      // sistema queda en 0 (el flow no avanza Order a DISPATCHED).
+      // Resultado: el agregado mostraba 0 mientras que el operador
+      // tildaba cientos de rows como LISTO — engañoso. Ahora el
+      // agregado refleja la actividad real y el per-user es un
+      // subset coherente.
+      this.prisma.logisticaArmado.count({
         where: {
-          status: OrderStatus.DISPATCHED,
-          dispatchedAt: { gte: dispatchedSince },
+          ...(userId ? { stampedById: userId } : {}),
+          OR: [
+            { listoAt: { gte: dispatchedSince } },
+            { manuallyDispatchedAt: { gte: dispatchedSince } },
+          ],
         },
       }),
       this.prisma.order.findMany({

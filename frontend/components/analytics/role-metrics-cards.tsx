@@ -68,15 +68,17 @@ function deltaPill(deltaPct: number) {
 // /admin/users + chips por rol. Métrica per-user (filtrar por
 // assignedTo del user) sigue como follow-up (requiere refactor del
 // backend role-metrics).
-function AgentChips({ role }: { role: UserRole }) {
+function AgentChips({
+  role,
+  selectedUserId,
+  onSelect,
+}: {
+  role: UserRole;
+  selectedUserId: string | null;
+  onSelect: (userId: string | null) => void;
+}) {
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
   useEffect(() => {
-    // Marcos 2026-06-29: incluyo ENCARGADO en cada card operacional —
-    // verificado con la data en /admin/users: Brenda y Aldo, que el
-    // título antes hardcodeaba en Atención y Logística, son role=
-    // ENCARGADO (no role=ATENCION/LOGISTICA). El RolesGuard ya hace
-    // herencia (ENCARGADO accede a endpoints ATENCION/LOGISTICA);
-    // la analítica refleja esa misma inclusión.
     const acceptedRoles = new Set<string>([role as string, UserRole.ENCARGADO as string]);
     api.users
       .list({ activeOnly: true })
@@ -88,20 +90,43 @@ function AgentChips({ role }: { role: UserRole }) {
       .catch(() => setUsers([]));
   }, [role]);
   if (!users || users.length === 0) return null;
+  // Marcos 2026-06-29: chips clickables — seleccionar uno narrowea la
+  // card al agente puntual. "Todos" vuelve al agregado de rol.
+  const todosActive = selectedUserId === null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
       <span className="text-[10px] uppercase tracking-wider text-slate-500">
         {users.length === 1 ? 'Agente' : `${users.length} agentes`}
       </span>
-      {users.map((u) => (
-        <span
-          key={u.id}
-          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50/70 px-2 py-0.5 text-[10.5px] font-medium text-slate-700"
-          title={u.email}
-        >
-          {u.name}
-        </span>
-      ))}
+      <button
+        type="button"
+        onClick={() => onSelect(null)}
+        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition ${
+          todosActive
+            ? 'border-slate-900 bg-slate-900 text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+        }`}
+      >
+        Todos
+      </button>
+      {users.map((u) => {
+        const active = selectedUserId === u.id;
+        return (
+          <button
+            key={u.id}
+            type="button"
+            onClick={() => onSelect(active ? null : u.id)}
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition ${
+              active
+                ? 'border-slate-900 bg-slate-900 text-white'
+                : 'border-slate-200 bg-slate-50/70 text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+            }`}
+            title={u.email}
+          >
+            {u.name}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -111,11 +136,15 @@ function AgentChips({ role }: { role: UserRole }) {
 function AtencionCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getAtencionMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Marcos 2026-06-29: selected agent narrowing.
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   useEffect(() => {
-    api.analytics.getAtencionMetrics()
+    setData(null);
+    setError(null);
+    api.analytics.getAtencionMetrics(selectedUserId ? { userId: selectedUserId } : undefined)
       .then(setData)
       .catch((e) => setError(e?.message || "error"));
-  }, []);
+  }, [selectedUserId]);
 
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
@@ -126,7 +155,7 @@ function AtencionCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Atención</h3>
           <p className="text-[11px] text-slate-500">Cola, latencia, conversaciones sin resolver</p>
-          <AgentChips role={UserRole.ATENCION} />
+          <AgentChips role={UserRole.ATENCION} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
         </div>
       </div>
 
@@ -200,11 +229,14 @@ function AtencionCard() {
 function VentasCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getVentasMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   useEffect(() => {
-    api.analytics.getVentasMetrics()
+    setData(null);
+    setError(null);
+    api.analytics.getVentasMetrics(selectedUserId ? { userId: selectedUserId } : undefined)
       .then(setData)
       .catch((e) => setError(e?.message || "error"));
-  }, []);
+  }, [selectedUserId]);
 
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
@@ -215,7 +247,7 @@ function VentasCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Ventas</h3>
           <p className="text-[11px] text-slate-500">Mayoristas, presupuestos y conversión</p>
-          <AgentChips role={UserRole.VENTAS} />
+          <AgentChips role={UserRole.VENTAS} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
         </div>
       </div>
 
@@ -296,11 +328,14 @@ function VentasCard() {
 function LogisticaCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getLogisticaMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   useEffect(() => {
-    api.analytics.getLogisticaMetrics()
+    setData(null);
+    setError(null);
+    api.analytics.getLogisticaMetrics(selectedUserId ? { userId: selectedUserId } : undefined)
       .then(setData)
       .catch((e) => setError(e?.message || "error"));
-  }, []);
+  }, [selectedUserId]);
 
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
@@ -311,7 +346,7 @@ function LogisticaCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Logística</h3>
           <p className="text-[11px] text-slate-500">Pedidos por despachar, atrasos y stock bajo</p>
-          <AgentChips role={UserRole.LOGISTICA} />
+          <AgentChips role={UserRole.LOGISTICA} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
         </div>
       </div>
 
