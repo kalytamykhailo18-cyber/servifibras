@@ -548,6 +548,46 @@ export class MercadoLibreService implements IMercadoLibreService {
           // operador ve la historia completa de la disputa en la
           // misma bubble. Cada uno prefijado con quién lo mandó +
           // fecha corta.
+          // Marcos 2026-06-29 (reclamo 51410476 — mediador 29/6
+          // mostraba <p dir="ltr"><span style="white-space:pre-wrap">…
+          // como texto crudo): ML manda los mensajes del mediador en
+          // HTML formateado. Strip tags + decodificación de entidades
+          // comunes para que el panel reciba texto plano. Aplicamos a
+          // todos los mensajes (comprador a veces también pega con
+          // formato) — el reclamo es contenido text-only, no hay
+          // razón para preservar HTML.
+          const stripHtmlAndDecode = (raw: string): string => {
+            if (!raw) return '';
+            const entities: Record<string, string> = {
+              '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+              '&quot;': '"', '&#39;': "'", '&apos;': "'",
+              // Marcos 2026-06-29: ML mediador encodea acentos como
+              // entidades (á → &aacute;, etc). Sin esto el texto
+              // limpio se ve "podrás" → "podr&aacute;s". Cubro las
+              // 12 más comunes de español + ñ/¿/¡.
+              '&aacute;': 'á', '&eacute;': 'é', '&iacute;': 'í', '&oacute;': 'ó', '&uacute;': 'ú',
+              '&Aacute;': 'Á', '&Eacute;': 'É', '&Iacute;': 'Í', '&Oacute;': 'Ó', '&Uacute;': 'Ú',
+              '&ntilde;': 'ñ', '&Ntilde;': 'Ñ',
+              '&iexcl;': '¡', '&iquest;': '¿',
+              '&uuml;': 'ü', '&Uuml;': 'Ü',
+            };
+            let cleaned = raw
+              .replace(/<\s*br\s*\/?>/gi, '\n')
+              .replace(/<\/?\s*p\b[^>]*>/gi, '\n')
+              .replace(/<[^>]+>/g, '');
+            for (const [ent, ch] of Object.entries(entities)) {
+              cleaned = cleaned.split(ent).join(ch);
+            }
+            // Numeric entities (decimal + hex). Más raros pero ML
+            // a veces los manda.
+            cleaned = cleaned
+              .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+              .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+            return cleaned
+              .replace(/\n{3,}/g, '\n\n')
+              .replace(/[ \t]+\n/g, '\n')
+              .trim();
+          };
           const threadMsgs = arr
             .map((m: any) => {
               const role = String(m?.sender_role ?? '').toLowerCase();
@@ -560,7 +600,7 @@ export class MercadoLibreService implements IMercadoLibreService {
               else sender = 'vendedor';
               return {
                 sender,
-                text: String(m?.message ?? m?.text ?? '').trim(),
+                text: stripHtmlAndDecode(String(m?.message ?? m?.text ?? '')),
                 dateRaw: m?.date_created ?? m?.created_at ?? m?.last_updated ?? null,
               };
             })
