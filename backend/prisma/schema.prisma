@@ -1188,6 +1188,15 @@ model PostalCodeZone {
   /// (CABA, GBA1, GBA2, GBA3, etc).
   zone               String
   province           String?
+  /// Marcos 2026-06-29 (Despachos por mensajería): default mensajería
+  /// para CPs/localidades donde el operador NO seteó manualmente cuál
+  /// fue el courier. El analytics service usa este campo como fallback
+  /// después de chequear flexCourier (manual del operador) y el
+  /// source carrier. Null = no hay default cargado para esta fila →
+  /// la fila cae en "Sin asignar" como antes. Se carga vía el mismo
+  /// upload de Excel que las tarifas (columna opcional "mensajeria"
+  /// o "carrier").
+  defaultCarrier     String?
   active             Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

@@ -292,7 +292,7 @@ export function LogisticaForm() {
         <div>
           <h4 className="text-sm font-semibold text-slate-900">Tarifas de envío (localidad + CP)</h4>
           <p className="mt-0.5 text-xs text-slate-500">
-            Subí la planilla con columnas <code className="rounded bg-slate-100 px-1">localidad</code>, <code className="rounded bg-slate-100 px-1">cp</code>, <code className="rounded bg-slate-100 px-1">zona</code> (CABA / GBA1 / GBA2 / GBA3 / Nacional). Opcional: <code className="rounded bg-slate-100 px-1">provincia</code>. CABA va como rango (<code className="rounded bg-slate-100 px-1">1000-1499</code>) y se expande al cargar. El panel resuelve por localidad primero, después por CP — si los dos resultados difieren, gana la zona más cara. La carga reemplaza la tabla anterior (siempre subís el archivo completo).
+            Subí la planilla con columnas <code className="rounded bg-slate-100 px-1">localidad</code>, <code className="rounded bg-slate-100 px-1">cp</code>, <code className="rounded bg-slate-100 px-1">zona</code> (CABA / GBA1 / GBA2 / GBA3 / Nacional). Opcionales: <code className="rounded bg-slate-100 px-1">provincia</code>, <code className="rounded bg-slate-100 px-1">mensajeria</code> (default por CP/localidad — Despachos por mensajería lo usa cuando el operador no picó manualmente la mensajería en el armado). CABA va como rango (<code className="rounded bg-slate-100 px-1">1000-1499</code>) y se expande al cargar. El panel resuelve por localidad primero, después por CP — si los dos resultados difieren, gana la zona más cara. La carga reemplaza la tabla anterior (siempre subís el archivo completo).
           </p>
         </div>
         <input

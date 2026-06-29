@@ -261,7 +261,16 @@ export function DispatchStatsCard() {
                     </button>
                     {isOpen && (
                       <div className="border-t border-slate-100 divide-y divide-slate-100">
-                        {c.byZone.length > 0 && c.totalShippingCost > 0 && (
+                        {/* Marcos 2026-06-29: antes este bloque
+                            estaba gateado por totalShippingCost > 0,
+                            así los grupos sin "cobrado" cargado
+                            (típicamente carriers nuevos o packs que
+                            ML no expone shipping_cost) escondían la
+                            breakdown por zona — la pregunta de
+                            segmentación por CP no se podía contestar
+                            visualmente. Bajamos el gate: si la fila
+                            tiene zonas, las mostramos. */}
+                        {c.byZone.length > 0 && (
                           <ul
                             className="bg-amber-50/40 divide-y divide-amber-100"
                             data-testid={`dispatch-stats-zones-${c.carrier.replace(/\s+/g, '-')}`}

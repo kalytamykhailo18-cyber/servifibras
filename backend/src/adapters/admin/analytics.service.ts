@@ -952,7 +952,37 @@ export class AnalyticsService implements IAnalyticsService {
         rawCarrier = s.flexCourier?.trim() || null;
         orderNumber = s.rowKey;
       }
-      const carrier = this.normaliseCarrier(rawCarrier);
+      // Marcos 2026-06-29: si la normalización tira "Sin asignar"
+      // (típicamente label TN del estilo "CABA GRATUITO" sin que el
+      // operador haya picado mensajería), miramos el defaultCarrier
+      // cargado por el admin. Doble fallback:
+      //   (a) per-CP/localidad — cuando el contacto tiene metadata
+      //   (b) per-zone — cuando el TN label embebe la zona
+      //       ("CABA GRATUITO" → CABA) pero el contacto no tiene
+      //       postalCode/locality (común en TN orders viejas)
+      // El zone-level lookup usa majority vote sobre las filas de
+      // postal_code_zones con defaultCarrier seteado.
+      let carrier = this.normaliseCarrier(rawCarrier);
+      if (carrier === 'Sin asignar' && this.postalZones && cpZoneCache) {
+        // Path (a): per-CP/localidad
+        const resolved = this.postalZones.resolveZone({ locality, cp: postalCode }, cpZoneCache);
+        if (resolved?.defaultCarrier) {
+          carrier = this.normaliseCarrier(resolved.defaultCarrier);
+        } else {
+          // Path (b): per-zone via label/source-derived zone
+          const labelZone =
+            this.deriveZoneFromShippingLabel(shippingLabel) ??
+            this.deriveZoneFromShippingLabel(rawCarrier) ??
+            this.provinceToZone(shippingZone) ??
+            (typeof shippingZone === 'string' ? shippingZone : null);
+          if (labelZone) {
+            const zoneDefault = this.postalZones.getDefaultCarrierForZone(labelZone, cpZoneCache);
+            if (zoneDefault) {
+              carrier = this.normaliseCarrier(zoneDefault);
+            }
+          }
+        }
+      }
       bumpGroup(carrier, {
         rowKey: s.rowKey,
         orderNumber,

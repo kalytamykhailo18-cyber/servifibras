@@ -51,12 +51,28 @@ export interface ResolverResult {
   zone: string | null;
   locality: string | null;
   source: ResolverSource;
+  /**
+   * Marcos 2026-06-29: la fila resuelta (si la hay) trae también la
+   * mensajería default cargada por el admin. El analytics service
+   * (Despachos por mensajería) la usa como fallback antes de mandar
+   * filas a "Sin asignar" — flexCourier del operador > source carrier
+   * conocido > defaultCarrier del mapping CP/localidad > "Sin asignar".
+   */
+  defaultCarrier: string | null;
 }
 
 export interface ZoneCache {
   byLocalityExact: Map<string, PostalCodeZone>;
   byLocalityNormalized: Map<string, PostalCodeZone>;
   byCp: Map<string, PostalCodeZone>;
+  /**
+   * Marcos 2026-06-29: zone → mensajería default (resuelto por
+   * majority vote sobre las filas con defaultCarrier seteado de esa
+   * zona). El analytics service lo usa en la cascada cuando el
+   * resolveZone por CP/localidad no devolvió hit (común para TN
+   * orders sin postalCode en contact.metadata).
+   */
+  defaultCarrierByZone: Map<string, string>;
 }
 
 /** Normalizacion canonica para CPs — uppercase + sin guiones/espacios. */
@@ -128,7 +144,7 @@ export class PostalCodeZoneService {
    * + 'expandedRows: 632' separadamente.
    */
   parseBuffer(buf: Buffer): {
-    rows: Array<{ cp: string; locality: string; zone: string; province: string | null }>;
+    rows: Array<{ cp: string; locality: string; zone: string; province: string | null; defaultCarrier: string | null }>;
     invalid: Array<{ rowIndex: number; reason: string }>;
   } {
     const wb = XLSX.read(buf, { type: 'buffer', codepage: 65001 });
@@ -142,11 +158,15 @@ export class PostalCodeZoneService {
     const zoneCol = headers.findIndex((h) => h === 'zona' || h === 'zone');
     const locCol = headers.findIndex((h) => h === 'localidad' || h === 'locality' || h === 'ciudad' || h === 'partido');
     const provCol = headers.findIndex((h) => h === 'provincia' || h === 'province' || h === 'estado');
+    // Marcos 2026-06-29: columna opcional para el default mensajería
+    // por CP/localidad. El analytics lo usa como fallback cuando el
+    // operador no setea manualmente el courier en /logistica-diaria.
+    const carrierCol = headers.findIndex((h) => h === 'mensajeria' || h === 'mensajería' || h === 'carrier' || h === 'courier');
     if (cpCol < 0 || zoneCol < 0 || locCol < 0) {
       throw new Error(`columnas minimas (localidad, cp, zona) no encontradas — headers leidos: ${headers.join(', ')}`);
     }
 
-    const rows: Array<{ cp: string; locality: string; zone: string; province: string | null }> = [];
+    const rows: Array<{ cp: string; locality: string; zone: string; province: string | null; defaultCarrier: string | null }> = [];
     const invalid: Array<{ rowIndex: number; reason: string }> = [];
     for (let i = 1; i < grid.length; i++) {
       const r = grid[i];
@@ -156,11 +176,15 @@ export class PostalCodeZoneService {
       if (!locality) { invalid.push({ rowIndex: i + 1, reason: 'Localidad vacia' }); continue; }
       if (!cpRaw) { invalid.push({ rowIndex: i + 1, reason: `${locality} sin CP asignado` }); continue; }
       if (!zone) { invalid.push({ rowIndex: i + 1, reason: `${locality} (${cpRaw}) sin zona asignada` }); continue; }
+      const defaultCarrier = carrierCol >= 0
+        ? (String(r[carrierCol] ?? '').trim().slice(0, 60) || null)
+        : null;
       rows.push({
         cp: cpRaw,
         locality: locality.slice(0, 120),
         zone: zone.slice(0, 40),
         province: provCol >= 0 ? (String(r[provCol] ?? '').trim().slice(0, 120) || null) : null,
+        defaultCarrier,
       });
     }
     return { rows, invalid };
@@ -173,7 +197,7 @@ export class PostalCodeZoneService {
    * transaccion roll-back y el panel sigue con el mapping anterior.
    */
   async applyMapping(
-    rows: Array<{ cp: string; locality: string; zone: string; province: string | null }>,
+    rows: Array<{ cp: string; locality: string; zone: string; province: string | null; defaultCarrier?: string | null }>,
     invalid: Array<{ rowIndex: number; reason: string }> = [],
   ): Promise<PostalCodeZoneUploadResult> {
     const result: PostalCodeZoneUploadResult = {
@@ -189,7 +213,7 @@ export class PostalCodeZoneService {
 
     // Expandir ranges. CABA = '1000-1499' → 500 filas. Cada fila
     // resultante hereda locality + zone + province del row origen.
-    type ExpandedRow = { cp: string; locality: string; localityNormalized: string; zone: string; province: string | null };
+    type ExpandedRow = { cp: string; locality: string; localityNormalized: string; zone: string; province: string | null; defaultCarrier: string | null };
     const expanded: ExpandedRow[] = [];
     const seen = new Set<string>(); // (cp, localityNormalized) dedup
     for (const r of rows) {
@@ -210,6 +234,7 @@ export class PostalCodeZoneService {
           localityNormalized,
           zone: r.zone,
           province: r.province,
+          defaultCarrier: r.defaultCarrier ?? null,
         });
       }
     }
@@ -228,6 +253,7 @@ export class PostalCodeZoneService {
           localityNormalized: e.localityNormalized,
           zone: e.zone,
           province: e.province,
+          defaultCarrier: e.defaultCarrier,
           active: true,
         })),
         skipDuplicates: true,
@@ -253,21 +279,63 @@ export class PostalCodeZoneService {
       byLocalityExact: new Map(),
       byLocalityNormalized: new Map(),
       byCp: new Map(),
+      defaultCarrierByZone: new Map(),
     };
+    // Marcos 2026-06-29: agregamos un mapa zone → defaultCarrier
+    // derivado del set de filas. Usamos majority vote por zona —
+    // si el admin marcó "CABA → JyJ" en la mayoría de las CABA rows
+    // (esperado uso normal: bulk upload con la columna mensajeria
+    // poblada uniformemente), gana JyJ. Si hay empate o vacío, no
+    // hay default y los packs sin metadata caen en "Sin asignar"
+    // como antes.
+    const tally = new Map<string, Map<string, number>>(); // zone → carrier → count
     for (const r of rows) {
       const exactKey = r.locality.toLowerCase().trim();
       cache.byLocalityExact.set(exactKey, r);
       cache.byLocalityNormalized.set(r.localityNormalized, r);
-      // El CP puede aparecer N veces con localities distintas. Si
-      // hay multiples, dejamos en el cache la que tiene la zona mas
-      // alta — esto matchea el tie-break del resolver para no
-      // depender del orden de iteracion.
       const existing = cache.byCp.get(r.cp);
       if (!existing || this.zoneTier(r.zone) > this.zoneTier(existing.zone)) {
         cache.byCp.set(r.cp, r);
       }
+      const dc = (r as any).defaultCarrier as string | null | undefined;
+      if (dc && dc.trim().length > 0) {
+        const zoneKey = r.zone;
+        const carrierKey = dc.trim();
+        const inner = tally.get(zoneKey) ?? new Map<string, number>();
+        inner.set(carrierKey, (inner.get(carrierKey) ?? 0) + 1);
+        tally.set(zoneKey, inner);
+      }
+    }
+    for (const [zone, inner] of tally) {
+      let bestCarrier: string | null = null;
+      let bestCount = 0;
+      for (const [carrier, count] of inner) {
+        if (count > bestCount) { bestCarrier = carrier; bestCount = count; }
+      }
+      if (bestCarrier) {
+        // Marcos 2026-06-29: normalizamos la clave (sin espacios,
+        // uppercase) porque el zone derivado del shipping-label TN
+        // viene como "GBA 1 GRATIS" → "GBA 1" mientras que la DB
+        // tiene "GBA1". El lookup en getDefaultCarrierForZone usa
+        // la misma normalización.
+        const normZone = zone.replace(/\s+/g, '').toUpperCase();
+        cache.defaultCarrierByZone.set(normZone, bestCarrier);
+      }
     }
     return cache;
+  }
+
+  /**
+   * Marcos 2026-06-29: lookup zone → mensajería default. Devuelve el
+   * carrier que está marcado como default en la mayoría de las filas
+   * de esa zona. Null cuando no hay default cargado o cuando la
+   * zona es desconocida. Lo usa el analytics para rellenar "Sin
+   * asignar" cuando ni flexCourier ni source carrier resolvieron.
+   */
+  getDefaultCarrierForZone(zone: string, cache: ZoneCache): string | null {
+    if (!zone) return null;
+    const normZone = zone.replace(/\s+/g, '').toUpperCase();
+    return cache.defaultCarrierByZone.get(normZone) ?? null;
   }
 
   /**
@@ -303,8 +371,8 @@ export class PostalCodeZoneService {
     if (hits.length === 0) {
       const def = this.defaultZone();
       return def
-        ? { zone: def, locality: null, source: 'default' }
-        : { zone: null, locality: null, source: 'none' };
+        ? { zone: def, locality: null, source: 'default', defaultCarrier: null }
+        : { zone: null, locality: null, source: 'none', defaultCarrier: null };
     }
 
     // Tie-break: tier mas alto gana. En caso de empate, gana
@@ -323,7 +391,12 @@ export class PostalCodeZoneService {
       return sourceOrder[a.source] - sourceOrder[b.source];
     });
     const winner = hits[0];
-    return { zone: winner.row.zone, locality: winner.row.locality, source: winner.source };
+    return {
+      zone: winner.row.zone,
+      locality: winner.row.locality,
+      source: winner.source,
+      defaultCarrier: (winner.row as any).defaultCarrier ?? null,
+    };
   }
 
   /** Lookup async on-demand — para callers fuera del aggregator. */
