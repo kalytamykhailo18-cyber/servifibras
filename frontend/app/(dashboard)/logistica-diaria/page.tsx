@@ -20,6 +20,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
+import { useAuthStore, selectUserRole } from "@/lib/store/auth-store";
+import { SinAsignarBanner } from "@/components/logistica/sin-asignar-banner";
 import {
   api,
   type AggregatedDay,
@@ -95,6 +97,7 @@ function todayIsoDay(): string {
 
 export default function LogisticaDiariaPage() {
   const { isAllowed } = useRoleGuard(ROLES);
+  const role = useAuthStore(selectUserRole);
   const [date, setDate] = useState<string>(todayIsoDay());
   const [data, setData] = useState<AggregatedDay | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1083,33 +1086,14 @@ export default function LogisticaDiariaPage() {
       )}
 
       {/* SIN ASIGNAR HINT — Marcos 2026-06-30: cuando el cascade
-          deja muchos rows "Sin asignar" (porque ningún operador picó
-          mensajería en la fila y el postal_code_zones.defaultCarrier
-          de la zona no está seteado), surface un atajo a las
-          recomendaciones auto en Configuración → Logística. Click
-          ahí + Aplicar drena el bucket sin intervención fila por fila.
-          Solo ADMIN ve el botón (los demás verían "Sin asignar"
-          como info, sin acción). */}
-      {tab !== 'despachadas' && data?.carrierSummary && (() => {
-        const sinAsignar = data.carrierSummary.find((c) => c.carrier === 'Sin asignar');
-        const tabKey = tab === 'pendientes' ? 'pending' : 'listas';
-        const sinCount = sinAsignar ? sinAsignar[tabKey] : 0;
-        if (sinCount === 0) return null;
-        return (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-2.5 text-xs">
-            <WarningAmberIcon sx={{ fontSize: 16 }} className="text-amber-600" />
-            <span className="text-amber-900">
-              <span className="font-semibold tabular-nums">{sinCount}</span> {sinCount === 1 ? "pedido" : "pedidos"} sin mensajería asignada.
-            </span>
-            <a
-              href="/configuracion?tab=logistica"
-              className="ml-auto inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-800 transition hover:bg-amber-50"
-            >
-              Configurar mensajería por zona →
-            </a>
-          </div>
-        );
-      })()}
+          deja muchos rows "Sin asignar", el banner ahora aplica las
+          recomendaciones high-confidence directamente (sin navegar
+          a Configuración) si el usuario es ADMIN. Operadores no-admin
+          ven solo el conteo + un link al panel de configuración. */}
+      <SinAsignarBanner data={data} tab={tab} onApplied={() => void load({ background: true })} userRole={role} />
+
+      {/* MENSAJERÍA DISTRIBUTION — Marcos 2026-06-30: chips de
+          distribución por mensajería sobre los packs pendientes/listos.
 
       {/* MENSAJERÍA DISTRIBUTION — Marcos 2026-06-30: chips de
           distribución por mensajería sobre los packs pendientes/listos.
