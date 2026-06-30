@@ -78,6 +78,15 @@ export interface TnRawOrder {
     province?: string | null;
     state?: string | null;
     city?: string | null;
+    /** Marcos 2026-06-30: TN devuelve zipcode / postal_code / cp
+     *  según versión de la API. Lo capturamos al contact.metadata
+     *  para que el cascade per-CP/zona del recommender + del panel
+     *  Despachos resuelva al GBA específico en vez de colapsar todo
+     *  a "Buenos Aires" sin granularidad. */
+    zipcode?: string | null;
+    postal_code?: string | null;
+    cp?: string | null;
+    locality?: string | null;
   } | null;
   /** Marcos 2026-06-10: TN stamps this when the seller cancels the
    *  order. Drives our CANCELLED bucketing alongside the legacy
@@ -295,6 +304,39 @@ export class TiendaNubeOrdersSyncService {
       const state    = raw.shipping_address?.state?.toString().trim();
       return province || state || null;
     })();
+    // Marcos 2026-06-30: capturar CP + localidad al contact.metadata
+    // así el cascade per-CP/zona (recommender + panel Despachos) puede
+    // resolver al GBA específico. Antes la metadata sólo guardaba
+    // tiendanubeCustomerId, y BUENOS AIRES quedaba como bucket único
+    // de provincia. updateMany para no romper si ya hay otra metadata.
+    const cp = (
+      raw.shipping_address?.zipcode ??
+      raw.shipping_address?.postal_code ??
+      raw.shipping_address?.cp ??
+      null
+    );
+    const locality = (
+      raw.shipping_address?.locality ??
+      raw.shipping_address?.city ??
+      null
+    );
+    if (contact?.id && (cp || locality)) {
+      const existingContact = await this.prisma.contact.findUnique({
+        where: { id: contact.id },
+        select: { metadata: true },
+      });
+      const meta = (existingContact?.metadata ?? {}) as Record<string, any>;
+      const patch: Record<string, any> = { ...meta };
+      if (cp && !patch.postalCode) patch.postalCode = String(cp).trim();
+      if (locality && !patch.locality) patch.locality = String(locality).trim();
+      // Solo update si hay cambios reales — evita escrituras inútiles.
+      if (patch.postalCode !== meta.postalCode || patch.locality !== meta.locality) {
+        await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: { metadata: patch as any },
+        }).catch(() => {/* best-effort */});
+      }
+    }
     const data = {
       orderNumber,
       contactId: contact.id,

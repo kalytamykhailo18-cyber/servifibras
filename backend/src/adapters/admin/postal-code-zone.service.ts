@@ -479,6 +479,15 @@ export class PostalCodeZoneService {
 
     // Carga lazy del normaliser para evitar import circular.
     const { normaliseCarrier } = await import('./carrier-normalize.util');
+    // Marcos 2026-06-30: la cascade locality→CP solo va a empezar a
+    // matchear cuando la sync de TN orders empiece a poblar el
+    // postalCode/locality en contact.metadata (ver fix de la sync
+    // separado en este mismo push). Por ahora la mayoría de los
+    // contactos histórico tienen meta sólo con tiendanubeCustomerId,
+    // así que la cascade cae a shippingZone literal. Cargamos el
+    // cache igual — habilita el path GBA1/2/3 apenas haya CPs/
+    // localidades populadas.
+    const cache = await this.loadCache();
 
     const byZone = new Map<string, Map<string, number>>();
     for (const s of stamps) {
@@ -493,11 +502,26 @@ export class PostalCodeZoneService {
       if (!rawCarrier) continue;
       const carrier = normaliseCarrier(rawCarrier);
       if (carrier === 'Sin asignar') continue;
-      let zone = o.shippingZone ? o.shippingZone.replace(/\s+/g, '').toUpperCase() : null;
-      if (!zone) {
-        const meta = (o.contact?.metadata ?? {}) as any;
-        const cp = meta?.postalCode ?? meta?.cp ?? null;
-        if (cp && /^C?1\d{3}/.test(String(cp))) zone = 'CABA';
+      // Cascade preferida: resolver via postal_code_zones (locality
+      // exacto / normalizado / CP). Si no hay match, caemos al
+      // shippingZone literal de Order (provincia); último recurso
+      // CABA por prefijo C1XXX.
+      let zone: string | null = null;
+      const meta = (o.contact?.metadata ?? {}) as any;
+      const locality = meta?.locality ?? meta?.localidad ?? meta?.city ?? meta?.ciudad ?? null;
+      const cp = meta?.postalCode ?? meta?.cp ?? null;
+      if (locality || cp) {
+        const resolved = this.resolveZone(
+          { locality: locality != null ? String(locality) : null, cp: cp != null ? String(cp) : null },
+          cache,
+        );
+        if (resolved.zone) zone = resolved.zone.replace(/\s+/g, '').toUpperCase();
+      }
+      if (!zone && o.shippingZone) {
+        zone = o.shippingZone.replace(/\s+/g, '').toUpperCase();
+      }
+      if (!zone && cp && /^C?1\d{3}/.test(String(cp))) {
+        zone = 'CABA';
       }
       if (!zone) continue;
       const slot = byZone.get(zone) ?? new Map<string, number>();
