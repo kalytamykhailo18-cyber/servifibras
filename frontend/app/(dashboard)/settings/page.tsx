@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AISettingsForm } from "@/components/settings/ai-settings-form";
 import { AICorrectionsForm } from "@/components/settings/ai-corrections-form";
@@ -33,7 +34,19 @@ const SETTINGS_ROLES = [UserRole.ADMIN];
 
 export default function SettingsPage() {
   const { isAllowed } = useRoleGuard(SETTINGS_ROLES);
-  const [activeTab, setActiveTab] = useState("ai");
+  // Marcos 2026-06-30: deep-link support — atajos como
+  // /configuracion?tab=logistica abren directo en la pestaña
+  // correcta. El banner de Listas usa esto para puntear a las
+  // recomendaciones de mensajería sin que el operador navegue.
+  const searchParams = useSearchParams();
+  const initialTab = searchParams?.get("tab") ?? "ai";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const t = searchParams?.get("tab");
+    if (t && t !== activeTab) setActiveTab(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   if (!isAllowed) return null;
 

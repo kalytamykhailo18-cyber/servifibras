@@ -1082,6 +1082,35 @@ export default function LogisticaDiariaPage() {
         </div>
       )}
 
+      {/* SIN ASIGNAR HINT — Marcos 2026-06-30: cuando el cascade
+          deja muchos rows "Sin asignar" (porque ningún operador picó
+          mensajería en la fila y el postal_code_zones.defaultCarrier
+          de la zona no está seteado), surface un atajo a las
+          recomendaciones auto en Configuración → Logística. Click
+          ahí + Aplicar drena el bucket sin intervención fila por fila.
+          Solo ADMIN ve el botón (los demás verían "Sin asignar"
+          como info, sin acción). */}
+      {tab !== 'despachadas' && data?.carrierSummary && (() => {
+        const sinAsignar = data.carrierSummary.find((c) => c.carrier === 'Sin asignar');
+        const tabKey = tab === 'pendientes' ? 'pending' : 'listas';
+        const sinCount = sinAsignar ? sinAsignar[tabKey] : 0;
+        if (sinCount === 0) return null;
+        return (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-2.5 text-xs">
+            <WarningAmberIcon sx={{ fontSize: 16 }} className="text-amber-600" />
+            <span className="text-amber-900">
+              <span className="font-semibold tabular-nums">{sinCount}</span> {sinCount === 1 ? "pedido" : "pedidos"} sin mensajería asignada.
+            </span>
+            <a
+              href="/configuracion?tab=logistica"
+              className="ml-auto inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-800 transition hover:bg-amber-50"
+            >
+              Configurar mensajería por zona →
+            </a>
+          </div>
+        );
+      })()}
+
       {/* MENSAJERÍA DISTRIBUTION — Marcos 2026-06-30: chips de
           distribución por mensajería sobre los packs pendientes/listos.
           Misma cascade que el panel Despachos. No muestra en el tab
