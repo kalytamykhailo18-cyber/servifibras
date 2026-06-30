@@ -55,7 +55,7 @@ S3_REGION="$(read_env BACKUP_S3_REGION || true)"
 S3_BUCKET="$(read_env BACKUP_S3_BUCKET || true)"
 S3_ACCESS_KEY="$(read_env BACKUP_S3_ACCESS_KEY || true)"
 S3_SECRET_KEY="$(read_env BACKUP_S3_SECRET_KEY || true)"
-: "${BACKUP_DIR:=/var/backups/servifibras}"
+: "${BACKUP_DIR:=/srv/servifibras-backups}"
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   echo "FATAL: DATABASE_URL not set" >&2

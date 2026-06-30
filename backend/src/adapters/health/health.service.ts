@@ -140,7 +140,7 @@ export class HealthService {
   private checkBackupRecency(): ComponentReport {
     const dir = process.env.BACKUP_DIR && process.env.BACKUP_DIR.length > 0
       ? process.env.BACKUP_DIR
-      : '/var/backups/servifibras';
+      : '/srv/servifibras-backups';
     const breadcrumb = path.join(dir, '.last_run');
     const okHours = num('BACKUP_OK_WITHIN_HOURS', 30);
     const staleHours = num('BACKUP_STALE_AFTER_HOURS', 48);

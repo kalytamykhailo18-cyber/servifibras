@@ -24,7 +24,7 @@
 #   DATABASE_URL                 — pg connection (parsed by pg_dump)
 #   BACKUP_ENCRYPTION_KEY        — passphrase for AES-256
 # Optional env (sensible defaults inline):
-#   BACKUP_DIR                   — local root (default /var/backups/servifibras)
+#   BACKUP_DIR                   — local root (default /srv/servifibras-backups)
 #   BACKUP_RETENTION_DAILY_DAYS  — daily bucket retention (14)
 #   BACKUP_RETENTION_WEEKLY_WEEKS — weekly bucket retention (4)
 #   BACKUP_RETENTION_MONTHLY_MONTHS — monthly bucket retention (3)
@@ -72,7 +72,7 @@ S3_SECRET_KEY="$(read_env BACKUP_S3_SECRET_KEY || true)"
 ALERT_URL="$(read_env BACKUP_ALERT_URL || true)"
 ALERT_SECRET="$(read_env BACKUP_ALERT_SECRET || true)"
 
-: "${BACKUP_DIR:=/var/backups/servifibras}"
+: "${BACKUP_DIR:=/srv/servifibras-backups}"
 : "${RETENTION_DAILY:=14}"
 : "${RETENTION_WEEKLY:=4}"
 : "${RETENTION_MONTHLY:=3}"
