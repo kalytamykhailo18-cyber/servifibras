@@ -72,10 +72,15 @@ function AgentChips({
   role,
   selectedUserId,
   onSelect,
+  statsByUserId,
 }: {
   role: UserRole;
   selectedUserId: string | null;
   onSelect: (userId: string | null) => void;
+  // Marcos 2026-06-30: opcional stat por usuario para subscript
+  // del chip (ej. "Aldo · 12"). Cuando hay valor lo renderiza al
+  // costado del nombre; sin valor el chip queda en su forma simple.
+  statsByUserId?: Map<string, number>;
 }) {
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
   useEffect(() => {
@@ -111,19 +116,25 @@ function AgentChips({
       </button>
       {users.map((u) => {
         const active = selectedUserId === u.id;
+        const stat = statsByUserId?.get(u.id);
         return (
           <button
             key={u.id}
             type="button"
             onClick={() => onSelect(active ? null : u.id)}
-            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition ${
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition ${
               active
                 ? 'border-slate-900 bg-slate-900 text-white'
                 : 'border-slate-200 bg-slate-50/70 text-slate-700 hover:border-slate-300 hover:bg-slate-100'
             }`}
-            title={u.email}
+            title={stat != null ? `${u.email} · ${stat} armados hoy` : u.email}
           >
-            {u.name}
+            <span>{u.name}</span>
+            {stat != null && stat > 0 && (
+              <span className={`tabular-nums text-[10px] ${active ? 'text-white/80' : 'text-slate-500'}`}>
+                · {stat}
+              </span>
+            )}
           </button>
         );
       })}
@@ -329,6 +340,14 @@ function LogisticaCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getLogisticaMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Marcos 2026-06-30: per-agent armado-today para los chips.
+  // Independiente del fetch principal (no depende de selectedUserId).
+  const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    api.analytics.getLogisticaPerAgentToday()
+      .then((rows) => setPerAgent(new Map(rows.map((r) => [r.userId, r.armadosToday]))))
+      .catch(() => setPerAgent(new Map()));
+  }, []);
   useEffect(() => {
     setData(null);
     setError(null);
@@ -346,7 +365,7 @@ function LogisticaCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Logística</h3>
           <p className="text-[11px] text-slate-500">Pedidos por despachar, atrasos y stock bajo</p>
-          <AgentChips role={UserRole.LOGISTICA} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
+          <AgentChips role={UserRole.LOGISTICA} selectedUserId={selectedUserId} onSelect={setSelectedUserId} statsByUserId={perAgent} />
         </div>
       </div>
 

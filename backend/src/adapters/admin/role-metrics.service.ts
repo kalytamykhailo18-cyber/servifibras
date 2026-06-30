@@ -300,6 +300,48 @@ export class RoleMetricsService {
     };
   }
 
+  /**
+   * Marcos 2026-06-30: per-agente armado-today para los chips del
+   * Logística card. Devuelve {userId, name, armadosToday, listosToday}
+   * solo para usuarios con rol LOGISTICA / ENCARGADO / ADMIN que
+   * tengan al menos 1 row stampeado hoy. El frontend renderiza el
+   * chip con el nombre + el count inline ("Aldo · 12").
+   */
+  async getLogisticaPerAgentToday(): Promise<Array<{
+    userId: string;
+    name: string;
+    armadosToday: number;
+    listosToday: number;
+  }>> {
+    const today = new Date().toISOString().slice(0, 10);
+    const grouped = await this.prisma.logisticaArmado.groupBy({
+      by: ['stampedById', 'state'],
+      where: { dayDate: today, stampedById: { not: null } },
+      _count: { _all: true },
+    });
+    if (grouped.length === 0) return [];
+    const userIds = Array.from(new Set(grouped.map((g) => g.stampedById!).filter(Boolean)));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+    const byUser = new Map<string, { armadosToday: number; listosToday: number }>();
+    for (const g of grouped) {
+      const uid = g.stampedById!;
+      const slot = byUser.get(uid) ?? { armadosToday: 0, listosToday: 0 };
+      // ARMADO + LISTO ambos cuentan como "armado hoy" porque el
+      // LISTO transiciona desde ARMADO. listosToday se cuenta aparte
+      // para que el frontend pueda mostrar "12 (8 listos)" si quiere.
+      slot.armadosToday += g._count._all;
+      if (g.state === 'LISTO') slot.listosToday += g._count._all;
+      byUser.set(uid, slot);
+    }
+    return Array.from(byUser.entries())
+      .map(([userId, v]) => ({ userId, name: nameById.get(userId) ?? '?', ...v }))
+      .sort((a, b) => b.armadosToday - a.armadosToday);
+  }
+
   // LOGISTICA ---------------------------------------------------------------
   // Marcos 2026-06-29: userId opcional. Para logística la attribution
   // se hace por dos vías: (a) conversationsAssigned filtra

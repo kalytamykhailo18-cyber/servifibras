@@ -76,6 +76,16 @@ export class AnalyticsController {
     return { success: true, data: await this.roleMetrics.getLogisticaMetrics(userId || undefined) };
   }
 
+  // Marcos 2026-06-30: per-agent today armado count para mostrar
+  // inline en los chips del Logística card en /analitica. Devuelve
+  // solo los users que stampearon al menos 1 row hoy — sin volumen,
+  // sin chip subscript.
+  @Get('role/logistica/per-agent-today')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  async getLogisticaPerAgentToday() {
+    return { success: true, data: await this.roleMetrics.getLogisticaPerAgentToday() };
+  }
+
   @Get('role/admin')
   @Roles(UserRole.ADMIN)
   async getAdminMetrics() {
