@@ -700,18 +700,30 @@ export class AnalyticsService implements IAnalyticsService {
     if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
     // OCA — real Argentine courier; surfaced verbatim in TN labels.
     if (/^oca\b/.test(lc)) return 'OCA';
-    // Mercado Libre — set explicitly by the ML branch in
+    // Mercado Libre — set explicitly by the ML branch en
     // getDispatchStats, pass through.
     if (/^mercado libre\b/.test(lc)) return 'Mercado Libre';
-    // Marcos 2026-06-16: anything else is a TN shipping-method label
-    // (e.g. "CABA GRATUITO (15hs a 21hs)", "GBA 1 GRATIS", "Tarifa
-    // Nacional C…", "DESPACHO A TERMINAL DE MICRO…"). These are
-    // descriptors of the shipping window/zone — the operator picks
-    // the actual mensajería later via the per-row courier dropdown
-    // on the Listas tab. Until they do, we fold them into one
-    // "Sin asignar" bucket instead of polluting the card with one
-    // row per shipping method.
-    return 'Sin asignar';
+    // Marcos 2026-06-30 (regresión panel mensajerías): el fold-all-
+    // unknown anterior (b4ece0d) era demasiado agresivo — TN
+    // carriers nuevos como "Despachos Online Shipping" / "Correo
+    // Argentino" / etc. caían a Sin asignar aunque sean nombres
+    // de mensajería reales. Ahora foldeamos SOLO los labels que
+    // parecen descriptores de método de envío (zonas + "GRATIS"/
+    // "GRATUITO", "Tarifa Nacional", "DESPACHO A TERMINAL", etc.);
+    // cualquier otra cosa pasa como su propio bucket para que
+    // Marcos vea la segmentación real. Una vez que el operador pica
+    // mensajería en el row (flexCourier) ése pisa todo esto vía
+    // la lógica de getDispatchStats.
+    const shippingDescriptorRegex = /(caba|gba)\s*\d?\s*(grat(is|uito)|tarifa)|^tarifa nacional|despacho a terminal|grat(is|uito)\s*\(|env[ií]o (grat(is|uito)|sin cargo)/;
+    if (shippingDescriptorRegex.test(lc)) return 'Sin asignar';
+    // Pass through — el nombre crudo del carrier es su propio
+    // bucket. Sanitizado: title-case por palabra para evitar que
+    // "ANDREANI" y "Andreani" sean dos buckets distintos.
+    return v
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
   }
 
   /**
