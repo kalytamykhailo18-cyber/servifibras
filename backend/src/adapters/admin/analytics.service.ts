@@ -700,6 +700,11 @@ export class AnalyticsService implements IAnalyticsService {
     if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
     // OCA — real Argentine courier; surfaced verbatim in TN labels.
     if (/^oca\b/.test(lc)) return 'OCA';
+    // Marcos 2026-06-30: "Despachos Online" es la mensajería de
+    // larga distancia para CPs fuera del Excel parametrizado. TN
+    // a veces lo etiqueta como "Despachos Online Shipping" — lo
+    // normalizamos al mismo bucket para no duplicar la fila.
+    if (/^despachos? online\b/.test(lc)) return 'Despachos Online';
     // Mercado Libre — set explicitly by the ML branch en
     // getDispatchStats, pass through.
     if (/^mercado libre\b/.test(lc)) return 'Mercado Libre';
@@ -993,6 +998,20 @@ export class AnalyticsService implements IAnalyticsService {
               carrier = this.normaliseCarrier(zoneDefault);
             }
           }
+        }
+      }
+      // Marcos 2026-06-30: regla de negocio confirmada — todo
+      // envío que no encaje en ninguna zona del Excel parametrizado
+      // (CABA / GBA 1-3 → JyJ / M2 / Baires) cae a "Despachos
+      // Online" como mensajería de larga distancia. Antes el
+      // bucket terminal era "Sin asignar" lo que escondía el flujo
+      // real. Configurable vía env para soportar cambios futuros
+      // sin redeploy; default "Despachos Online" es la mensajería
+      // que Marcos usa hoy.
+      if (carrier === 'Sin asignar') {
+        const outsideZoneDefault = (process.env.OUTSIDE_ZONE_DEFAULT_CARRIER ?? 'Despachos Online').trim();
+        if (outsideZoneDefault) {
+          carrier = this.normaliseCarrier(outsideZoneDefault);
         }
       }
       bumpGroup(carrier, {
