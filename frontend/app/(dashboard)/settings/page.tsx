@@ -10,6 +10,7 @@ import { CatalogoImportCard } from "@/components/settings/catalogo-import-card";
 import { LaminadosForm } from "@/components/settings/laminados-form";
 import { SystemSettingsForm } from "@/components/settings/system-settings-form";
 import { IntegrationsForm } from "@/components/settings/integrations-form";
+import { WhatsappQrCard } from "@/components/settings/whatsapp-qr-card";
 import { LeadDetectionForm } from "@/components/settings/lead-detection-form";
 import { LogisticaForm } from "@/components/settings/logistica-form";
 import { DispatchTariffsForm } from "@/components/settings/dispatch-tariffs-form";
@@ -138,6 +139,7 @@ export default function SettingsPage() {
 
         <TabsContent value="integrations" className="space-y-4">
           <IntegrationsForm />
+          <WhatsappQrCard />
         </TabsContent>
 
         <TabsContent value="detection" className="space-y-4">

@@ -8,6 +8,9 @@ import { AdminModule } from './infrastructure/modules/admin/admin.module';
 import { AIModule } from './infrastructure/modules/ai/ai.module';
 import { PricingModule } from './infrastructure/modules/pricing/pricing.module';
 import { WhatsAppModule } from './infrastructure/modules/whatsapp/whatsapp.module';
+// Marcos 2026-06-30: WhatsApp QR (Baileys) — canal alternativo sin
+// verificación Meta. Idle hasta WHATSAPP_QR_ENABLED=true en .env.
+import { WhatsappQrModule } from './infrastructure/modules/whatsapp-qr/whatsapp-qr.module';
 import { SocialModule } from './infrastructure/modules/social/social.module';
 import { MercadoLibreModule } from './infrastructure/modules/mercadolibre/mercadolibre.module';
 import { WebchatModule } from './infrastructure/modules/webchat/webchat.module';
@@ -59,6 +62,7 @@ function num(envKey: string, fallback: number): number {
     AIModule,
     PricingModule,
     WhatsAppModule,
+    WhatsappQrModule,
     SocialModule,
     MercadoLibreModule,
     TiendaNubeModule,
