@@ -53,6 +53,22 @@ const SECTION_ORDER: DailySection[] = [
   "RETIRA_CASEROS",
 ];
 
+// Marcos 2026-06-30: paleta semántica por mensajería para los chips
+// de distribución arriba del tab + chip por row. Cuando aparece una
+// mensajería nueva que no está acá, el fallback slate la cubre con
+// estética neutra hasta que la sumemos.
+const CARRIER_COLOR: Record<string, string> = {
+  "JyJ":                "bg-blue-50 text-blue-700 border-blue-200",
+  "M2":                 "bg-orange-50 text-orange-700 border-orange-200",
+  "Baires":             "bg-violet-50 text-violet-700 border-violet-200",
+  "Andreani":           "bg-rose-50 text-rose-700 border-rose-200",
+  "OCA":                "bg-amber-50 text-amber-700 border-amber-200",
+  "Mercado Libre":      "bg-yellow-50 text-yellow-700 border-yellow-200",
+  "Servifibras propio": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Despachos Online":   "bg-cyan-50 text-cyan-700 border-cyan-200",
+  "Sin asignar":        "bg-slate-100 text-slate-600 border-slate-200",
+};
+
 const SECTION_META: Record<DailySection, { label: string; tint: string; rail: string }> = {
   COLECTA_1: { label: "COLECTA 1", tint: "border-blue-200/70 bg-blue-50/30", rail: "bg-gradient-to-b from-blue-500 to-cyan-400" },
   COLECTA_2: { label: "COLECTA 2", tint: "border-indigo-200/70 bg-indigo-50/30", rail: "bg-gradient-to-b from-indigo-500 to-violet-400" },
@@ -1066,6 +1082,72 @@ export default function LogisticaDiariaPage() {
         </div>
       )}
 
+      {/* MENSAJERÍA DISTRIBUTION — Marcos 2026-06-30: chips de
+          distribución por mensajería sobre los packs pendientes/listos.
+          Misma cascade que el panel Despachos. No muestra en el tab
+          Despachadas (esos viven en su propio panel).
+          Marcos 2026-06-30 (cost projection): cada chip muestra
+          también el costo proyectado a pagar al courier por la
+          mensajería (~ARS X) cuando hay tarifa cargada. */}
+      {tab !== 'despachadas' && data?.carrierSummary && data.carrierSummary.length > 0 && (
+        <div className="space-y-2">
+          {/* Total projected courier bill */}
+          {(() => {
+            const items = data.carrierSummary.filter((c) => (tab === 'pendientes' ? c.pending : c.listas) > 0);
+            const totalCost = items
+              .filter((c) => c.estimatedCostPerPackage != null)
+              .reduce((sum, c) => sum + (c.estimatedCostPerPackage! * (tab === 'pendientes' ? c.pending : c.listas)), 0);
+            const carriersWithoutTariff = items.filter((c) => c.estimatedCostPerPackage == null).length;
+            if (totalCost === 0) return null;
+            return (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Estimado a pagar
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">
+                  ~ARS {Math.round(totalCost).toLocaleString("es-AR")}
+                </span>
+                {carriersWithoutTariff > 0 && (
+                  <span className="text-[10.5px] text-slate-500" title="Sin tarifa cargada para alguna mensajería — subí Tarifas de Envío en Configuración para completar la estimación">
+                    {carriersWithoutTariff} mensajería{carriersWithoutTariff > 1 ? 's' : ''} sin tarifa
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+          {/* Per-carrier chips */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500">
+              Mensajería
+            </span>
+            {data.carrierSummary.map((c) => {
+              const tabCount = tab === 'pendientes' ? c.pending : c.listas;
+              if (tabCount === 0) return null;
+              const color = CARRIER_COLOR[c.carrier] ?? "bg-slate-100 text-slate-700 border-slate-200";
+              const tabCost = c.estimatedCostPerPackage != null ? c.estimatedCostPerPackage * tabCount : null;
+              return (
+                <span
+                  key={c.carrier}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${color}`}
+                  title={
+                    `Pendientes: ${c.pending} · Listas: ${c.listas}` +
+                    (c.estimatedCostPerPackage != null ? ` · ~ARS ${c.estimatedCostPerPackage.toLocaleString("es-AR")} por paquete` : ' · sin tarifa cargada')
+                  }
+                >
+                  <span className="font-semibold">{c.carrier}</span>
+                  <span className="tabular-nums font-semibold">{tabCount}</span>
+                  {tabCost != null && (
+                    <span className="tabular-nums text-[10.5px] opacity-80">
+                      ~${Math.round(tabCost).toLocaleString("es-AR")}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* GENERATION NOTES (e.g. "TN orders not synced") */}
       {data?.notes && data.notes.length > 0 && (
         <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 p-3 text-xs text-amber-800">
@@ -1529,6 +1611,30 @@ export default function LogisticaDiariaPage() {
                                 >
                                   {row.flexCourier}
                                 </button>
+                              )}
+                              {/* Marcos 2026-06-30: cuando el operador
+                                  NO picó mensajería todavía, mostramos
+                                  la mensajería sugerida por la cascade
+                                  (Despachos Online para CPs fuera del
+                                  Excel, o lo que matchea el Excel
+                                  parametrizado). Chip semántico en color
+                                  per mensajería + visualmente distinto
+                                  del chip violeta del operator-pick así
+                                  Marcos sabe que es sugerencia, no pick. */}
+                              {!row.flexCourier && !row.isCancelled && row.resolvedCarrier
+                                && row.resolvedCarrier !== 'Sin asignar'
+                                && tab !== 'despachadas'
+                                && !editingCourierRow.has(row.rowKey) && (
+                                <span
+                                  data-testid="logistica-row-resolved-carrier"
+                                  title={`Sugerida: ${row.resolvedCarrier} (sin pick manual). Tocá para cambiar.`}
+                                  className={
+                                    "ml-2 inline-flex h-4 items-center rounded-full px-1.5 text-[9px] font-semibold uppercase tracking-wider align-middle border " +
+                                    (CARRIER_COLOR[row.resolvedCarrier] ?? "bg-slate-100 text-slate-600 border-slate-200")
+                                  }
+                                >
+                                  {row.resolvedCarrier}
+                                </span>
                               )}
                               {/* Sin courier asignado: en Despachadas
                                   es una alerta — sin courier no podemos

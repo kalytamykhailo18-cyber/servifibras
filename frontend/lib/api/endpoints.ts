@@ -2703,6 +2703,12 @@ export interface DailySectionRow {
    *  as a dropdown in the "Listas para despachar" tab and as a
    *  small badge once selected so the trace persists. */
   flexCourier: string | null;
+  /** Marcos 2026-06-30: mensajería efectiva ya resuelta para esta
+   *  fila (flexCourier > carrier de la fuente > default Despachos
+   *  Online). Misma regla que el panel "Despachos por mensajería".
+   *  El frontend lo usa para mostrar el chip de mensajería en cada
+   *  row + computar el resaltado del chip strip de arriba. */
+  resolvedCarrier: string;
   /** ISO created-at; drives the per-section sort (newest first). */
   createdAtIso: string | null;
   /** Bloque B item 2 — Marcos 2026-06-07 PM: itemised breakdown for
@@ -2725,6 +2731,23 @@ export interface AggregatedDay {
   sections: Record<DailySection, DailySectionRow[]>;
   errors: Array<{ source: string; message: string }>;
   notes: Array<{ source: string; message: string }>;
+  // Marcos 2026-06-30: distribución de mensajería sobre los packs
+  // pendientes/listas del día (excluye los ya despachados — esos
+  // viven en el panel "Despachos por mensajería"). El frontend lo
+  // renderiza como chip strip arriba del tab Listas + cada row
+  // muestra su mensajería resuelta.
+  carrierSummary: Array<{
+    carrier: string;
+    pending: number;
+    listas: number;
+    total: number;
+    /** Marcos 2026-06-30: AVG costo por paquete de la mensajería
+     *  desde DispatchTariff. Null cuando no hay tarifa activa para
+     *  esa mensajería (Despachos Online / Mercado Libre / etc). */
+    estimatedCostPerPackage: number | null;
+    /** (pending + listas) × estimatedCostPerPackage; null si no hay tarifa. */
+    estimatedCostTotal: number | null;
+  }>;
 }
 
 export const dailyLogisticaApi = {

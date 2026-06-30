@@ -38,6 +38,8 @@ import { OrderStatus, PrismaClient } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 import { LogisticaArmadoService } from './logistica-armado.service';
+import { normaliseCarrier, outsideZoneDefaultCarrier } from './carrier-normalize.util';
+import { DispatchTariffService } from './dispatch-tariff.service';
 
 export type DailySection =
   | 'COLECTA_1'
@@ -215,6 +217,12 @@ export interface DailySectionRow {
    *  in the "Listas para despachar" tab; choices come from the
    *  FLEX_COURIERS env. */
   flexCourier: string | null;
+  /** Marcos 2026-06-30: mensajería ya resuelta para esta fila
+   *  (operator pick > carrier de la fuente > default Despachos
+   *  Online). Misma regla que el panel "Despachos por mensajería".
+   *  El frontend lo usa para mostrar un chip con la mensajería
+   *  efectiva en cada row + chips de distribución arriba del tab. */
+  resolvedCarrier: string;
   /** ISO timestamp the underlying order was created. Drives the
    *  per-section sort (newest first). For ML rows we use the
    *  packed-cart's earliest order creation date (so a multi-day
@@ -254,6 +262,31 @@ export interface AggregatedDay {
   sections: Record<DailySection, DailySectionRow[]>;
   errors: Array<{ source: string; message: string }>;
   notes: Array<{ source: string; message: string }>;
+  /** Marcos 2026-06-30: distribución de mensajería para los packs
+   *  pendientes del día (no incluye los ya despachados — esos
+   *  viven en el panel "Despachos por mensajería"). Permite al
+   *  frontend mostrar chips arriba del tab "Listas" como
+   *  "JyJ: 12 · Despachos Online: 18 · M2: 6 · Sin asignar: 3".
+   *  Computado sobre los rows de las secciones que NO están
+   *  dispatched.
+   */
+  carrierSummary: Array<{
+    carrier: string;
+    pending: number;
+    listas: number;
+    total: number;
+    /** Marcos 2026-06-30: proyección del costo a pagar al courier
+     *  para los packs de hoy de esta mensajería. Computado como
+     *  AVG(DispatchTariff.costPerPackage) para la mensajería (las
+     *  tarifas vienen por zona; sin zona-lookup en el aggregator
+     *  usamos el promedio para una proyección al ojo). Null cuando
+     *  no hay tarifa activa cargada para esa mensajería (típicamente
+     *  Despachos Online / Mercado Libre / Servifibras propio). */
+    estimatedCostPerPackage: number | null;
+    /** total = (pending + listas) × estimatedCostPerPackage cuando
+     *  hay tarifa, null cuando no. */
+    estimatedCostTotal: number | null;
+  }>;
 }
 
 /**
@@ -441,6 +474,12 @@ export class DailyLogisticaAggregatorService {
     @Optional()
     @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
+    // Marcos 2026-06-30: opcional para que tests que instancian el
+    // service standalone no se rompan. Cuando está wired computa
+    // proyección de costo por mensajería sobre los packs pendientes
+    // del día (~ARS X por chip).
+    @Optional()
+    private readonly dispatchTariff?: DispatchTariffService,
   ) {}
 
   async aggregate(date: Date): Promise<AggregatedDay> {
@@ -477,6 +516,8 @@ export class DailyLogisticaAggregatorService {
       },
       errors: [],
       notes: [],
+      // Stamped al final del agregado después de resolveCarriers().
+      carrierSummary: [],
     };
 
     // ─── ML cuenta 1 + cuenta 2 ─────────────────────────────────────
@@ -700,6 +741,7 @@ export class DailyLogisticaAggregatorService {
               createdAtIso,
               listoAt: null,
               items: allItemsExpanded,
+              resolvedCarrier: '',
             });
           }
           cuentaTimings.process = Date.now() - tProcess;
@@ -897,7 +939,12 @@ export class DailyLogisticaAggregatorService {
           createdAtIso: o.createdAt.toISOString(),
           listoAt: null,
           items: await this.expandLocalItems(o.products),
-        });
+          // Marcos 2026-06-30: la cascade del final del aggregate
+          // resuelve la mensajería efectiva — para que tenga acceso
+          // al carrier del Order original, lo stampeamos en _carrier.
+          resolvedCarrier: '',
+          _carrier: o.carrier ?? null,
+        } as any);
       }
     } catch (err: any) {
       out.errors.push({ source: 'crm-orders', message: err?.message ?? String(err) });
@@ -966,6 +1013,7 @@ export class DailyLogisticaAggregatorService {
           flexCourier: null,
           createdAtIso: p.createdAt.toISOString(),
           items: [],
+          resolvedCarrier: '',
         });
       }
     } catch (err: any) {
@@ -1143,6 +1191,84 @@ export class DailyLogisticaAggregatorService {
       });
     }
     stamp('mergeArmado', tMerge);
+
+    // Marcos 2026-06-30: stamp resolvedCarrier en cada row y
+    // computar carrierSummary global del día. Cascade replica la
+    // misma regla del panel "Despachos por mensajería":
+    //   flexCourier (operator pick) > Order.carrier > Despachos
+    //   Online (fallback configurable).
+    // Mantenido inline (sin PostalCodeZone lookup) porque el
+    // aggregator no tiene la cache cargada — Marcos puede subir
+    // el Excel con la columna mensajería para activar el path
+    // per-CP/zona vía el panel Despachos (que sí lo aplica). El
+    // resto cae a Despachos Online por OUTSIDE_ZONE_DEFAULT_CARRIER.
+    const tCarrier = Date.now();
+    const fallback = outsideZoneDefaultCarrier() ?? 'Sin asignar';
+    const summaryByCarrier = new Map<string, { pending: number; listas: number }>();
+    for (const s of SECTION_ORDER) {
+      for (const r of out.sections[s]) {
+        // ML rows ya vienen rotulados Mercado Libre en _cliente_,
+        // pero acá normalizamos por carrier explícito. PRFV /
+        // Servifibras propio idem.
+        let raw: string | null = r.flexCourier || null;
+        if (!raw) {
+          if (r.rowKey.startsWith('ml:')) raw = 'Mercado Libre';
+          else if (r.rowKey.startsWith('prfv:')) raw = 'Servifibras propio';
+          else raw = (r as { _carrier?: string | null })._carrier ?? null;
+        }
+        let resolved = normaliseCarrier(raw);
+        if (resolved === 'Sin asignar' && fallback) resolved = normaliseCarrier(fallback);
+        r.resolvedCarrier = resolved;
+        delete (r as { _carrier?: string | null })._carrier;
+        const bucket = summaryByCarrier.get(resolved) ?? { pending: 0, listas: 0 };
+        if (r.isDispatched) {
+          // Despachadas — no entran al summary "pending" del día.
+        } else if (r.state === 'LISTO') {
+          bucket.listas += 1;
+        } else {
+          bucket.pending += 1;
+        }
+        summaryByCarrier.set(resolved, bucket);
+      }
+    }
+    // Marcos 2026-06-30: avg-cost-per-package por mensajería para
+    // proyectar el costo total del día. Las tarifas vienen por
+    // (carrier, zone); como el aggregator no tiene zone resuelto
+    // per-row, usamos el promedio de zonas como proxy. Match
+    // case-insensitive (DispatchTariff almacena MAYÚSCULAS, el
+    // normalise devuelve "JyJ" / "M2" / etc).
+    const avgByCarrier = new Map<string, number>();
+    if (this.dispatchTariff) {
+      try {
+        const tariffs = await this.dispatchTariff.listActive();
+        const grouped = new Map<string, number[]>();
+        for (const t of tariffs) {
+          const key = normaliseCarrier(t.carrier);
+          (grouped.get(key) ?? grouped.set(key, []).get(key))!.push(t.costPerPackage);
+        }
+        for (const [k, vs] of grouped) {
+          if (vs.length > 0) avgByCarrier.set(k, vs.reduce((a, b) => a + b, 0) / vs.length);
+        }
+      } catch (err: any) {
+        out.notes.push({ source: 'dispatch-tariffs', message: `cost projection skipped: ${err?.message ?? err}` });
+      }
+    }
+    out.carrierSummary = Array.from(summaryByCarrier.entries())
+      .map(([carrier, v]) => {
+        const total = v.pending + v.listas;
+        const perPack = avgByCarrier.get(carrier) ?? null;
+        return {
+          carrier,
+          pending: v.pending,
+          listas: v.listas,
+          total,
+          estimatedCostPerPackage: perPack !== null ? Math.round(perPack) : null,
+          estimatedCostTotal: perPack !== null ? Math.round(perPack * total) : null,
+        };
+      })
+      .filter((b) => b.total > 0)
+      .sort((a, b) => b.total - a.total);
+    stamp('carrierResolve', tCarrier);
 
     const totalMs = Date.now() - tAll;
     const rowsTotal = SECTION_ORDER.reduce((acc, s) => acc + out.sections[s].length, 0);

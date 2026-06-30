@@ -7,6 +7,7 @@ import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prism
 import { UserRole } from '../../domain/entities/auth.entity';
 import { DispatchTariffService } from './dispatch-tariff.service';
 import { PostalCodeZoneService } from './postal-code-zone.service';
+import { normaliseCarrier, outsideZoneDefaultCarrier } from './carrier-normalize.util';
 
 /**
  * Compute the per-role `where` clause for conversation aggregates so a
@@ -684,51 +685,12 @@ export class AnalyticsService implements IAnalyticsService {
     return null;
   }
 
+  // Marcos 2026-06-30: extraída a carrier-normalize.util para que
+  // el daily-logistica aggregator use la misma regla de negocio
+  // sin duplicar. Wrapper instance para no romper call sites
+  // existentes que invocan this.normaliseCarrier(...).
   private normaliseCarrier(raw: string | null | undefined): string {
-    const v = (raw ?? '').trim();
-    if (!v) return 'Sin asignar';
-    const lc = v.toLowerCase();
-    // Andreani family.
-    if (/^andreani\b|env[ií]o nube/.test(lc)) return 'Andreani';
-    // JyJ ships as Flex_373 in TN.
-    if (lc === 'flex_373' || /^jyj\b|^j[\s.\-]?y[\s.\-]?j\b/.test(lc)) return 'JyJ';
-    // Servifibras own-store pickup.
-    if (/servifibras/.test(lc) || /^retiras? en (la )?servifibras/.test(lc)) return 'Servifibras propio';
-    // Mensajería M2 — appears verbatim in operator notes.
-    if (/^m2\b|mensaje?r[ií]a m2/.test(lc)) return 'M2';
-    // Baires moto-fleet — covers "Baires", "Mensajería Baires", etc.
-    if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
-    // OCA — real Argentine courier; surfaced verbatim in TN labels.
-    if (/^oca\b/.test(lc)) return 'OCA';
-    // Marcos 2026-06-30: "Despachos Online" es la mensajería de
-    // larga distancia para CPs fuera del Excel parametrizado. TN
-    // a veces lo etiqueta como "Despachos Online Shipping" — lo
-    // normalizamos al mismo bucket para no duplicar la fila.
-    if (/^despachos? online\b/.test(lc)) return 'Despachos Online';
-    // Mercado Libre — set explicitly by the ML branch en
-    // getDispatchStats, pass through.
-    if (/^mercado libre\b/.test(lc)) return 'Mercado Libre';
-    // Marcos 2026-06-30 (regresión panel mensajerías): el fold-all-
-    // unknown anterior (b4ece0d) era demasiado agresivo — TN
-    // carriers nuevos como "Despachos Online Shipping" / "Correo
-    // Argentino" / etc. caían a Sin asignar aunque sean nombres
-    // de mensajería reales. Ahora foldeamos SOLO los labels que
-    // parecen descriptores de método de envío (zonas + "GRATIS"/
-    // "GRATUITO", "Tarifa Nacional", "DESPACHO A TERMINAL", etc.);
-    // cualquier otra cosa pasa como su propio bucket para que
-    // Marcos vea la segmentación real. Una vez que el operador pica
-    // mensajería en el row (flexCourier) ése pisa todo esto vía
-    // la lógica de getDispatchStats.
-    const shippingDescriptorRegex = /(caba|gba)\s*\d?\s*(grat(is|uito)|tarifa)|^tarifa nacional|despacho a terminal|grat(is|uito)\s*\(|env[ií]o (grat(is|uito)|sin cargo)/;
-    if (shippingDescriptorRegex.test(lc)) return 'Sin asignar';
-    // Pass through — el nombre crudo del carrier es su propio
-    // bucket. Sanitizado: title-case por palabra para evitar que
-    // "ANDREANI" y "Andreani" sean dos buckets distintos.
-    return v
-      .toLowerCase()
-      .split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
+    return normaliseCarrier(raw);
   }
 
   /**
@@ -1000,19 +962,10 @@ export class AnalyticsService implements IAnalyticsService {
           }
         }
       }
-      // Marcos 2026-06-30: regla de negocio confirmada — todo
-      // envío que no encaje en ninguna zona del Excel parametrizado
-      // (CABA / GBA 1-3 → JyJ / M2 / Baires) cae a "Despachos
-      // Online" como mensajería de larga distancia. Antes el
-      // bucket terminal era "Sin asignar" lo que escondía el flujo
-      // real. Configurable vía env para soportar cambios futuros
-      // sin redeploy; default "Despachos Online" es la mensajería
-      // que Marcos usa hoy.
+      // Marcos 2026-06-30: cascade terminal — extraído a util.
       if (carrier === 'Sin asignar') {
-        const outsideZoneDefault = (process.env.OUTSIDE_ZONE_DEFAULT_CARRIER ?? 'Despachos Online').trim();
-        if (outsideZoneDefault) {
-          carrier = this.normaliseCarrier(outsideZoneDefault);
-        }
+        const fallback = outsideZoneDefaultCarrier();
+        if (fallback) carrier = this.normaliseCarrier(fallback);
       }
       bumpGroup(carrier, {
         rowKey: s.rowKey,
