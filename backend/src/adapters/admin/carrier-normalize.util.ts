@@ -61,3 +61,41 @@ export function outsideZoneDefaultCarrier(): string | null {
   const v = (process.env.OUTSIDE_ZONE_DEFAULT_CARRIER ?? 'Despachos Online').trim();
   return v || null;
 }
+
+/**
+ * Marcos 2026-06-30 (fix de regresión sobre el cascade-terminal):
+ * el fallback Despachos Online se aplicaba a cualquier row que
+ * resolviera "Sin asignar" — incluyendo TN orders con etiqueta
+ * de método de envío CABA / GBA <N> (que son IN-zone). Marcos lo
+ * notó: "no entiendo lo que aparece como despachos online de donde
+ * está tomando la información".
+ *
+ * Su regla: "Despachos Online es para envíos FUERA de los CPs del
+ * Excel parametrizado". CABA/GBA son IN-zone y deberían seguir
+ * "Sin asignar" hasta que el operador pique o el default-per-zona
+ * se cargue.
+ *
+ * Este helper aplica el fallback SOLO cuando la pista de label
+ * sugiere out-of-zone (provincial / nacional / sin pista pero TN
+ * mandó algo) y NO matchea descriptor CABA/GBA.
+ */
+export function applyOutsideZoneFallback(args: {
+  currentCarrier: string;
+  rawCarrier?: string | null;
+  shippingLabel?: string | null;
+}): string {
+  if (args.currentCarrier !== 'Sin asignar') return args.currentCarrier;
+  const fallback = outsideZoneDefaultCarrier();
+  if (!fallback) return 'Sin asignar';
+  const hint = ((args.rawCarrier ?? '') + ' ' + (args.shippingLabel ?? '')).toLowerCase().trim();
+  // Sin ninguna pista del label = sin información → operador
+  // debe picar. NO auto-asignar a Despachos Online.
+  if (!hint) return 'Sin asignar';
+  // Label arranca con CABA / GBA <digit> = IN-zone descriptor.
+  // El default-per-zona (Excel o recommender) debe resolver esto;
+  // sin él, queda en Sin asignar para que el operador pique.
+  if (/(^|\s)(caba|gba\s*\d)\b/.test(hint)) return 'Sin asignar';
+  // Cualquier otro descriptor (Tarifa Nacional / DESPACHO A
+  // TERMINAL / nombre de provincia / etc) sí es out-of-zone.
+  return fallback;
+}

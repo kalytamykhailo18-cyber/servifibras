@@ -116,6 +116,16 @@ if [[ -f "$BACKEND_DIR/.env" ]]; then
   chown servifibras:servifibras "$BACKEND_DIR/.env" 2>/dev/null || true
   chmod 640 "$BACKEND_DIR/.env" 2>/dev/null || true
 fi
+# Marcos 2026-06-30: el cache de Next.js bajo .next/cache/images/
+# tenia root:root porque uno de los builds tempranos corrio bajo
+# root y dejo el dir asi. El frontend service corre como
+# servifibras, asi que cada SSR de pagina con imagen tiraba
+# EACCES (180+ errores hoy) lo que en casos limite mostraba
+# "Internal Server Error" a Marcos cuando una pagina con imagen
+# se renderizaba en cold. Heal proactivo en cada deploy.
+if [[ -d "$FRONTEND_DIR/.next/cache" ]]; then
+  chown -R servifibras:servifibras "$FRONTEND_DIR/.next/cache" 2>/dev/null || true
+fi
 
 # Postgres reachability via the env DB url. We only test that DATABASE_URL
 # parses; pg_isready is the cleanest probe.

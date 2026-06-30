@@ -7,7 +7,7 @@ import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prism
 import { UserRole } from '../../domain/entities/auth.entity';
 import { DispatchTariffService } from './dispatch-tariff.service';
 import { PostalCodeZoneService } from './postal-code-zone.service';
-import { normaliseCarrier, outsideZoneDefaultCarrier } from './carrier-normalize.util';
+import { normaliseCarrier, outsideZoneDefaultCarrier, applyOutsideZoneFallback } from './carrier-normalize.util';
 
 /**
  * Compute the per-role `where` clause for conversation aggregates so a
@@ -962,11 +962,15 @@ export class AnalyticsService implements IAnalyticsService {
           }
         }
       }
-      // Marcos 2026-06-30: cascade terminal — extraído a util.
-      if (carrier === 'Sin asignar') {
-        const fallback = outsideZoneDefaultCarrier();
-        if (fallback) carrier = this.normaliseCarrier(fallback);
-      }
+      // Marcos 2026-06-30 fix: el fallback Despachos Online ahora
+      // solo aplica si la pista del label sugiere out-of-zone. Las
+      // etiquetas CABA / GBA <N> son IN-zone y quedan "Sin asignar"
+      // hasta que el operador pique o el default-per-zona se cargue.
+      carrier = this.normaliseCarrier(applyOutsideZoneFallback({
+        currentCarrier: carrier,
+        rawCarrier,
+        shippingLabel,
+      }));
       bumpGroup(carrier, {
         rowKey: s.rowKey,
         orderNumber,

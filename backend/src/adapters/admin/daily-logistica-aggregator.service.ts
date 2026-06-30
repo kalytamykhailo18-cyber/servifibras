@@ -38,7 +38,7 @@ import { OrderStatus, PrismaClient } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 import { LogisticaArmadoService } from './logistica-armado.service';
-import { normaliseCarrier, outsideZoneDefaultCarrier } from './carrier-normalize.util';
+import { normaliseCarrier, applyOutsideZoneFallback } from './carrier-normalize.util';
 import { DispatchTariffService } from './dispatch-tariff.service';
 
 export type DailySection =
@@ -1192,18 +1192,13 @@ export class DailyLogisticaAggregatorService {
     }
     stamp('mergeArmado', tMerge);
 
-    // Marcos 2026-06-30: stamp resolvedCarrier en cada row y
-    // computar carrierSummary global del día. Cascade replica la
-    // misma regla del panel "Despachos por mensajería":
-    //   flexCourier (operator pick) > Order.carrier > Despachos
-    //   Online (fallback configurable).
-    // Mantenido inline (sin PostalCodeZone lookup) porque el
-    // aggregator no tiene la cache cargada — Marcos puede subir
-    // el Excel con la columna mensajería para activar el path
-    // per-CP/zona vía el panel Despachos (que sí lo aplica). El
-    // resto cae a Despachos Online por OUTSIDE_ZONE_DEFAULT_CARRIER.
+    // Marcos 2026-06-30: stamp resolvedCarrier en cada row.
+    // Cascade replica la regla del panel "Despachos por mensajería":
+    //   flexCourier (operator pick) > Order.carrier > fallback
+    //   condicional (Despachos Online SOLO si label es out-of-zone;
+    //   CABA/GBA descriptors quedan Sin asignar hasta que el
+    //   operador pique o se aplique el default-per-zona).
     const tCarrier = Date.now();
-    const fallback = outsideZoneDefaultCarrier() ?? 'Sin asignar';
     const summaryByCarrier = new Map<string, { pending: number; listas: number }>();
     for (const s of SECTION_ORDER) {
       for (const r of out.sections[s]) {
@@ -1217,7 +1212,11 @@ export class DailyLogisticaAggregatorService {
           else raw = (r as { _carrier?: string | null })._carrier ?? null;
         }
         let resolved = normaliseCarrier(raw);
-        if (resolved === 'Sin asignar' && fallback) resolved = normaliseCarrier(fallback);
+        resolved = applyOutsideZoneFallback({
+          currentCarrier: resolved,
+          rawCarrier: raw,
+          shippingLabel: (r as { _carrier?: string | null })._carrier ?? null,
+        });
         r.resolvedCarrier = resolved;
         delete (r as { _carrier?: string | null })._carrier;
         const bucket = summaryByCarrier.get(resolved) ?? { pending: 0, listas: 0 };
