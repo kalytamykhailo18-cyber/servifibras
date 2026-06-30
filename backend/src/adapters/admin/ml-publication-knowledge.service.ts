@@ -16,6 +16,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 import { ClaudeBudgetService } from '../ai/claude-budget.service';
+import { ClaudeService } from '../ai/claude.service';
 
 // Marcos 2026-06-24 (Phase C): kill switch para el modo cerrado.
 // Default OFF mientras Marcos cura las publicaciones; flipea a true
@@ -53,6 +54,15 @@ export class MlPublicationKnowledgeService {
     // budget service.
     @Optional()
     private readonly budget?: ClaudeBudgetService,
+    // Marcos 2026-06-30: el reply del modo cerrado se devolvía SIN
+    // pasar por el strip pipeline de ClaudeService — los patrones
+    // ask-back ("¿En qué te puedo ayudar?", "¿Estás preguntando si…?",
+    // "Necesito un poco más de info para cotizarte…") que ya están
+    // bloqueados en el camino regular se colaban al ML auto-send.
+    // Inyectado optional para tests; cuando está wired aplicamos
+    // applyReplyPostProcessing antes del self-eval + del return.
+    @Optional()
+    private readonly claude?: ClaudeService,
   ) {}
 
   /**
@@ -668,13 +678,29 @@ export class MlPublicationKnowledgeService {
           `Constrained reply HIT MAX_TOKENS for ${args.itemId} (cap=${maxOutputTokens}). Considera subir ML_CONSTRAINED_MAX_TOKENS si esto pasa seguido.`,
         );
       }
-      const text = resp.content
+      const rawText = resp.content
         .filter((c: any) => c.type === 'text')
         .map((c: any) => c.text)
         .join('')
         .trim();
-      if (!text) {
+      if (!rawText) {
         return { reply: null, usedConstrained: false, reason: 'empty response' };
+      }
+      // Marcos 2026-06-30: aplicamos el strip pipeline del camino
+      // regular antes del self-eval. Patrones ask-back que el
+      // pipeline regular ya bloqueaba ("¿En qué te puedo ayudar?",
+      // "¿Estás preguntando si…?", "Necesito un poco más de info
+      // para cotizarte…") venían colándose al ML auto-send porque
+      // el modo cerrado devolvía rawText directo. Channel ML forzado
+      // — el modo cerrado solo se usa para pre-venta ML.
+      const text = this.claude
+        ? this.claude.applyReplyPostProcessing(rawText, {
+            channel: 'MERCADOLIBRE' as any,
+            mlItemId: args.itemId,
+          } as any)
+        : rawText;
+      if (!text || !text.trim()) {
+        return { reply: null, usedConstrained: false, reason: 'empty after sanitize' };
       }
       // Si la respuesta es exactamente el fallback, devolvemos null
       // para que el caller decida (puede dejarla para revisión humana

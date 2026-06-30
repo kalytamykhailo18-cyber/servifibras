@@ -1969,6 +1969,35 @@ IMPORTANTE sobre precios:
       // regla one-shot — strip del "¿Estás preguntando si...?" antes
       // del "Sí, resiste".
       { name: 'estas preguntando si', re: /^\s*¿\s*[Ee]st[áa]s\s+preguntando\s+si[^?]*\?\s*/g },
+      // Marcos 2026-06-30 (MJ20260629134155 caso real, MERCADOLIBRE):
+      // el agente arrancó una pre-venta ML con "¡Hola! Soy Lucas, el
+      // asistente de ventas de ServiFibras. ¿En qué te puedo ayudar?".
+      // Doble violación: (1) el comprador no preguntó nada concreto
+      // todavía (saludo solo), pero el agente igual tiene que dar
+      // valor desde el contexto de la publicación que está mirando
+      // — no devolver pregunta abierta; (2) "¿En qué te puedo ayudar?"
+      // es closing-question prohibido por [[ml-not-conversational]]
+      // — ML Q&A es one-shot, no hay vuelta. Strip de la pregunta
+      // (deja la presentación + cualquier saludo limpios).
+      { name: '¿en qué te puedo ayudar? (closing)', re: /¿\s*[Ee]n\s+qu[ée]\s+(?:m[áa]s\s+)?te\s+puedo\s+ayudar[^?]*\?\s*/g },
+      { name: 'necesitás algo más / alguna otra duda', re: /¿\s*(?:[Nn]ecesit[áa]s\s+algo\s+m[áa]s|[Tt]en[ée]s\s+alguna\s+otra\s+(?:duda|pregunta)|[Aa]lguna\s+otra\s+(?:duda|consulta|pregunta))[^?]*\?\s*/g },
+      // Marcos 2026-06-30 (AG20250326122746 caso real, MERCADOLIBRE):
+      // ML pre-venta — el agente arrancó con "Hola Ag, Necesito un
+      // poco más de info para cotizarte exacto: 1. ¿Qué ancho? 2.
+      // ¿Qué espesor? 3. …". Lista numerada de clarificaciones
+      // viola one-shot (el comprador NO va a volver a contestar
+      // cada pregunta del listado). Para laminados configurables
+      // el agente tiene que mostrar el GRID de precios completo
+      // (matriz ancho × espesor) y dejar que el comprador elija,
+      // no preguntar uno por uno. Strip del leading + las preguntas
+      // numeradas; el resto del reply (que suele tener la tabla
+      // efectiva) queda intacto. Si después del strip queda vacío,
+      // el caller cae al fallback ML estándar.
+      { name: 'necesito un poco más de info para cotizarte', re: /[Nn]ecesito\s+(?:un\s+poco\s+)?m[áa]s\s+(?:de\s+)?info(?:rmaci[oó]n)?\s+para\s+(?:cotizarte|asesorarte|ayudarte|presupuestarte)[^.!?\n]*[.!?\n]+\s*/g },
+      // Marcos 2026-06-30: misma familia con verbos alternativos
+      // ("Para poder cotizarte necesito saber..." / "Antes de
+      // cotizarte tenés que decirme...").
+      { name: 'para poder cotizarte necesito', re: /(?:[Pp]ara\s+(?:poder\s+)?(?:cotizarte|presupuestarte|asesorarte)\s+(?:exacto|bien|mejor)?\s*(?:necesito|tengo\s+que|me\s+falta))[^.!?\n]*[.!?\n]+\s*/g },
       // Marcos 2026-06-24 (MLA2856630688 — "Hola, cual sería el volumen
       // que ocupa? Saludos"): el agente arrancó con "No especificás de
       // qué volumen me preguntás — ¿es el volumen del paquete que ves
