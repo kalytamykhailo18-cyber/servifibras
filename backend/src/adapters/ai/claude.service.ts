@@ -1981,6 +1981,28 @@ IMPORTANTE sobre precios:
       // (deja la presentación + cualquier saludo limpios).
       { name: '¿en qué te puedo ayudar? (closing)', re: /¿\s*[Ee]n\s+qu[ée]\s+(?:m[áa]s\s+)?te\s+puedo\s+ayudar[^?]*\?\s*/g },
       { name: 'necesitás algo más / alguna otra duda', re: /¿\s*(?:[Nn]ecesit[áa]s\s+algo\s+m[áa]s|[Tt]en[ée]s\s+alguna\s+otra\s+(?:duda|pregunta)|[Aa]lguna\s+otra\s+(?:duda|consulta|pregunta))[^?]*\?\s*/g },
+      // Marcos 2026-06-30 (sweep cross-channel post-deploy): caso
+      // real IZEV9995675 ML — agente cerró con "Si necesitás algo
+      // más o tenés dudas al trabajar con la resina, avisame.
+      // Quedo a disposición ante..." que es CIERRE DECLARATIVO
+      // (no pregunta) violando la regla one-shot de ML. El strip
+      // anterior solo agarraba la variante con ¿?. Catch el
+      // declarativo también, sea con "avisame" / "escribime" /
+      // "quedo a disposición" / "consultame" del lado del que
+      // cierra.
+      { name: 'si necesitás algo más (declarativo)', re: /[Ss]i\s+necesit[áa]s\s+(?:algo\s+m[áa]s|cualquier\s+(?:otra\s+)?(?:duda|consulta))[^.!?\n]*(?:avis[áa]me|escr[ií]b[ií]me|consult[áa]me|quedo\s+a\s+disposici[oó]n|estoy\s+a\s+disposici[oó]n)[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'cualquier duda / consulta avisame', re: /[Cc]ualquier\s+(?:otra\s+)?(?:duda|consulta|pregunta)[^.!?\n]*(?:avis[áa]me|escr[ií]b[ií]me|consult[áa]me|qued(?:o|amos)\s+a\s+disposici[oó]n)[^.!?\n]*[.!?\n]+\s*/g },
+      // Caso CANCITO11 ML — agente abrió con "Necesito que me
+      // aclares qué medidas buscás exactamente". Variante del
+      // ask-back con "necesito que me <verbo>" en vez de
+      // "necesito entender".
+      { name: 'necesito que me aclares/confirmes/digas', re: /^\s*[Nn]ecesito\s+que\s+me\s+(?:aclares|confirmes|digas|cuentes|indiques|expliques)[^.!?\n]*[.!?\n]+\s*/g },
+      // Caso JULIOMAR_GARCIA ML — agente abrió con "Depende del
+      // tamaño exacto que necesites". Passive clarification —
+      // simula que el agente necesita más info cuando la
+      // publicación ya tiene contexto suficiente. Strip de la
+      // primera oración para que el reply arranque con el dato real.
+      { name: 'depende del / de la (clarificación pasiva)', re: /^\s*[Dd]epende\s+(?:de\s+(?:la|los|las)|del?)\s+(?:tama[ñn]o|cantidad|espesor|grosor|ancho|metros?|kg|kilos|gramos|litros?|color|aplicaci[oó]n|uso|proyecto)\s+(?:exact[ao]|que|espec[ií]fic[ao])[^.!?\n]*[.!?\n]+\s*/g },
       // Marcos 2026-06-30 (AG20250326122746 caso real, MERCADOLIBRE):
       // ML pre-venta — el agente arrancó con "Hola Ag, Necesito un
       // poco más de info para cotizarte exacto: 1. ¿Qué ancho? 2.
