@@ -430,6 +430,163 @@ export class PostalCodeZoneService {
     };
   }
 
+  /**
+   * Marcos 2026-06-30: minar el histórico de despachos (90d default)
+   * para derivar el `defaultCarrier` más probable por zona basado en
+   * lo que el equipo viene picando. El operator-pick history es la
+   * fuente más fuerte porque refleja la decisión real (flexCourier
+   * cuando hay; Order.carrier en su defecto). Resultado: una lista
+   * de recomendaciones que el cascade del panel "Despachos por
+   * mensajería" + Listas puede consumir sin que Marcos llene el
+   * Excel a mano.
+   *
+   * Filtros configurables vía env (todos con defaults razonables):
+   *   RECOMMEND_MIN_SAMPLES (default 5) — N mínimo de picks por zona
+   *   RECOMMEND_MIN_CONFIDENCE (default 0.60) — ratio del top sobre el total
+   *   RECOMMEND_WINDOW_DAYS (default 90)
+   *
+   * Una zona con menos de min_samples o donde el top no supera el
+   * umbral queda como "sin recomendación" — significa que la
+   * operatoria es mixta y conviene que el operador siga picando
+   * fila por fila.
+   */
+  async recommendZoneDefaults(): Promise<Array<{
+    zone: string;
+    recommendedCarrier: string;
+    confidence: number;
+    sampleSize: number;
+    runnersUp: Array<{ carrier: string; count: number }>;
+    currentDefault: string | null;
+  }>> {
+    const minSamples = (() => {
+      const n = Number(process.env.RECOMMEND_MIN_SAMPLES);
+      return Number.isFinite(n) && n > 0 ? n : 5;
+    })();
+    const minConfidence = (() => {
+      const n = Number(process.env.RECOMMEND_MIN_CONFIDENCE);
+      return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.60;
+    })();
+    const windowDays = (() => {
+      const n = Number(process.env.RECOMMEND_WINDOW_DAYS);
+      return Number.isFinite(n) && n > 0 ? n : 90;
+    })();
+
+    const since = new Date(Date.now() - windowDays * 24 * 3600 * 1000);
+    const stamps = await this.prisma.logisticaArmado.findMany({
+      where: { manuallyDispatchedAt: { gte: since } },
+      select: { rowKey: true, flexCourier: true },
+    });
+
+    // Carga lazy del normaliser para evitar import circular.
+    const { normaliseCarrier } = await import('./carrier-normalize.util');
+
+    const byZone = new Map<string, Map<string, number>>();
+    for (const s of stamps) {
+      if (!/^(tn|crm):/.test(s.rowKey)) continue;
+      const id = s.rowKey.replace(/^(tn|crm):/, '');
+      const o = await this.prisma.order.findFirst({
+        where: { OR: [{ id }, { externalId: id }] },
+        select: { carrier: true, shippingZone: true, contact: { select: { metadata: true } } },
+      });
+      if (!o) continue;
+      const rawCarrier = s.flexCourier || o.carrier;
+      if (!rawCarrier) continue;
+      const carrier = normaliseCarrier(rawCarrier);
+      if (carrier === 'Sin asignar') continue;
+      let zone = o.shippingZone ? o.shippingZone.replace(/\s+/g, '').toUpperCase() : null;
+      if (!zone) {
+        const meta = (o.contact?.metadata ?? {}) as any;
+        const cp = meta?.postalCode ?? meta?.cp ?? null;
+        if (cp && /^C?1\d{3}/.test(String(cp))) zone = 'CABA';
+      }
+      if (!zone) continue;
+      const slot = byZone.get(zone) ?? new Map<string, number>();
+      slot.set(carrier, (slot.get(carrier) ?? 0) + 1);
+      byZone.set(zone, slot);
+    }
+
+    // Pull current postal_code_zones.defaultCarrier per zone (modal —
+    // la zona puede tener filas con defaults divergentes si el admin
+    // las cargó parcialmente; tomamos el más frecuente como referencia).
+    const currentRows = await this.prisma.postalCodeZone.findMany({
+      where: { defaultCarrier: { not: null } },
+      select: { zone: true, defaultCarrier: true },
+    });
+    const currentByZone = new Map<string, Map<string, number>>();
+    for (const r of currentRows) {
+      const z = (r.zone ?? '').replace(/\s+/g, '').toUpperCase();
+      const c = r.defaultCarrier!;
+      const slot = currentByZone.get(z) ?? new Map<string, number>();
+      slot.set(c, (slot.get(c) ?? 0) + 1);
+      currentByZone.set(z, slot);
+    }
+    function modalCurrent(zone: string): string | null {
+      const slot = currentByZone.get(zone);
+      if (!slot) return null;
+      let top: [string, number] | null = null;
+      for (const e of slot) if (!top || e[1] > top[1]) top = [e[0], e[1]];
+      return top?.[0] ?? null;
+    }
+
+    const out: Array<{
+      zone: string;
+      recommendedCarrier: string;
+      confidence: number;
+      sampleSize: number;
+      runnersUp: Array<{ carrier: string; count: number }>;
+      currentDefault: string | null;
+    }> = [];
+    for (const [zone, freq] of byZone) {
+      const sorted = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]);
+      const total = sorted.reduce((acc, [, n]) => acc + n, 0);
+      if (total < minSamples) continue;
+      const [topCarrier, topCount] = sorted[0];
+      const conf = topCount / total;
+      if (conf < minConfidence) continue;
+      out.push({
+        zone,
+        recommendedCarrier: topCarrier,
+        confidence: Math.round(conf * 100) / 100,
+        sampleSize: total,
+        runnersUp: sorted.slice(1, 4).map(([carrier, count]) => ({ carrier, count })),
+        currentDefault: modalCurrent(zone),
+      });
+    }
+    return out.sort((a, b) => b.sampleSize - a.sampleSize);
+  }
+
+  /**
+   * Marcos 2026-06-30: aplicar las recomendaciones aceptadas como
+   * defaultCarrier en cada fila de postal_code_zones que matchee la
+   * zona. updateMany por zona — si la zona no tiene filas (Marcos
+   * todavía no las cargó), seguimos al siguiente sin error.
+   *
+   * Retorna cuántas filas se afectaron + cuáles se ignoraron por no
+   * tener match en la tabla.
+   */
+  async applyZoneDefaults(
+    selections: Array<{ zone: string; carrier: string }>,
+  ): Promise<{ updated: number; zonesWithoutMatch: string[] }> {
+    let updated = 0;
+    const zonesWithoutMatch: string[] = [];
+    for (const sel of selections) {
+      const zone = sel.zone.trim();
+      const carrier = sel.carrier.trim();
+      if (!zone || !carrier) continue;
+      const res = await this.prisma.postalCodeZone.updateMany({
+        where: { zone: { equals: zone, mode: 'insensitive' } },
+        data: { defaultCarrier: carrier },
+      });
+      if (res.count === 0) {
+        zonesWithoutMatch.push(zone);
+      } else {
+        updated += res.count;
+        this.logger.log(`recommendZoneDefaults applied: ${zone} → ${carrier} (${res.count} rows)`);
+      }
+    }
+    return { updated, zonesWithoutMatch };
+  }
+
   async deleteAll(): Promise<number> {
     const r = await this.prisma.postalCodeZone.deleteMany({});
     this.logger.warn(`postal-code-zones: TODA la tabla borrada (n=${r.count})`);

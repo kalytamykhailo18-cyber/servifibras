@@ -2900,6 +2900,27 @@ export const dailyLogisticaApi = {
     const r = await apiClient.get<any>(`/admin/postal-code-zones/resolve?${qs.toString()}`);
     return r.data?.data ?? r.data;
   },
+  // Marcos 2026-06-30: derivar mensajería sugerida por zona desde el
+  // histórico de operator-picks. Permite activar el cascade del panel
+  // Despachos / Listas sin esperar al Excel de tarifas. UI en
+  // Settings → Tarifas.
+  zoneCarrierRecommendations: async (): Promise<Array<{
+    zone: string;
+    recommendedCarrier: string;
+    confidence: number;
+    sampleSize: number;
+    runnersUp: Array<{ carrier: string; count: number }>;
+    currentDefault: string | null;
+  }>> => {
+    const r = await apiClient.get<any>('/admin/postal-code-zones/recommendations');
+    return r.data?.data ?? r.data ?? [];
+  },
+  applyZoneCarrierRecommendations: async (
+    selections: Array<{ zone: string; carrier: string }>,
+  ): Promise<{ updated: number; zonesWithoutMatch: string[] }> => {
+    const r = await apiClient.post<any>('/admin/postal-code-zones/recommendations/apply', { selections });
+    return r.data?.data ?? r.data;
+  },
   /**
    * Marcos 2026-06-10: stamp the flex courier on one or many rows.
    * `courier=null` clears the field.

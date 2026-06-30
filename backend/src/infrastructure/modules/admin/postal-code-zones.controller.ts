@@ -14,6 +14,7 @@
 
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
@@ -73,6 +74,31 @@ export class PostalCodeZonesController {
       cp: cp?.trim() || null,
     });
     return { success: true, data: r };
+  }
+
+  // Marcos 2026-06-30: minar el histórico de operator-picks para
+  // derivar el defaultCarrier sugerido por zona, sin esperar al
+  // upload del Excel. Devuelve recomendaciones con confianza +
+  // tamaño de muestra; el cascade del panel Despachos/Listas las
+  // consume cuando el admin las acepta.
+  @Get('recommendations')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA)
+  async recommendations() {
+    return { success: true, data: await this.svc.recommendZoneDefaults() };
+  }
+
+  // Aplicar selecciones (cada item = { zone, carrier }) al campo
+  // defaultCarrier de postal_code_zones. Idempotente — re-aplicar la
+  // misma selección no hace daño. Solo admin: cambia operatoria
+  // efectiva del cascade.
+  @Post('recommendations/apply')
+  @Roles(UserRole.ADMIN)
+  async applyRecommendations(@Body() body: { selections?: Array<{ zone: string; carrier: string }> }) {
+    const sel = Array.isArray(body?.selections) ? body.selections : [];
+    if (sel.length === 0) {
+      return { success: true, data: { updated: 0, zonesWithoutMatch: [] } };
+    }
+    return { success: true, data: await this.svc.applyZoneDefaults(sel) };
   }
 
   @Post('upload')
