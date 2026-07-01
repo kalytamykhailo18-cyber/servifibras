@@ -1,9 +1,14 @@
 # Servifibras — CI/CD pipeline (Marcos 2026-07-01)
 #
-# Corre en cada push a main después del transfer del repo a la org
-# `servifibras-web`. Hace TS check + build para detectar fallas
-# tempranas, después SSH al servidor de prod y ejecuta el deploy
-# script (mismo que el manual) — así la fuente de verdad del
+# TEMPLATE. Después del transfer del repo a la org `servifibras-web`,
+# copiar este archivo a `.github/workflows/deploy.yml` (el push
+# requiere un PAT con scope `workflow`) y setear los secretos de la
+# org listados abajo. A partir de ahí, cada push a main dispara TS
+# check + deploy automático.
+#
+# Corre en cada push a main. Hace TS check + build para detectar
+# fallas tempranas, después SSH al servidor de prod y ejecuta el
+# deploy script (mismo que el manual) — así la fuente de verdad del
 # proceso de deploy queda en el repo, no en el server.
 #
 # Secretos requeridos (Settings → Secrets and variables → Actions):
