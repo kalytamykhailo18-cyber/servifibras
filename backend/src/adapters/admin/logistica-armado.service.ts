@@ -270,8 +270,27 @@ export class LogisticaArmadoService {
       ? ((existing!.itemsChecked as any) as string[])
       : [];
     const set = new Set(prevChecked);
-    if (args.checked) set.add(args.itemKey);
-    else set.delete(args.itemKey);
+    if (args.checked) {
+      set.add(args.itemKey);
+    } else {
+      // Marcos 2026-06-30: además del delete exact, remover TODA
+      // entrada con el mismo <sku>: prefix. Los índices dentro del
+      // key (SKU:idx) dependen del orden que el aggregator devuelve
+      // para el pack, que puede variar entre requests. Sin este
+      // limpieza-por-prefijo, un stamp viejo con índice desactualizado
+      // (ej. "6x5002:2") sobrevive un untick del key nuevo (ej.
+      // "6x5002:1") y el reader tolerante lo sigue mostrando tildado
+      // creando confusión "toqué el checkbox pero no se apagó".
+      set.delete(args.itemKey);
+      const colon = args.itemKey.indexOf(':');
+      const rawPrefix = colon > 0 ? args.itemKey.substring(0, colon) : '';
+      // Excluir "item" (items sin sku son order-dependent solamente
+      // — clean-by-prefix borraría todos los item:* de golpe).
+      if (rawPrefix && rawPrefix !== 'item') {
+        const pref = rawPrefix + ':';
+        for (const k of Array.from(set)) if (k.startsWith(pref)) set.delete(k);
+      }
+    }
     const nextChecked = Array.from(set);
     const expected = Math.max(args.itemsExpected, prevChecked.length, nextChecked.length);
 

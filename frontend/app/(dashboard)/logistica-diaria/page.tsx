@@ -367,6 +367,25 @@ export default function LogisticaDiariaPage() {
     checked: boolean,
   ) => {
     // Optimistic flip.
+    // Marcos 2026-06-30: en el untick, además del itemKey actual
+    // limpiamos cualquier otra entrada del set con el MISMO prefijo
+    // <sku>: — si el pack fue tildado antes con el índice viejo
+    // (ej. "6x5002:2") y el aggregator lo devuelve ahora en otra
+    // posición (ej. "6x5002:1"), el usuario ve el checkbox tildado
+    // vía el reader tolerante pero si clickea untick, el delete
+    // solo removeía el key nuevo dejando el viejo colgado. Este
+    // clean-by-prefix garantiza que untick = fuera de todos los
+    // rastros del item.
+    const skuPrefixOf = (k: string): string | null => {
+      const colon = k.indexOf(':');
+      if (colon <= 0) return null;
+      const prefix = k.substring(0, colon);
+      // items sin sku usan literal "item" como prefijo — esos SÍ
+      // son order-dependent y el clean-by-prefix borraría todos
+      // los items sin sku de golpe. Excluir.
+      if (prefix === 'item') return null;
+      return prefix + ':';
+    };
     setData((prev) => {
       if (!prev) return prev;
       const next: AggregatedDay = JSON.parse(JSON.stringify(prev));
@@ -374,8 +393,18 @@ export default function LogisticaDiariaPage() {
         for (const r of next.sections[sec]) {
           if (r.rowKey === row.rowKey) {
             const set = new Set(r.itemsChecked ?? []);
-            if (checked) set.add(itemKey);
-            else set.delete(itemKey);
+            if (checked) {
+              set.add(itemKey);
+            } else {
+              set.delete(itemKey);
+              // Además del delete exact, remover cualquier entrada
+              // con el mismo <sku>: prefix (limpieza de stamps
+              // viejos con índices desactualizados).
+              const pref = skuPrefixOf(itemKey);
+              if (pref) {
+                for (const k of Array.from(set)) if (k.startsWith(pref)) set.delete(k);
+              }
+            }
             r.itemsChecked = Array.from(set);
             if (r.state === 'PENDIENTE' && checked) r.state = 'ARMADO';
           }
