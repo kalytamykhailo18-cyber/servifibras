@@ -1043,8 +1043,8 @@ export const analyticsApi = {
     return r.data?.data ?? r.data;
   },
 
-  // Marcos 2026-06-30: per-agent today armado count para chips
-  // inline del Logística card en /analitica.
+  // Marcos 2026-06-30: per-agent today activity para chips inline
+  // en cada card de /analitica.
   getLogisticaPerAgentToday: async (): Promise<Array<{
     userId: string;
     name: string;
@@ -1052,6 +1052,22 @@ export const analyticsApi = {
     listosToday: number;
   }>> => {
     const r = await apiClient.get<any>('/admin/analytics/role/logistica/per-agent-today');
+    return r.data?.data ?? r.data ?? [];
+  },
+  getAtencionPerAgentToday: async (): Promise<Array<{
+    userId: string;
+    name: string;
+    repliesToday: number;
+  }>> => {
+    const r = await apiClient.get<any>('/admin/analytics/role/atencion/per-agent-today');
+    return r.data?.data ?? r.data ?? [];
+  },
+  getVentasPerAgentToday: async (): Promise<Array<{
+    userId: string;
+    name: string;
+    leadsToday: number;
+  }>> => {
+    const r = await apiClient.get<any>('/admin/analytics/role/ventas/per-agent-today');
     return r.data?.data ?? r.data ?? [];
   },
 

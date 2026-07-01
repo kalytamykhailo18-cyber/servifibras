@@ -301,6 +301,82 @@ export class RoleMetricsService {
   }
 
   /**
+   * Marcos 2026-06-30 (Atención + Ventas extension): per-agente
+   * activity-today para los chips de las cards Atención y Ventas.
+   * Mismo pattern que getLogisticaPerAgentToday — devuelve
+   * {userId, name, count} solo para users con al menos 1 evento
+   * hoy. El frontend renderiza subscript en el chip inline.
+   */
+  async getAtencionPerAgentToday(): Promise<Array<{
+    userId: string;
+    name: string;
+    repliesToday: number;
+  }>> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    // Mensajes salientes escritos por staff (no AI) hoy — el
+    // "authorId" se stampea SOLO cuando el mensaje sale del panel
+    // por un human staff (see message.entity comment on authorId).
+    const grouped = await this.prisma.message.groupBy({
+      by: ['authorId'],
+      where: {
+        isFromAI: false,
+        authorId: { not: null },
+        timestamp: { gte: startOfDay },
+      },
+      _count: { _all: true },
+    });
+    if (grouped.length === 0) return [];
+    const userIds = grouped.map((g) => g.authorId!).filter(Boolean);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+    return grouped
+      .map((g) => ({
+        userId: g.authorId!,
+        name: nameById.get(g.authorId!) ?? '?',
+        repliesToday: g._count._all,
+      }))
+      .sort((a, b) => b.repliesToday - a.repliesToday);
+  }
+
+  async getVentasPerAgentToday(): Promise<Array<{
+    userId: string;
+    name: string;
+    leadsToday: number;
+  }>> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    // Leads updated hoy con assignedTo — updated puede ser cualquier
+    // acción (estado, followup, quote). Refleja actividad real del
+    // vendedor sobre sus leads.
+    const grouped = await this.prisma.lead.groupBy({
+      by: ['assignedTo'],
+      where: {
+        assignedTo: { not: null },
+        updatedAt: { gte: startOfDay },
+      },
+      _count: { _all: true },
+    });
+    if (grouped.length === 0) return [];
+    const userIds = grouped.map((g) => g.assignedTo!).filter(Boolean);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+    return grouped
+      .map((g) => ({
+        userId: g.assignedTo!,
+        name: nameById.get(g.assignedTo!) ?? '?',
+        leadsToday: g._count._all,
+      }))
+      .sort((a, b) => b.leadsToday - a.leadsToday);
+  }
+
+  /**
    * Marcos 2026-06-30: per-agente armado-today para los chips del
    * Logística card. Devuelve {userId, name, armadosToday, listosToday}
    * solo para usuarios con rol LOGISTICA / ENCARGADO / ADMIN que

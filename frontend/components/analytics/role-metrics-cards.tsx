@@ -149,6 +149,14 @@ function AtencionCard() {
   const [error, setError] = useState<string | null>(null);
   // Marcos 2026-06-29: selected agent narrowing.
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Marcos 2026-06-30: per-agent activity subscript. Same pattern as
+  // LogisticaCard — un fetch al mount, mapa userId → repliesToday.
+  const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    api.analytics.getAtencionPerAgentToday()
+      .then((rows) => setPerAgent(new Map(rows.map((r) => [r.userId, r.repliesToday]))))
+      .catch(() => setPerAgent(new Map()));
+  }, []);
   useEffect(() => {
     setData(null);
     setError(null);
@@ -166,7 +174,7 @@ function AtencionCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Atención</h3>
           <p className="text-[11px] text-slate-500">Cola, latencia, conversaciones sin resolver</p>
-          <AgentChips role={UserRole.ATENCION} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
+          <AgentChips role={UserRole.ATENCION} selectedUserId={selectedUserId} onSelect={setSelectedUserId} statsByUserId={perAgent} />
         </div>
       </div>
 
@@ -241,6 +249,12 @@ function VentasCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getVentasMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    api.analytics.getVentasPerAgentToday()
+      .then((rows) => setPerAgent(new Map(rows.map((r) => [r.userId, r.leadsToday]))))
+      .catch(() => setPerAgent(new Map()));
+  }, []);
   useEffect(() => {
     setData(null);
     setError(null);
@@ -258,7 +272,7 @@ function VentasCard() {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900">Ventas</h3>
           <p className="text-[11px] text-slate-500">Mayoristas, presupuestos y conversión</p>
-          <AgentChips role={UserRole.VENTAS} selectedUserId={selectedUserId} onSelect={setSelectedUserId} />
+          <AgentChips role={UserRole.VENTAS} selectedUserId={selectedUserId} onSelect={setSelectedUserId} statsByUserId={perAgent} />
         </div>
       </div>
 

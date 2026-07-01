@@ -76,14 +76,27 @@ export class AnalyticsController {
     return { success: true, data: await this.roleMetrics.getLogisticaMetrics(userId || undefined) };
   }
 
-  // Marcos 2026-06-30: per-agent today armado count para mostrar
-  // inline en los chips del Logística card en /analitica. Devuelve
-  // solo los users que stampearon al menos 1 row hoy — sin volumen,
-  // sin chip subscript.
+  // Marcos 2026-06-30: per-agent today activity para mostrar
+  // inline en los chips de cada card en /analitica. Devuelve solo
+  // los users que tuvieron actividad hoy — sin volumen, sin chip
+  // subscript. Cada método devuelve una key específica (armadosToday,
+  // repliesToday, leadsToday) que el frontend consume.
   @Get('role/logistica/per-agent-today')
   @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
   async getLogisticaPerAgentToday() {
     return { success: true, data: await this.roleMetrics.getLogisticaPerAgentToday() };
+  }
+
+  @Get('role/atencion/per-agent-today')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.ENCARGADO)
+  async getAtencionPerAgentToday() {
+    return { success: true, data: await this.roleMetrics.getAtencionPerAgentToday() };
+  }
+
+  @Get('role/ventas/per-agent-today')
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.ENCARGADO)
+  async getVentasPerAgentToday() {
+    return { success: true, data: await this.roleMetrics.getVentasPerAgentToday() };
   }
 
   @Get('role/admin')
