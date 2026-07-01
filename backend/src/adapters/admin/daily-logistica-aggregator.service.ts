@@ -1190,6 +1190,17 @@ export class DailyLogisticaAggregatorService {
         delete (r as { _override?: string | null })._override;
         if (override && override !== s && validSections.has(override)) {
           moves.push({ row: r, from: s, to: override as DailySection });
+          continue;
+        }
+        // Marcos 2026-07-01: PRFV placas con dispatchMode='RETIRA_CASEROS'
+        // se re-bucketan a la sección RETIRA_CASEROS del panel — Marcos:
+        // "PRFV siguen sin trasladarse al área de armado, deberían irse
+        // ahí cuando están lista cortada + retira caseros". El toggle
+        // Retira/Envío del row (a81699a) decide, la aggregation lo
+        // propaga a la sección correcta. dispatchMode='ENVIO' o null
+        // queda en LAMINADOS_PRFV como estaba.
+        if (s === 'LAMINADOS_PRFV' && r.dispatchMode === 'RETIRA_CASEROS') {
+          moves.push({ row: r, from: 'LAMINADOS_PRFV', to: 'RETIRA_CASEROS' });
         }
       }
     }

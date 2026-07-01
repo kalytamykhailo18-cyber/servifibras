@@ -1,0 +1,102 @@
+# Servifibras — CI/CD pipeline (Marcos 2026-07-01)
+#
+# Corre en cada push a main después del transfer del repo a la org
+# `servifibras-web`. Hace TS check + build para detectar fallas
+# tempranas, después SSH al servidor de prod y ejecuta el deploy
+# script (mismo que el manual) — así la fuente de verdad del
+# proceso de deploy queda en el repo, no en el server.
+#
+# Secretos requeridos (Settings → Secrets and variables → Actions):
+#   PROD_SSH_HOST         — IP o DNS del droplet (ej: dev.servifibras.com)
+#   PROD_SSH_USER         — usuario SSH (root para acceso a systemctl)
+#   PROD_SSH_KEY          — private key en formato OpenSSH (multi-línea)
+#   PROD_SSH_KNOWN_HOSTS  — output de `ssh-keyscan -H <host>`
+#
+# No incluir credenciales de aplicación (DATABASE_URL, CLAUDE_API_KEY,
+# BACKUP_S3_*, etc) — esas viven en el .env del servidor de prod y
+# no rotan con cada deploy.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  # Cancela un deploy anterior en flight si empujás uno nuevo — evita
+  # la deploy churn que causa cold-compile windows visibles al usuario
+  # (regla: nunca ≥3 deploys en <30 min).
+  group: deploy-prod
+  cancel-in-progress: false  # NO cancelar mid-deploy; encolar
+
+jobs:
+  ts-check:
+    name: TypeScript check (both sides)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Backend deps
+        working-directory: backend
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Backend Prisma generate
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Backend tsc
+        working-directory: backend
+        run: NODE_OPTIONS="--max-old-space-size=2048" npx tsc --noEmit
+
+      - name: Frontend deps
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Frontend tsc
+        working-directory: frontend
+        # Nota: `next build` es MÁS estricto que `tsc --noEmit`. Este
+        # step atrapa la mayoría de errores; el build en el server
+        # también corre y aborta si hay algo que tsc dejó pasar.
+        run: NODE_OPTIONS="--max-old-space-size=2048" npx tsc --noEmit
+
+  deploy:
+    name: Deploy to prod
+    needs: ts-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PROD_SSH_KEY }}
+
+      - name: Trust host
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run deploy on server
+        run: |
+          ssh ${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }} \
+            'cd /home/servifibras && git pull origin main && bash ops/deploy.sh --allow-schema-change'
+
+      - name: Wait + health check
+        run: |
+          for i in {1..30}; do
+            sleep 5
+            code=$(curl -sS -o /dev/null -w "%{http_code}" https://${{ secrets.PROD_SSH_HOST }}/health || echo 000)
+            echo "Attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Deploy healthy ✓"
+              exit 0
+            fi
+          done
+          echo "Deploy health check failed after 150s"
+          exit 1
