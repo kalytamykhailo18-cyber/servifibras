@@ -1534,7 +1534,7 @@ export class DailyLogisticaAggregatorService {
     // standalone). Antes este path tiraba ~1200 queries por load.
     const aliasMap = sharedAliasMap
       ?? (await this.loadProductAliasMap(items.map((it) => it.sku).filter((s): s is string => !!s)));
-    return items.map((it) => {
+    const mapped = items.map((it) => {
       const info = it.sku ? aliasMap.get(it.sku) ?? null : null;
       return {
         sku: it.sku,
@@ -1546,6 +1546,17 @@ export class DailyLogisticaAggregatorService {
         warehouseLocation: info?.warehouseLocation ?? null,
       };
     });
+    // Marcos 2026-06-30: ML /packs/{id} devuelve los items en orden
+    // NO-determinístico entre requests. Eso hace que el índice del
+    // item en el array (que se usa como parte de la key
+    // <sku>:<idx> en itemsChecked) drift entre loads del panel, y
+    // la key stampeada al tildar deja de matchear la posición
+    // actual del item — bug del pack #2000013761318639 (5/5 en base
+    // pero panel mostraba 1/5 en un tab y 3/5 en otro). Sort
+    // determinístico acá elimina la fuente del drift; el reader
+    // tolerante en el frontend (74a95f7) queda como safety net
+    // para datos históricos.
+    return sortItemsStable(mapped);
   }
 
   /**
@@ -1578,7 +1589,7 @@ export class DailyLogisticaAggregatorService {
         /* non-fatal */
       }
     }
-    return items.map((p: any) => {
+    const mapped = items.map((p: any) => {
       if (typeof p === 'string') {
         return { sku: null, name: p, quantity: 1, alias: null, imageUrl: null, unitPrice: null, warehouseLocation: null };
       }
@@ -1607,5 +1618,31 @@ export class DailyLogisticaAggregatorService {
         warehouseLocation: sku ? (locationMap.get(sku) ?? null) : null,
       };
     });
+    // Marcos 2026-06-30: same stable-sort discipline as expandMlItems
+    // — mantenemos orden determinístico entre requests para que las
+    // keys <sku>:<idx> de itemsChecked no drifteen.
+    return sortItemsStable(mapped);
   }
+}
+
+/**
+ * Marcos 2026-06-30: stable ordering para items dentro de un pack —
+ * ordena por SKU asc (items con SKU primero, alfabéticos), luego
+ * por name asc (items sin SKU al final). Determinístico entre
+ * requests, así el índice del item en el array se mantiene estable
+ * y las keys stampeadas en itemsChecked siguen matcheando la
+ * posición actual en la próxima carga del panel.
+ */
+function sortItemsStable<T extends { sku: string | null; name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const aHas = !!(a.sku && a.sku.length > 0);
+    const bHas = !!(b.sku && b.sku.length > 0);
+    if (aHas && !bHas) return -1;
+    if (!aHas && bHas) return 1;
+    if (aHas && bHas) {
+      const cmp = a.sku!.localeCompare(b.sku!);
+      if (cmp !== 0) return cmp;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }

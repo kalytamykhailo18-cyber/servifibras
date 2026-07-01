@@ -641,9 +641,42 @@ export default function LogisticaDiariaPage() {
     if (bulkPending || rowKeys.length === 0) return;
     setBulkPending(true);
     try {
+      // Marcos 2026-06-30 (bug real): notas commit on-blur, pero
+      // el operator suele tipear la nota Y ACTO SEGUIDO clickear
+      // el dropdown de mover-sección sin dar tab-out primero. El
+      // move triggerea un load() que refetchea sin la nota (nunca
+      // se persistió), el input local sigue mostrándola por el
+      // draft, y en el próximo refresh la nota "desaparece".
+      // Flush cualquier draft pending de los rowKeys afectados
+      // ANTES del setSectionOverride así el orden es:
+      //   1. persist la nota (POST /note)
+      //   2. persist el override (POST /section-override)
+      //   3. load() ve ambos estados actualizados.
+      const draftsToFlush = rowKeys
+        .filter((rk) => noteDrafts[rk] !== undefined)
+        .map((rk) => ({ rk, draft: noteDrafts[rk] }));
+      if (draftsToFlush.length > 0) {
+        await Promise.all(draftsToFlush.map(({ rk, draft }) =>
+          api.dailyLogistica.setNote(
+            rk,
+            date,
+            draft.trim().length === 0 ? null : draft,
+          ).catch((err: any) => {
+            // Non-fatal — un fallo de nota no debe frenar el move.
+            // Lo logueamos y el toast lo menciona.
+            console.warn('note flush before move failed', rk, err);
+          }),
+        ));
+        setNoteDrafts((prev) => {
+          const next = { ...prev };
+          for (const rk of rowKeys) delete next[rk];
+          return next;
+        });
+      }
       const r = await api.dailyLogistica.setSectionOverride(rowKeys, date, section);
       const label = section ? SECTION_META[section as DailySection]?.label ?? section : 'sección auto';
-      toast.success(`${r.updated} fila${r.updated === 1 ? '' : 's'} → ${label}${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
+      const noteHint = draftsToFlush.length > 0 ? ` (con ${draftsToFlush.length} nota${draftsToFlush.length === 1 ? '' : 's'} guardada${draftsToFlush.length === 1 ? '' : 's'})` : '';
+      toast.success(`${r.updated} fila${r.updated === 1 ? '' : 's'} → ${label}${noteHint}${r.failed.length ? ` (${r.failed.length} con error)` : ''}`);
       await load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? err?.message ?? "No se pudo mover la fila");
