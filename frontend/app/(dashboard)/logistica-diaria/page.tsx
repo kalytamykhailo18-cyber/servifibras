@@ -1813,14 +1813,43 @@ export default function LogisticaDiariaPage() {
                           // se ven como no-tildados y el armador
                           // re-tilda una vez (los que tenían el bug
                           // estaban trabados en 3/4 igual).
+                          // Marcos 2026-06-30: bug real observado en pack
+                          // #2000013761318639 — la misma fila mostraba
+                          // 1/5 en una vista y 3/5 en otra. Root cause:
+                          // itemsChecked stored as `<sku>:<idx>` donde
+                          // <idx> es la posición en row.items. Si el
+                          // aggregator devuelve los items en distinto
+                          // orden entre dos requests, el mismo item
+                          // "brinca" de índice y su key no matchea más.
+                          // Fix del reader: match tolerante — el item
+                          // queda checked si CUALQUIERA de sus posibles
+                          // keys aparece en el set:
+                          //   1. `<sku>:<idx>` (legacy exact match)
+                          //   2. Solo el `<sku>` prefix (order-independent)
+                          // Para items sin sku, seguimos usando `item:<idx>`
+                          // (esos SÍ dependen de orden, pero suelen ser <=1
+                          // por pack, no dan problema práctico).
                           const itemKeyFor = (it: typeof row.items[number], idx: number) => {
                             const base = it.sku && it.sku.length > 0 ? it.sku : 'item';
                             return `${base}:${idx}`;
                           };
                           const checkedSet = new Set(row.itemsChecked ?? []);
+                          const isItemChecked = (it: typeof row.items[number], idx: number) => {
+                            // Path exact (legacy).
+                            if (checkedSet.has(itemKeyFor(it, idx))) return true;
+                            // Path tolerante: para items CON sku, buscar
+                            // cualquier entrada del set que empiece con
+                            // ese sku (matchea SKU:0..N sin importar el
+                            // índice actual).
+                            if (it.sku && it.sku.length > 0) {
+                              const prefix = `${it.sku}:`;
+                              for (const k of checkedSet) if (k.startsWith(prefix)) return true;
+                            }
+                            return false;
+                          };
                           const totalItems = row.items.length;
                           const checkedCount = row.items.reduce(
-                            (c, it, idx) => (checkedSet.has(itemKeyFor(it, idx)) ? c + 1 : c),
+                            (c, it, idx) => (isItemChecked(it, idx) ? c + 1 : c),
                             0,
                           );
                           const allChecked = totalItems > 0 && checkedCount === totalItems;
@@ -1872,7 +1901,11 @@ export default function LogisticaDiariaPage() {
                             <ul className="space-y-1.5">
                               {row.items.map((it, idx) => {
                                 const k = itemKeyFor(it, idx);
-                                const ticked = checkedSet.has(k);
+                                // Marcos 2026-06-30: usar isItemChecked
+                                // para el ticked visual (tolera reorder).
+                                // Para el CLICK sigue usando k exact —
+                                // los writes nuevos van a exact-key.
+                                const ticked = isItemChecked(it, idx);
                                 // Marcos 2026-06-25: una vez que la
                                 // fila está LISTO o despachada, los
                                 // items quedan congelados — no se
