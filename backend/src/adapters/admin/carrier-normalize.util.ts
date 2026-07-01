@@ -36,7 +36,16 @@ export function normaliseCarrier(raw: string | null | undefined): string {
   const lc = v.toLowerCase();
   if (/^andreani\b|env[ií]o nube/.test(lc)) return 'Andreani';
   if (lc === 'flex_373' || /^jyj\b|^j[\s.\-]?y[\s.\-]?j\b/.test(lc)) return 'JyJ';
-  if (/servifibras/.test(lc) || /^retiras? en (la )?servifibras/.test(lc)) return 'Servifibras propio';
+  // Marcos 2026-06-30: separar TN pickup (comprador pasa a buscar
+  // al local) de PRFV taller (Servifibras dispachando laminados
+  // propios). Antes ambos caían en "Servifibras propio" — Marcos
+  // marcó que ese label no representa nada real.
+  //   TN "Retiras en Servifibras Caseros" → "Retira Caseros" (pickup)
+  //   Literal "Servifibras propio" (raw stamp del branch prfv en el
+  //   aggregator) → mantiene su bucket propio HASTA que Marcos
+  //   defina el nombre nuevo para envíos de laminados.
+  if (/^retiras? en (la )?servifibras/.test(lc)) return 'Retira Caseros';
+  if (/^servifibras propio\b/.test(lc)) return 'Servifibras propio';
   if (/^m2\b|mensaje?r[ií]a m2/.test(lc)) return 'M2';
   if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
   if (/^oca\b/.test(lc)) return 'OCA';

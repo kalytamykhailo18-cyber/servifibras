@@ -66,7 +66,8 @@ const CARRIER_COLOR: Record<string, string> = {
   "Andreani":           "bg-rose-50 text-rose-700 border-rose-200",
   "OCA":                "bg-amber-50 text-amber-700 border-amber-200",
   "Mercado Libre":      "bg-yellow-50 text-yellow-700 border-yellow-200",
-  "Servifibras propio": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Retira Caseros":     "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Servifibras propio": "bg-teal-50 text-teal-700 border-teal-200",
   "Despachos Online":   "bg-cyan-50 text-cyan-700 border-cyan-200",
   "Sin asignar":        "bg-slate-100 text-slate-600 border-slate-200",
 };

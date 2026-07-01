@@ -1200,6 +1200,18 @@ export class DailyLogisticaAggregatorService {
     //   operador pique o se aplique el default-per-zona).
     const tCarrier = Date.now();
     const summaryByCarrier = new Map<string, { pending: number; listas: number }>();
+    // Marcos 2026-06-30: RETIRA_CASEROS no es mensajería — es una
+    // sección donde caen los pedidos que el comprador pasa a buscar
+    // al local. Marcos: "recordá que retira caseros ya existe como
+    // segmentación, sería simplemente que la orden vaya ahí". Esos
+    // rows YA se ven en su sección; incluirlos en el chip strip de
+    // mensajerías arriba del panel los cuenta doble como si fueran
+    // laburo de courier — confunde el conteo real de despachos +
+    // infla la proyección de "estimado a pagar". Excluir por
+    // sección, no por resolvedCarrier — los 105 rows de hoy se
+    // reparten entre 4 buckets distintos (Andreani 48, Servifibras
+    // propio 40, ML 9, Sin asignar 8), filtrar por label pierde 65.
+    const EXCLUDE_FROM_CARRIER_SUMMARY = new Set<DailySection>(['RETIRA_CASEROS']);
     for (const s of SECTION_ORDER) {
       for (const r of out.sections[s]) {
         // ML rows ya vienen rotulados Mercado Libre en _cliente_,
@@ -1219,6 +1231,10 @@ export class DailyLogisticaAggregatorService {
         });
         r.resolvedCarrier = resolved;
         delete (r as { _carrier?: string | null })._carrier;
+        // Skip carrier summary contribution for section-managed rows.
+        // La row sigue apareciendo en su sección con su chip
+        // resolvedCarrier — solo no cuenta en el strip agregado.
+        if (EXCLUDE_FROM_CARRIER_SUMMARY.has(s)) continue;
         const bucket = summaryByCarrier.get(resolved) ?? { pending: 0, listas: 0 };
         if (r.isDispatched) {
           // Despachadas — no entran al summary "pending" del día.
