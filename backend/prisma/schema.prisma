@@ -1130,6 +1130,13 @@ enum ConversationSeverity {
 // shorthand — no need to force them onto a structured product picker).
 model PrfvPlaca {
   id             String         @id @default(uuid())
+  /// Marcos 2026-06-30: sub-modo por placa dentro del segmento
+  /// LAMINADOS_PRFV. "Retira Caseros" = comprador pasa a buscar
+  /// la placa al taller. "Envio" = Servifibras la manda por
+  /// mensajería propia o tercero. Null = todavía no definido
+  /// por el operador. Existing rows quedan null hasta que el
+  /// operador pique una opción desde el panel.
+  dispatchMode   String?
   // Cliente — free-form per Marcos's existing Excel (often holds the
   // operation number, channel tag, transporter and payment notes glued
   // together: "Adrian Geuna NORTHTRAIL - WSP PAGA EFE").

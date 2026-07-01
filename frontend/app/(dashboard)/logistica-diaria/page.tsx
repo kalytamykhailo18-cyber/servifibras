@@ -638,6 +638,23 @@ export default function LogisticaDiariaPage() {
    * auto-computed section. Optimistic toast + reload so the picker
    * sees the row jump immediately.
    */
+  // Marcos 2026-06-30: sub-modo PRFV por row (Retira Caseros / Envío).
+  // rowKey de PRFV llega como "prfv:<uuid>"; el ID de la placa es el
+  // uuid. Toggle behavior en frontend: clickear el chip activo lo
+  // resetea a null (permite deshacer).
+  const setPrfvDispatchMode = async (rowKey: string, mode: 'RETIRA_CASEROS' | 'ENVIO' | null) => {
+    const id = rowKey.replace(/^prfv:/, '');
+    if (!id) return;
+    try {
+      await api.prfvPlaca.setDispatchMode(id, mode);
+      const label = mode === 'RETIRA_CASEROS' ? 'Retira Caseros' : mode === 'ENVIO' ? 'Envío' : 'sin modo';
+      toast.success(`Placa → ${label}`);
+      await load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? err?.message ?? 'No se pudo actualizar el modo');
+    }
+  };
+
   const moveRowsToSection = async (rowKeys: string[], section: string | null) => {
     if (bulkPending || rowKeys.length === 0) return;
     setBulkPending(true);
@@ -1710,6 +1727,42 @@ export default function LogisticaDiariaPage() {
                                   }
                                 >
                                   {row.resolvedCarrier}
+                                </span>
+                              )}
+                              {/* Marcos 2026-06-30: PRFV row sub-modo
+                                  selector inline. Solo aplica a rows
+                                  de la sección LAMINADOS_PRFV (source
+                                  = PRFV_PLACA). Toggle de 2 botones —
+                                  Retira Caseros / Envío — que llama
+                                  al endpoint dispatch-mode. */}
+                              {row.source === 'PRFV_PLACA' && tab !== 'despachadas' && !row.isCancelled && (
+                                <span className="ml-2 inline-flex items-center gap-0.5 rounded-full border border-slate-300 bg-white px-0.5 align-middle" data-testid="prfv-dispatch-mode">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void setPrfvDispatchMode(row.rowKey, row.dispatchMode === 'RETIRA_CASEROS' ? null : 'RETIRA_CASEROS'); }}
+                                    className={
+                                      "h-4 rounded-full px-2 text-[9px] font-semibold uppercase tracking-wider transition " +
+                                      (row.dispatchMode === 'RETIRA_CASEROS'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'text-slate-500 hover:bg-slate-100')
+                                    }
+                                    title="Comprador retira la placa en el taller"
+                                  >
+                                    Retira
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void setPrfvDispatchMode(row.rowKey, row.dispatchMode === 'ENVIO' ? null : 'ENVIO'); }}
+                                    className={
+                                      "h-4 rounded-full px-2 text-[9px] font-semibold uppercase tracking-wider transition " +
+                                      (row.dispatchMode === 'ENVIO'
+                                        ? 'bg-cyan-600 text-white'
+                                        : 'text-slate-500 hover:bg-slate-100')
+                                    }
+                                    title="La placa se despacha por mensajería"
+                                  >
+                                    Envío
+                                  </button>
                                 </span>
                               )}
                               {/* Sin courier asignado: en Despachadas

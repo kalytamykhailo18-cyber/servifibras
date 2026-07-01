@@ -173,6 +173,32 @@ export class PrfvPlacaService {
     }
   }
 
+  /**
+   * Marcos 2026-06-30: sub-modo por placa dentro del segmento
+   * LAMINADOS_PRFV. 'RETIRA_CASEROS' = comprador pasa a buscar,
+   * 'ENVIO' = se despacha por mensajería. null = todavía sin
+   * decidir. El aggregator usa este campo para clasificar la row
+   * en el chip strip (RETIRA_CASEROS-dispatchMode se excluye del
+   * summary de mensajerías, igual que las rows en sección
+   * RETIRA_CASEROS).
+   */
+  async setDispatchMode(
+    id: string,
+    mode: 'RETIRA_CASEROS' | 'ENVIO' | null,
+  ): Promise<PrfvPlaca | null> {
+    try {
+      const row = await this.prisma.prfvPlaca.update({
+        where: { id },
+        data: { dispatchMode: mode },
+      });
+      this.logger.log(`PRFV placa ${id.slice(0, 8)} dispatchMode → ${mode ?? 'null'}`);
+      return row;
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      throw err;
+    }
+  }
+
   /** Count by state — small helper for the page chips. */
   async countsByState(): Promise<Record<PrfvPlacaState, number>> {
     const rows = await this.prisma.prfvPlaca.groupBy({

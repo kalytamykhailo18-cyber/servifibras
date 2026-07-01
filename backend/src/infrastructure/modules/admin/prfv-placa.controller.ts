@@ -129,4 +129,29 @@ export class PrfvPlacaController {
     this.logger.log(`PRFV placa ${id.slice(0, 8)} deleted by ${req.user?.email ?? 'unknown'}`);
     return { success: true };
   }
+
+  /**
+   * Marcos 2026-06-30: PATCH sub-modo por placa (Retira Caseros /
+   * Envio). Nullable — pasar body {"mode": null} lo resetea.
+   * Body validation es liviana: solo aceptamos los 2 enum strings
+   * o null; cualquier otro valor se rechaza con 400.
+   */
+  @Post(':id/dispatch-mode')
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  async setDispatchMode(
+    @Param('id') id: string,
+    @Body() body: { mode?: string | null },
+    @Request() req: any,
+  ) {
+    const raw = body?.mode ?? null;
+    const mode: 'RETIRA_CASEROS' | 'ENVIO' | null =
+      raw === 'RETIRA_CASEROS' || raw === 'ENVIO' ? raw : (raw === null || raw === '' ? null : ('__invalid__' as any));
+    if (mode === ('__invalid__' as any)) {
+      throw new BadRequestException("mode must be 'RETIRA_CASEROS', 'ENVIO', or null");
+    }
+    const row = await this.svc.setDispatchMode(id, mode);
+    if (!row) throw new NotFoundException('placa not found');
+    this.logger.log(`PRFV placa ${id.slice(0, 8)} dispatchMode set by ${req.user?.email ?? 'unknown'} → ${mode ?? 'null'}`);
+    return { success: true, data: row };
+  }
 }

@@ -2721,6 +2721,12 @@ export interface DailySectionRow {
    *  El frontend lo usa para mostrar el chip de mensajería en cada
    *  row + computar el resaltado del chip strip de arriba. */
   resolvedCarrier: string;
+  /** Marcos 2026-06-30: sub-modo por row PRFV (Retira Caseros /
+   *  Envío). Solo tiene valor en la sección LAMINADOS_PRFV; null
+   *  en el resto. El frontend renderiza un selector inline cuando
+   *  la row está en LAMINADOS_PRFV; PRFV-RETIRA_CASEROS no cuenta
+   *  en el chip strip de mensajerías. */
+  dispatchMode: 'RETIRA_CASEROS' | 'ENVIO' | null;
   /** ISO created-at; drives the per-section sort (newest first). */
   createdAtIso: string | null;
   /** Bloque B item 2 — Marcos 2026-06-07 PM: itemised breakdown for
@@ -3051,6 +3057,13 @@ export const prfvPlacasApi = {
   },
   advance: async (id: string): Promise<PrfvPlaca> => {
     const r = await apiClient.post<any>(`/admin/prfv-placas/${id}/advance`);
+    return r.data?.data ?? r.data;
+  },
+  // Marcos 2026-06-30: setter para el sub-modo por placa
+  // (Retira Caseros / Envío). El endpoint valida servidor-side —
+  // pasar null resetea.
+  setDispatchMode: async (id: string, mode: 'RETIRA_CASEROS' | 'ENVIO' | null): Promise<PrfvPlaca> => {
+    const r = await apiClient.post<any>(`/admin/prfv-placas/${id}/dispatch-mode`, { mode });
     return r.data?.data ?? r.data;
   },
   remove: async (id: string): Promise<void> => {

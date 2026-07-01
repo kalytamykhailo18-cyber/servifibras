@@ -223,6 +223,15 @@ export interface DailySectionRow {
    *  El frontend lo usa para mostrar un chip con la mensajería
    *  efectiva en cada row + chips de distribución arriba del tab. */
   resolvedCarrier: string;
+  /** Marcos 2026-06-30: sub-modo de dispatch para rows PRFV. Solo
+   *  se popula en la sección LAMINADOS_PRFV. Null hasta que el
+   *  operador pique un botón; 'RETIRA_CASEROS' significa que el
+   *  comprador pasa a buscar la placa al taller; 'ENVIO' significa
+   *  que Servifibras despacha vía mensajería. Cuando es
+   *  RETIRA_CASEROS, la row NO cuenta en el chip strip de
+   *  mensajerías (mismo tratamiento que la sección RETIRA_CASEROS).
+   */
+  dispatchMode: 'RETIRA_CASEROS' | 'ENVIO' | null;
   /** ISO timestamp the underlying order was created. Drives the
    *  per-section sort (newest first). For ML rows we use the
    *  packed-cart's earliest order creation date (so a multi-day
@@ -742,6 +751,7 @@ export class DailyLogisticaAggregatorService {
               listoAt: null,
               items: allItemsExpanded,
               resolvedCarrier: '',
+              dispatchMode: null,
             });
           }
           cuentaTimings.process = Date.now() - tProcess;
@@ -944,6 +954,7 @@ export class DailyLogisticaAggregatorService {
           // al carrier del Order original, lo stampeamos en _carrier.
           resolvedCarrier: '',
           _carrier: o.carrier ?? null,
+          dispatchMode: null,
         } as any);
       }
     } catch (err: any) {
@@ -981,6 +992,11 @@ export class DailyLogisticaAggregatorService {
           notes: true,
           stateChangedAt: true,
           createdAt: true,
+          // Marcos 2026-06-30: sub-modo por placa (Retira Caseros /
+          // Envío). Se propaga al row para que el frontend pinte el
+          // selector inline + el aggregator la use para decidir si
+          // la row cuenta en el chip strip de mensajerías.
+          dispatchMode: true,
         },
       });
       for (const p of placas) {
@@ -1014,6 +1030,9 @@ export class DailyLogisticaAggregatorService {
           createdAtIso: p.createdAt.toISOString(),
           items: [],
           resolvedCarrier: '',
+          dispatchMode: (p.dispatchMode === 'RETIRA_CASEROS' || p.dispatchMode === 'ENVIO')
+            ? p.dispatchMode as ('RETIRA_CASEROS' | 'ENVIO')
+            : null,
         });
       }
     } catch (err: any) {
@@ -1235,6 +1254,11 @@ export class DailyLogisticaAggregatorService {
         // La row sigue apareciendo en su sección con su chip
         // resolvedCarrier — solo no cuenta en el strip agregado.
         if (EXCLUDE_FROM_CARRIER_SUMMARY.has(s)) continue;
+        // Marcos 2026-06-30: rows PRFV con dispatchMode='RETIRA_CASEROS'
+        // reciben el mismo tratamiento — el comprador pasa a buscar
+        // la placa al taller, no hay mensajería involucrada. Los
+        // rows PRFV con dispatchMode='ENVIO' o null siguen contando.
+        if (r.dispatchMode === 'RETIRA_CASEROS') continue;
         const bucket = summaryByCarrier.get(resolved) ?? { pending: 0, listas: 0 };
         if (r.isDispatched) {
           // Despachadas — no entran al summary "pending" del día.
