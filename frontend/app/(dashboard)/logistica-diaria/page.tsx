@@ -646,7 +646,7 @@ export default function LogisticaDiariaPage() {
     const id = rowKey.replace(/^prfv:/, '');
     if (!id) return;
     try {
-      await api.prfvPlaca.setDispatchMode(id, mode);
+      await api.prfvPlacas.setDispatchMode(id, mode);
       const label = mode === 'RETIRA_CASEROS' ? 'Retira Caseros' : mode === 'ENVIO' ? 'Envío' : 'sin modo';
       toast.success(`Placa → ${label}`);
       await load();
