@@ -1993,6 +1993,21 @@ IMPORTANTE sobre precios:
       // cierra.
       { name: 'si necesitás algo más (declarativo)', re: /[Ss]i\s+necesit[áa]s\s+(?:algo\s+m[áa]s|cualquier\s+(?:otra\s+)?(?:duda|consulta))[^.!?\n]*(?:avis[áa]me|escr[ií]b[ií]me|consult[áa]me|quedo\s+a\s+disposici[oó]n|estoy\s+a\s+disposici[oó]n)[^.!?\n]*[.!?\n]+\s*/g },
       { name: 'cualquier duda / consulta avisame', re: /[Cc]ualquier\s+(?:otra\s+)?(?:duda|consulta|pregunta)[^.!?\n]*(?:avis[áa]me|escr[ií]b[ií]me|consult[áa]me|qued(?:o|amos)\s+a\s+disposici[oó]n)[^.!?\n]*[.!?\n]+\s*/g },
+      // Marcos 2026-07-02 (audit de overnight ML QA): ~5 de 20 respuestas
+      // cerraban con "Quedo a disposición ante cualquier otra duda." como
+      // filler final. La regla 7 del prompt lo prohíbe explícitamente
+      // ("Quedo a disposición") pero el modelo lo emite igual — cerró así:
+      //   - "Te comparto la publicación del paño ... Quedo a disposición..."
+      //   - "Este molde es ideal para un reloj ... Quedo a disposición..."
+      //   - "La náutica es la indicada... Quedo a disposición..."
+      // Strip por regex, cualquiera sea la posición. Sin anchor de inicio
+      // ni de fin — la variante como cierre queda cubierta por [.!?\n]+.
+      { name: 'quedo a disposición (closer)', re: /\s*[Qq]uedo\s+a\s+(?:tu\s+)?disposici[oó]n[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'quedamos a disposición (closer)', re: /\s*[Qq]uedamos\s+a\s+(?:tu\s+)?disposici[oó]n[^.!?\n]*[.!?\n]+\s*/g },
+      { name: 'estoy a disposición (closer)', re: /\s*[Ee]stoy\s+a\s+(?:tu\s+)?disposici[oó]n[^.!?\n]*[.!?\n]+\s*/g },
+      // "Ante cualquier consulta / duda, quedamos / estamos" — variante
+      // sin el verbo "quedo" al arranque.
+      { name: 'ante cualquier consulta/duda ... (closer)', re: /\s*[Aa]nte\s+cualquier\s+(?:otra\s+)?(?:duda|consulta|pregunta)[^.!?\n]*(?:qued(?:o|amos)|est(?:oy|amos)|escr[ií]b[ií]me|avis[áa]me|consult[áa]me)[^.!?\n]*[.!?\n]+\s*/g },
       // Caso CANCITO11 ML — agente abrió con "Necesito que me
       // aclares qué medidas buscás exactamente". Variante del
       // ask-back con "necesito que me <verbo>" en vez de
