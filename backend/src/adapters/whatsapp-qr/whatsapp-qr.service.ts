@@ -288,7 +288,23 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       if (!msg.message) continue;
       if (msg.key.fromMe) continue; // Skip our own outgoing echo.
       const remoteJid = msg.key.remoteJid ?? '';
-      if (!remoteJid.endsWith('@s.whatsapp.net')) continue; // Skip groups / status broadcasts for the PoC.
+      // Marcos 2026-07-03: WhatsApp roll-out of Linked Identity (LID) —
+      // muchos contactos ahora llegan como `<number>@lid` en lugar de
+      // `<phone>@s.whatsapp.net`. Aceptamos ambos formatos y dejamos
+      // afuera solo los que sabemos que NO son 1:1 con un cliente:
+      // grupos (`@g.us`), status broadcast (`status@broadcast`), y
+      // los newsletters (`@newsletter`).
+      if (
+        remoteJid.endsWith('@g.us') ||
+        remoteJid.endsWith('@broadcast') ||
+        remoteJid.endsWith('@newsletter')
+      ) {
+        continue;
+      }
+      if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) {
+        this.logger.debug(`Skipping unknown JID scheme: ${remoteJid}`);
+        continue;
+      }
       const text =
         msg.message.conversation
         ?? msg.message.extendedTextMessage?.text
@@ -296,8 +312,17 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
         ?? msg.message.videoMessage?.caption
         ?? '';
       if (!text.trim()) continue;
-      const from = this.fromJid(remoteJid);
-      this.logger.log(`Inbound from ${from}: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
+      // Marcos 2026-07-03: para JIDs @lid preferimos el phone real que
+      // Baileys expone en `senderPn` (senderPhoneNumber). Sin senderPn,
+      // caemos al número crudo del JID — el CRM mostrará el LID como
+      // identificador, aún matcheable por unicidad. Contactos futuros
+      // que respondan desde el mismo LID se agrupan en la misma conv.
+      const senderPn: string | undefined =
+        (msg.key as any)?.senderPn ?? (msg as any)?.senderPn ?? undefined;
+      const from = senderPn && senderPn.length > 0
+        ? this.fromJid(senderPn)
+        : this.fromJid(remoteJid);
+      this.logger.log(`Inbound from ${from} (jid=${remoteJid}): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
       if (!this.autoReply) {
         this.logger.debug(`WHATSAPP_QR_AUTO_REPLY=false — not invoking handler`);
         continue;
