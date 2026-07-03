@@ -218,6 +218,26 @@ export class AuthService implements IAuthService {
         return null;
       }
 
+      // Marcos 2026-07-03: session invalidation on password change.
+      // If the token was issued before the last password change, reject
+      // it. Prevents the pattern from 2026-07-02 where operators had
+      // the shared admin password, admin changed the password, but the
+      // operators' JWTs kept them logged in until natural expiry.
+      // Compare in SECONDS (JWT iat is second-precision) — comparing
+      // in ms would false-reject tokens issued in the same wall-clock
+      // second as the password change. A ≤1 s slack here is standard
+      // for iat-based revocation.
+      if (dbUser.passwordChangedAt && typeof decoded.iat === 'number') {
+        const iatSec = decoded.iat;
+        const pcSec = Math.floor(dbUser.passwordChangedAt.getTime() / 1000);
+        if (iatSec < pcSec) {
+          this.logger.debug(
+            `Token rejected: iat=${iatSec} < passwordChangedAt=${pcSec} (${dbUser.passwordChangedAt.toISOString()})`,
+          );
+          return null;
+        }
+      }
+
       return new AuthUser(
         decoded.userId,
         decoded.email,

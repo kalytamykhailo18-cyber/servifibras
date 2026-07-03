@@ -117,10 +117,16 @@ export class UserManagementService {
     if (input.password) {
       if (input.password.length < 6) throw new Error('password must be at least 6 characters');
       data.password = await this.auth.hashPassword(input.password);
+      // Marcos 2026-07-03: session invalidation on password change.
+      // Bumping passwordChangedAt causes validateToken to reject any
+      // JWT issued before this instant; the refreshToken.revokedAt
+      // update below kills the refresh flow. Combined, the previous
+      // holder loses access on their next request AND cannot renew.
+      data.passwordChangedAt = new Date();
     }
 
     try {
-      return await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id },
         data,
         select: {
@@ -128,6 +134,19 @@ export class UserManagementService {
           active: true, createdAt: true, updatedAt: true,
         },
       });
+
+      // If the password changed, revoke every live refresh token for
+      // this user. The access JWTs get killed by the iat-vs-
+      // passwordChangedAt check in validateToken on the next request;
+      // this closes the refresh-token side.
+      if (input.password) {
+        await this.prisma.refreshToken.updateMany({
+          where: { userId: id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      return updated;
     } catch (err: any) {
       if (err?.code === 'P2002') {
         const field = err?.meta?.target?.includes('email') ? 'email' : 'username';

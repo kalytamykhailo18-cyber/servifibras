@@ -37,6 +37,14 @@ model User {
   // SESSION_IDLE_TIMEOUT_MIN. Null means "never seen since the
   // column was added" — treated as still-valid on the first check.
   lastActiveAt        DateTime?
+  // Marcos 2026-07-03: session invalidation on password change.
+  // Any JWT whose iat < passwordChangedAt is rejected by
+  // validateToken. Bumped by user-management.update() every time the
+  // password field changes; refresh tokens for the user are revoked
+  // in the same transaction. Backfilled to createdAt for existing
+  // users so live sessions issued after account creation stay valid
+  // until the next actual password change.
+  passwordChangedAt   DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
