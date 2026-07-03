@@ -1755,12 +1755,25 @@ export class ConversationHandlerService implements IConversationHandler {
     });
 
     if (!conversation) {
-      this.logger.log(`Creating new conversation for contact ${contactId}`);
+      // Marcos 2026-07-03: WhatsApp arranca en modo CRM puro — cada
+      // conversación nueva llega con la IA pausada por default.
+      // El operador la reactiva desde el botón "Reactivar IA" del
+      // detalle cuando decide dejar que el agente responda ese chat.
+      // Otros canales (ML / TN webchat / FB / IG) mantienen la IA
+      // activa por default como venía.
+      const defaultPausedForChannel =
+        channel === Channel.WHATSAPP &&
+        (process.env.WHATSAPP_DEFAULT_AI_PAUSED ?? 'false').toLowerCase() === 'true';
+      this.logger.log(
+        `Creating new conversation for contact ${contactId} (channel=${channel}, aiPaused=${defaultPausedForChannel})`,
+      );
       conversation = await this.prisma.conversation.create({
         data: {
           contactId,
           channel,
           status: ConversationStatus.ACTIVE,
+          aiPaused: defaultPausedForChannel,
+          aiPausedAt: defaultPausedForChannel ? new Date() : null,
         },
       });
     }
