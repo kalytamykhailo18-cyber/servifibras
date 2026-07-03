@@ -970,6 +970,41 @@ export const analyticsApi = {
   },
 
   /**
+   * Marcos 2026-07-03: drill-down del widget. Devuelve los pedidos
+   * concretos que componen el total del responsable en el rango.
+   * responsibleId='none' resuelve al bucket "(sin asignar)".
+   */
+  getReposicionByResponsibleDrilldown: async (params: { responsibleId: string; from: string; to: string }): Promise<{
+    responsibleId: string | null;
+    name: string;
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalCost: number;
+    currency: string;
+    orders: Array<{
+      id: string;
+      orderNumber: string;
+      createdAt: string;
+      contact: { id: string; name: string | null };
+      productLabel: string | null;
+      errorReason: string | null;
+      errorReasonNote: string | null;
+      shippingCost: number | null;
+      returnShippingCost: number | null;
+      productValue: number | null;
+      returnState: string;
+      rowTotal: number;
+    }>;
+  }> => {
+    const qs = new URLSearchParams();
+    qs.set('from', params.from);
+    qs.set('to', params.to);
+    const r = await apiClient.get<any>(`/admin/analytics/reposicion-by-responsible/${encodeURIComponent(params.responsibleId)}?${qs.toString()}`);
+    return r.data?.data ?? r.data;
+  },
+
+  /**
    * Marcos 2026-06-23: monto a cobrar a cada mensajería por paquetes
    * perdidos (returnState=LOST). Agrupa por carrier responsable del
    * retorno y suma productValue. ADMIN-only.

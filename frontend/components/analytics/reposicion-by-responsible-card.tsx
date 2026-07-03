@@ -13,8 +13,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api/endpoints";
+import Link from "next/link";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+
+const REASON_LABELS: Record<string, string> = {
+  PRODUCTO_EQUIVOCADO: 'Producto equivocado',
+  PRODUCTO_FALTANTE: 'Producto faltante',
+  ROTO_MAL_EMBALADO: 'Roto / mal embalado',
+  DIRECCION_MAL_CARGADA: 'Dirección mal cargada',
+  OTRO: 'Otro',
+};
 
 type Preset = 'semana' | 'quincena' | 'mes' | 'custom';
 
@@ -67,6 +78,37 @@ export function ReposicionByResponsibleCard() {
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [preset, customFrom, customTo]);
 
   const max = data?.byResponsible.reduce((m, r) => Math.max(m, r.totalCost), 0) ?? 0;
+
+  // Marcos 2026-07-03: drill-down por responsable (item 4).
+  // Cache por (responsibleId + fromIso + toIso) para no re-pegarle a
+  // la API al re-expandir la misma fila con el mismo rango. Cambiar
+  // el preset limpia el cache — los datos ya no aplican al rango.
+  type Drilldown = Awaited<ReturnType<typeof api.analytics.getReposicionByResponsibleDrilldown>>;
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [drilldowns, setDrilldowns] = useState<Record<string, Drilldown | 'loading' | { error: string }>>({});
+  useEffect(() => {
+    setExpanded({});
+    setDrilldowns({});
+  }, [preset, customFrom, customTo]);
+
+  const toggleRow = async (respIdOrNone: string) => {
+    setExpanded((prev) => ({ ...prev, [respIdOrNone]: !prev[respIdOrNone] }));
+    if (drilldowns[respIdOrNone] && typeof drilldowns[respIdOrNone] !== 'string') return;
+    setDrilldowns((prev) => ({ ...prev, [respIdOrNone]: 'loading' }));
+    try {
+      const dd = await api.analytics.getReposicionByResponsibleDrilldown({
+        responsibleId: respIdOrNone,
+        from: isoOf(range.from),
+        to: isoOf(range.to),
+      });
+      setDrilldowns((prev) => ({ ...prev, [respIdOrNone]: dd }));
+    } catch (err: any) {
+      setDrilldowns((prev) => ({
+        ...prev,
+        [respIdOrNone]: { error: err?.message ?? 'No se pudo cargar el detalle' },
+      }));
+    }
+  };
 
   return (
     <div
@@ -154,25 +196,99 @@ export function ReposicionByResponsibleCard() {
             </div>
           </div>
           <ul className="space-y-1.5" data-testid="reposicion-by-responsible-list">
-            {data.byResponsible.map((r) => (
-              <li key={r.responsibleId ?? '__none__'} className="rounded-lg border border-slate-200 bg-white p-2.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-slate-800">
-                    {r.name}
-                  </span>
-                  <span className="shrink-0 font-mono text-sm tabular-nums text-rose-700">{fmtARS(r.totalCost)}</span>
-                </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            {data.byResponsible.map((r) => {
+              const key = r.responsibleId ?? 'none';
+              const isOpen = !!expanded[key];
+              const dd = drilldowns[key];
+              return (
+                <li key={key} className="rounded-lg border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => void toggleRow(key)}
+                    aria-expanded={isOpen}
+                    data-testid={`reposicion-by-responsible-row-${key}`}
+                    className="flex w-full items-baseline gap-2 rounded-lg p-2.5 text-left transition-colors hover:bg-slate-50"
+                  >
+                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center text-slate-400">
+                      {isOpen ? <ExpandMoreIcon sx={{ fontSize: 18 }} /> : <ChevronRightIcon sx={{ fontSize: 18 }} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-slate-800">{r.name}</span>
+                        <span className="shrink-0 font-mono text-sm tabular-nums text-rose-700">{fmtARS(r.totalCost)}</span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full bg-gradient-to-r from-rose-500 to-amber-500"
+                            style={{ width: `${max > 0 ? Math.round((r.totalCost / max) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <span className="shrink-0 text-[11px] text-slate-500 tabular-nums">{r.count} pedido{r.count === 1 ? '' : 's'}</span>
+                      </div>
+                    </div>
+                  </button>
+                  {isOpen && (
                     <div
-                      className="h-full bg-gradient-to-r from-rose-500 to-amber-500"
-                      style={{ width: `${max > 0 ? Math.round((r.totalCost / max) * 100) : 0}%` }}
-                    />
-                  </div>
-                  <span className="shrink-0 text-[11px] text-slate-500 tabular-nums">{r.count} pedido{r.count === 1 ? '' : 's'}</span>
-                </div>
-              </li>
-            ))}
+                      data-testid={`reposicion-by-responsible-drilldown-${key}`}
+                      className="border-t border-slate-200 bg-slate-50/50 p-2.5"
+                    >
+                      {dd === 'loading' ? (
+                        <p className="px-1 py-2 text-[11px] text-slate-500">Cargando pedidos…</p>
+                      ) : dd && typeof dd === 'object' && 'error' in dd ? (
+                        <p className="rounded-md border border-rose-200 bg-rose-50/60 p-2 text-[11px] text-rose-700">{dd.error}</p>
+                      ) : dd && 'orders' in dd ? (
+                        dd.orders.length === 0 ? (
+                          <p className="px-1 py-2 text-[11px] text-slate-500">Sin pedidos en el rango.</p>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {dd.orders.map((o) => {
+                              const reasonLabel = o.errorReason ? REASON_LABELS[o.errorReason] ?? o.errorReason : null;
+                              return (
+                                <li key={o.id} className="rounded-md border border-slate-200 bg-white p-2 text-[11px]">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <Link
+                                      href={`/orders/${o.id}`}
+                                      className="font-mono font-semibold text-blue-700 underline-offset-2 hover:underline"
+                                      data-testid={`reposicion-drilldown-order-link-${o.orderNumber}`}
+                                    >
+                                      {o.orderNumber}
+                                    </Link>
+                                    <span className="font-mono tabular-nums font-semibold text-rose-700">{fmtARS(o.rowTotal)}</span>
+                                  </div>
+                                  <p className="mt-0.5 truncate text-slate-700">
+                                    {o.contact.name ?? <span className="text-slate-400">Sin contacto</span>}
+                                  </p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-500">
+                                    {o.productLabel && <span>Producto: <span className="text-slate-700">{o.productLabel}</span></span>}
+                                    {reasonLabel && (
+                                      <span>Motivo: <span className="text-slate-700">{reasonLabel}{o.errorReason === 'OTRO' && o.errorReasonNote ? ` — ${o.errorReasonNote}` : ''}</span></span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums text-slate-500">
+                                    <span>Ida: <span className="text-slate-700">{fmtARS(o.shippingCost ?? 0)}</span></span>
+                                    {typeof o.returnShippingCost === 'number' && <span>Retorno: <span className="text-slate-700">{fmtARS(o.returnShippingCost)}</span></span>}
+                                    {o.returnState === 'NONE' && typeof o.productValue === 'number' && o.productValue > 0 && (
+                                      <span>Valor: <span className="text-slate-700">{fmtARS(o.productValue)}</span></span>
+                                    )}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                            <li className="flex items-baseline justify-between gap-2 border-t border-slate-200 pt-1.5 text-[11px]">
+                              <span className="font-medium text-slate-600">Suma del listado</span>
+                              <span className="font-mono tabular-nums font-semibold text-rose-700" data-testid={`reposicion-drilldown-sum-${key}`}>
+                                {fmtARS(dd.totalCost)}
+                              </span>
+                            </li>
+                          </ul>
+                        )
+                      ) : null}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

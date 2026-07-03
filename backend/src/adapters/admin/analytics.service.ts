@@ -1098,6 +1098,10 @@ export class AnalyticsService implements IAnalyticsService {
         // mensajería" (otro reporte, ver getLostProductsByCarrier).
         returnState: true,
         productValue: true,
+        // Marcos 2026-07-03: el drill-down expone el costo del
+        // retorno; también debe entrar al total del responsable
+        // para que "suma de rows = total del responsable" cierre.
+        returnShippingCost: true,
       },
     });
     const acc = new Map<string, { responsibleId: string | null; name: string; count: number; totalCost: number }>();
@@ -1109,6 +1113,13 @@ export class AnalyticsService implements IAnalyticsService {
       const prev = acc.get(key) ?? { responsibleId: r.responsibleId, name, count: 0, totalCost: 0 };
       prev.count++;
       prev.totalCost += typeof r.shippingCost === 'number' ? r.shippingCost : 0;
+      // Marcos 2026-07-03: costo del retorno también es costo del
+      // error — se cuenta cuando existe (aplica a CON DEVOLUCION,
+      // cualquier returnState). El drill-down muestra el mismo
+      // valor para que las sumas coincidan.
+      if (typeof r.returnShippingCost === 'number') {
+        prev.totalCost += r.returnShippingCost;
+      }
       // SIN DEVOLUCION → product value queda en cliente → costo del responsable
       if ((r.returnState as any) === 'NONE' && typeof r.productValue === 'number') {
         prev.totalCost += r.productValue;
@@ -1126,6 +1137,118 @@ export class AnalyticsService implements IAnalyticsService {
       totalCost: Math.round(totalCost * 100) / 100,
       currency: 'ARS',
       byResponsible,
+    };
+  }
+
+  /**
+   * Marcos 2026-07-03: drill-down del widget "Costo de reposiciones
+   * por responsable". Devuelve las órdenes concretas que componen el
+   * total de un responsable en el rango — es lo que se muestra al
+   * expandir el acordeón. Objetivo: número del dashboard auditable.
+   *
+   * Filtro: mismo rango que el summary + responsibleId (o null para
+   * "(sin asignar)"). Cada row incluye el desglose (ida, retorno,
+   * valor del paquete cuando aplica) y su total. La suma de los
+   * totales de las rows == totalCost del responsable en el summary.
+   */
+  async getReposicionOrdersByResponsible(args: {
+    responsibleId: string | null;
+    fromIso: string;
+    toIso: string;
+  }): Promise<{
+    responsibleId: string | null;
+    name: string;
+    fromIso: string;
+    toIso: string;
+    total: number;
+    totalCost: number;
+    currency: string;
+    orders: Array<{
+      id: string;
+      orderNumber: string;
+      createdAt: Date;
+      contact: { id: string; name: string | null };
+      productLabel: string | null;
+      errorReason: string | null;
+      errorReasonNote: string | null;
+      shippingCost: number | null;         // costo ida
+      returnShippingCost: number | null;   // costo retorno
+      productValue: number | null;         // valor del paquete (cuenta cuando NONE)
+      returnState: string;
+      rowTotal: number;                    // ida + retorno + (valor si NONE)
+    }>;
+  }> {
+    const from = new Date(args.fromIso);
+    const to = new Date(args.toIso);
+
+    const where: any = {
+      orderType: 'REPOSICION' as any,
+      createdAt: { gte: from, lte: to },
+    };
+    if (args.responsibleId === null) {
+      where.responsibleId = null;
+    } else {
+      where.responsibleId = args.responsibleId;
+    }
+
+    const rows = await this.prisma.order.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        orderNumber: true,
+        createdAt: true,
+        productLabel: true,
+        errorReason: true,
+        errorReasonNote: true,
+        shippingCost: true,
+        returnShippingCost: true,
+        returnState: true,
+        productValue: true,
+        contact: { select: { id: true, name: true } },
+        responsible: { select: { id: true, name: true } },
+      },
+    });
+
+    let name = '(sin asignar)';
+    if (args.responsibleId) {
+      const first = rows.find((r) => r.responsible?.name);
+      if (first?.responsible?.name) name = first.responsible.name;
+      else name = '(eliminado)';
+    }
+
+    const orders = rows.map((r) => {
+      const ida = typeof r.shippingCost === 'number' ? r.shippingCost : 0;
+      const retorno = typeof r.returnShippingCost === 'number' ? r.returnShippingCost : 0;
+      const valor =
+        (r.returnState as any) === 'NONE' && typeof r.productValue === 'number' ? r.productValue : 0;
+      const rowTotal = Math.round((ida + retorno + valor) * 100) / 100;
+      return {
+        id: r.id,
+        orderNumber: r.orderNumber,
+        createdAt: r.createdAt,
+        contact: { id: r.contact.id, name: r.contact.name ?? null },
+        productLabel: r.productLabel ?? null,
+        errorReason: (r.errorReason as any) ?? null,
+        errorReasonNote: r.errorReasonNote ?? null,
+        shippingCost: r.shippingCost ?? null,
+        returnShippingCost: r.returnShippingCost ?? null,
+        productValue: r.productValue ?? null,
+        returnState: r.returnState as string,
+        rowTotal,
+      };
+    });
+
+    const totalCost = orders.reduce((s, o) => s + o.rowTotal, 0);
+    return {
+      responsibleId: args.responsibleId,
+      name,
+      fromIso: args.fromIso,
+      toIso: args.toIso,
+      total: orders.length,
+      totalCost: Math.round(totalCost * 100) / 100,
+      currency: 'ARS',
+      orders,
     };
   }
 

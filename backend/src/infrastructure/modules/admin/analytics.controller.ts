@@ -7,6 +7,7 @@ import {
   Controller,
   Get,
   Post,
+  Param,
   Query,
   Request,
   UseGuards,
@@ -407,6 +408,36 @@ export class AnalyticsController {
     } catch (err: any) {
       this.logger.error(`Error getting reposicion-by-responsible: ${err.message}`);
       return { success: false, error: 'Failed to get reposicion-by-responsible' };
+    }
+  }
+
+  /**
+   * Marcos 2026-07-03: drill-down del widget "Costo de reposiciones
+   * por responsable" — expande una fila del acordeón para ver los
+   * pedidos que componen ese total. Mismo rango que el summary; el
+   * responsibleId=none query param cae en el bucket "(sin asignar)".
+   */
+  @Get('reposicion-by-responsible/:responsibleId')
+  @Roles(UserRole.ADMIN)
+  async getReposicionByResponsibleDrilldown(
+    @Param('responsibleId') responsibleId: string,
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+  ) {
+    const now = Date.now();
+    const fromIso = fromRaw?.trim() || new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+    const toIso = toRaw?.trim() || new Date(now).toISOString();
+    const respArg = responsibleId === 'none' ? null : responsibleId;
+    try {
+      const data = await this.analyticsService.getReposicionOrdersByResponsible({
+        responsibleId: respArg,
+        fromIso,
+        toIso,
+      });
+      return { success: true, data };
+    } catch (err: any) {
+      this.logger.error(`Error getting reposicion drill-down: ${err.message}`);
+      return { success: false, error: 'Failed to get reposicion drill-down' };
     }
   }
 

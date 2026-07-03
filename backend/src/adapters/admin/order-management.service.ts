@@ -71,6 +71,11 @@ export class OrderManagementService implements IOrderManagementService {
           // Marcos 2026-06-18: surface the operator who loaded the
           // pedido so the UI can render "Cargado por …".
           createdBy: { select: { id: true, name: true, email: true } },
+          // Marcos 2026-07-03: surface the reposicion's responsible
+          // and error reason so the list row can render
+          // "Resp: Dario · Producto equivocado" for REPOSICION rows
+          // without a second round-trip per row.
+          responsible: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
@@ -107,6 +112,9 @@ export class OrderManagementService implements IOrderManagementService {
         createdBy: { select: { id: true, name: true, email: true } },
         cancelledBy: { select: { id: true, name: true, email: true } },
         returnedBy: { select: { id: true, name: true, email: true } },
+        // Marcos 2026-07-03: responsable + motivo del error se usan
+        // en el bloque "Datos de la reposición" del detalle.
+        responsible: { select: { id: true, name: true } },
       },
     });
     if (!order) return null;
@@ -261,12 +269,36 @@ export class OrderManagementService implements IOrderManagementService {
             withReturn && typeof (data as any).returnShippingCost === 'number'
               ? (data as any).returnShippingCost
               : null;
+          // Marcos 2026-07-03: motivo del error obligatorio en
+          // REPOSICION. `errorReasonNote` sólo se persiste si el
+          // motivo es OTRO (para el resto es texto huérfano — lo
+          // clampeamos a null para no confundir el detalle).
+          const ALLOWED_REASONS = new Set([
+            'PRODUCTO_EQUIVOCADO',
+            'PRODUCTO_FALTANTE',
+            'ROTO_MAL_EMBALADO',
+            'DIRECCION_MAL_CARGADA',
+            'OTRO',
+          ]);
+          const rawReason = String((data as any).errorReason ?? '').toUpperCase();
+          const errorReason =
+            oType === 'REPOSICION' && ALLOWED_REASONS.has(rawReason)
+              ? (rawReason as any)
+              : null;
+          const errorReasonNote =
+            errorReason === 'OTRO' &&
+            typeof (data as any).errorReasonNote === 'string' &&
+            (data as any).errorReasonNote.trim().length > 0
+              ? (data as any).errorReasonNote.trim()
+              : null;
           return {
             returnState: returnState as any,
             productValue,
             productLabel,
             returnCarrier,
             returnShippingCost,
+            errorReason,
+            errorReasonNote,
           };
         })(),
       },

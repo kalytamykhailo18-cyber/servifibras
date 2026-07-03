@@ -167,6 +167,10 @@ export function OrderFormDialog({
   // Required en REPOSICION — sin esto la card de costos por
   // responsable en /analytics no puede atribuir el gasto.
   const [responsibleId, setResponsibleId] = useState<string>((initialSource as any)?.responsibleId ?? '');
+  // Marcos 2026-07-03: motivo del error obligatorio en REPOSICION.
+  // 5 opciones fijas + OTRO que habilita el free-text `errorReasonNote`.
+  const [errorReason, setErrorReason] = useState<string>((initialSource as any)?.errorReason ?? '');
+  const [errorReasonNote, setErrorReasonNote] = useState<string>((initialSource as any)?.errorReasonNote ?? '');
   const [responsibles, setResponsibles] = useState<Array<{ id: string; name: string }>>([]);
   // Marcos 2026-06-23: REPOSICION ahora tiene un toggle "Producto
   // vuelve / Queda en cliente". Default = sin devolución (false).
@@ -234,6 +238,8 @@ export function OrderFormDialog({
     setRepCarrier((src as any)?.carrier ?? '');
     setRepZone((src as any)?.shippingZone ?? '');
     setResponsibleId((src as any)?.responsibleId ?? '');
+    setErrorReason((src as any)?.errorReason ?? '');
+    setErrorReasonNote((src as any)?.errorReasonNote ?? '');
     setWithReturn(((src as any)?.returnState === 'PENDING') || ((src as any)?.returnState === 'RETURNED') || ((src as any)?.returnState === 'LOST'));
     setProductLabel((src as any)?.productLabel ?? '');
     setProductValue((src as any)?.productValue != null ? String((src as any).productValue) : '');
@@ -419,6 +425,14 @@ export function OrderFormDialog({
       // Marcos 2026-06-22: REPOSICION requiere responsable cargado —
       // sin esto el reporte de costo por responsable queda incompleto.
       // DEVOLUCION no aplica.
+      if (orderMode === 'REPOSICION' && !errorReason) {
+        toast.error("Elegí el motivo del error de la reposición");
+        return;
+      }
+      if (orderMode === 'REPOSICION' && errorReason === 'OTRO' && !errorReasonNote.trim()) {
+        toast.error("Detallá el motivo del error (opción 'Otro' requiere descripción)");
+        return;
+      }
       if (orderMode === 'REPOSICION' && !responsibleId) {
         toast.error("Elegí el responsable del paquete mal despachado");
         return;
@@ -457,6 +471,11 @@ export function OrderFormDialog({
           shippingZone: zone,
           shippingCost: cost,
           responsibleId: orderMode === 'REPOSICION' ? responsibleId : null,
+          errorReason: orderMode === 'REPOSICION' ? errorReason : null,
+          errorReasonNote:
+            orderMode === 'REPOSICION' && errorReason === 'OTRO'
+              ? (errorReasonNote.trim() || null)
+              : null,
           // Marcos 2026-06-23: nuevos campos del ciclo de retorno.
           // En REPOSICION respetamos el toggle; en DEVOLUCION
           // forzamos withReturn=true (el caso de uso ES devolver).
@@ -966,6 +985,40 @@ export function OrderFormDialog({
                     <p className="mt-1 text-[10px] text-rose-700">
                       No hay responsables cargados. Pedile al admin que los configure en Settings → Logística.
                     </p>
+                  )}
+                </div>
+              )}
+
+              {/* Marcos 2026-07-03: motivo del error obligatorio en REPOSICION.
+                  5 opciones fijas; OTRO habilita free text abajo. Los reportes
+                  agrupan por este enum para ver qué tipo de error repite cada
+                  responsable. */}
+              {orderMode === 'REPOSICION' && (
+                <div className="mt-2">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-amber-800">
+                    Motivo del error <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={errorReason}
+                    onChange={(e) => setErrorReason(e.target.value)}
+                    data-testid="order-form-reposicion-error-reason"
+                    className="block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  >
+                    <option value="">Seleccioná el motivo…</option>
+                    <option value="PRODUCTO_EQUIVOCADO">Producto equivocado</option>
+                    <option value="PRODUCTO_FALTANTE">Producto faltante</option>
+                    <option value="ROTO_MAL_EMBALADO">Roto / mal embalado</option>
+                    <option value="DIRECCION_MAL_CARGADA">Dirección mal cargada</option>
+                    <option value="OTRO">Otro (habilita texto libre)</option>
+                  </select>
+                  {errorReason === 'OTRO' && (
+                    <Input
+                      value={errorReasonNote}
+                      onChange={(e) => setErrorReasonNote(e.target.value)}
+                      placeholder="Describí el motivo del error…"
+                      data-testid="order-form-reposicion-error-reason-note"
+                      className="mt-2 h-10"
+                    />
                   )}
                 </div>
               )}

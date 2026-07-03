@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -369,6 +369,93 @@ export default function OrderDetailPage() {
               </pre>
             )}
           </div>
+
+          {/* Marcos 2026-07-03: bloque "Datos de la reposición" para
+              REPOSICION — mensajería + zona + costo de ida, responsable,
+              motivo del error, producto/valor, y (si hay devolución)
+              mensajería + costo del retorno. Total al final. Sólo se
+              renderiza cuando orderType es REPOSICION. */}
+          {(order as any).orderType === 'REPOSICION' && (
+            <div
+              className="rounded-2xl border border-amber-300/70 bg-amber-50/40 p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]"
+              data-testid="order-detail-reposicion-block"
+            >
+              <h3 className={SECTION_LABEL}>Datos de la reposición</h3>
+              {(() => {
+                const REASON_LABELS: Record<string, string> = {
+                  PRODUCTO_EQUIVOCADO: 'Producto equivocado',
+                  PRODUCTO_FALTANTE: 'Producto faltante',
+                  ROTO_MAL_EMBALADO: 'Roto / mal embalado',
+                  DIRECCION_MAL_CARGADA: 'Dirección mal cargada',
+                  OTRO: 'Otro',
+                };
+                const o: any = order;
+                const ida = typeof o.shippingCost === 'number' ? o.shippingCost : 0;
+                const retorno = typeof o.returnShippingCost === 'number' ? o.returnShippingCost : 0;
+                const valor =
+                  o.returnState === 'NONE' && typeof o.productValue === 'number' ? o.productValue : 0;
+                const totalRep = ida + retorno + valor;
+                const withReturn = o.returnState && o.returnState !== 'NONE';
+                const reasonLabel = o.errorReason ? REASON_LABELS[o.errorReason] ?? o.errorReason : null;
+                const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
+                  <div className="flex items-baseline justify-between gap-3 py-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-amber-900/80">
+                      {label}
+                    </span>
+                    <span className="text-sm text-slate-800">{value ?? <span className="text-slate-400">—</span>}</span>
+                  </div>
+                );
+                return (
+                  <div className="divide-y divide-amber-200/60">
+                    <Row label="Responsable del error" value={o.responsible?.name ?? null} />
+                    <Row
+                      label="Motivo del error"
+                      value={
+                        reasonLabel ? (
+                          <>
+                            {reasonLabel}
+                            {o.errorReason === 'OTRO' && o.errorReasonNote && (
+                              <span className="ml-1 text-slate-500">— {o.errorReasonNote}</span>
+                            )}
+                          </>
+                        ) : null
+                      }
+                    />
+                    <Row label="Mensajería (ida)" value={o.carrier ?? null} />
+                    <Row label="Zona" value={o.shippingZone ?? null} />
+                    <Row
+                      label="Costo logística de ida"
+                      value={ida > 0 ? formatMoney(ida, order.currency) : null}
+                    />
+                    <Row label="Producto involucrado" value={o.productLabel ?? null} />
+                    <Row
+                      label="Valor del paquete"
+                      value={typeof o.productValue === 'number' && o.productValue > 0 ? formatMoney(o.productValue, order.currency) : null}
+                    />
+                    {withReturn ? (
+                      <>
+                        <Row label="Mensajería del retorno" value={o.returnCarrier ?? null} />
+                        <Row
+                          label="Costo del retorno"
+                          value={retorno > 0 ? formatMoney(retorno, order.currency) : null}
+                        />
+                      </>
+                    ) : (
+                      <Row label="Retorno" value={<span className="text-slate-500">Sin devolución</span>} />
+                    )}
+                    <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-amber-300/70 pt-3">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-900">
+                        Costo total de la reposición
+                      </span>
+                      <span className="inline-flex items-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-400 px-3 py-1 text-sm font-bold tabular-nums text-white shadow-[0_4px_12px_-2px_rgb(245_158_11/0.45)]" data-testid="order-detail-reposicion-total">
+                        {formatMoney(totalRep, order.currency)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Order Details */}
           <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">

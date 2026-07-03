@@ -79,6 +79,12 @@ export interface CreateOrderData {
   productLabel?: string | null;
   returnCarrier?: string | null;
   returnShippingCost?: number | null;
+  // Marcos 2026-07-03: motivo del error obligatorio en REPOSICION.
+  // Enum-string ReplacementErrorReason con 5 opciones fijas. El backend
+  // valida contra la lista y descarta valores desconocidos. Cuando el
+  // valor es 'OTRO', `errorReasonNote` habilita free-text.
+  errorReason?: 'PRODUCTO_EQUIVOCADO' | 'PRODUCTO_FALTANTE' | 'ROTO_MAL_EMBALADO' | 'DIRECCION_MAL_CARGADA' | 'OTRO' | null;
+  errorReasonNote?: string | null;
   // Marcos 2026-06-23: descuento general % aplicado al pedido (lista
   // de precios con descuento por transferencia, etc). El backend lo
   // persiste por auditoría; el `amount` ya viene calculado con el

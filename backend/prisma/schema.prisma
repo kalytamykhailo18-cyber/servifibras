@@ -489,6 +489,14 @@ model Order {
   /// por este id para que ADMIN vea quien acumulo mas errores.
   responsibleId    String?
   responsible      OperationalResponsible? @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
+  /// Marcos 2026-07-03: motivo del error del despacho original (solo
+  /// aplica a REPOSICION). Enum ReplacementErrorReason con 5 opciones
+  /// fijas — permite reports "qué tipo de error repite cada responsable"
+  /// sin depender del texto libre en `notes`.
+  errorReason      ReplacementErrorReason?
+  /// Nota libre cuando errorReason=OTRO. Ignorada para el resto de
+  /// los valores. Aparece en detalle + drill-down debajo del motivo.
+  errorReasonNote  String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -523,6 +531,18 @@ enum ReturnState {
   PENDING
   RETURNED
   LOST
+}
+
+/// Marcos 2026-07-03: motivo del error en REPOSICION. Enum de opciones
+/// fijas + escape hatch OTRO que habilita un free-text en
+/// `errorReasonNote` (solo válido cuando errorReason=OTRO). Agrupable
+/// para reportes de "qué tipo de error repite cada responsable".
+enum ReplacementErrorReason {
+  PRODUCTO_EQUIVOCADO
+  PRODUCTO_FALTANTE
+  ROTO_MAL_EMBALADO
+  DIRECCION_MAL_CARGADA
+  OTRO
 }
 
 /// Marcos 2026-06-24: settings por publicación de ML. Hoy es un

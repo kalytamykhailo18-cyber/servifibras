@@ -206,6 +206,19 @@ export function OrderTable({ orders, onEdit, onDelete, onCancel }: OrderTablePro
                     por {(order as any).createdBy.name}
                   </div>
                 )}
+                {/* Marcos 2026-07-03: en REPOSICION mostrar también el
+                    responsable del error — es dato de auditoría distinto
+                    de "cargó la orden". Se ve como chip ámbar debajo de
+                    "por Yanina" para que quede clara la diferencia. */}
+                {(order as any).orderType === 'REPOSICION' && (order as any).responsible?.name && (
+                  <div
+                    className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                    title={`Responsable de la reposición: ${(order as any).responsible.name}`}
+                    data-testid="order-row-reposicion-responsible"
+                  >
+                    Resp: {(order as any).responsible.name}
+                  </div>
+                )}
               </TableCell>
 
               <TableCell className="px-4 py-3 text-right">
