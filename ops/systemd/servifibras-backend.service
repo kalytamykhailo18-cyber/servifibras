@@ -1,0 +1,35 @@
+[Unit]
+Description=Servifibras Backend (NestJS)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=servifibras
+Group=servifibras
+WorkingDirectory=/home/servifibras/backend
+EnvironmentFile=/home/servifibras/backend/.env
+ExecStart=/usr/bin/node dist/src/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servifibras-backend
+
+# --- Security hardening ---
+# Run unprivileged and refuse any setuid binary it might exec.
+NoNewPrivileges=true
+# Each service gets its own /tmp; nothing leaks between them.
+PrivateTmp=true
+# Most of the FS is read-only; we explicitly allow only what we need.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/servifibras/backend /home/servifibras/uploads /var/lib/servifibras
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
