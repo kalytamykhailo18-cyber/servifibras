@@ -3,11 +3,11 @@
  * Implements IWhatsAppService using Meta Cloud API (WhatsApp Business API)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ContentType } from '@prisma/client';
+import { ContentType, PrismaClient } from '@prisma/client';
 import { IWhatsAppService } from '../../use-cases/whatsapp/whatsapp.interface';
 import {
   WhatsAppIncomingMessage,
@@ -15,6 +15,7 @@ import {
   WhatsAppSendResult,
   WhatsAppMessageType,
 } from '../../domain/entities/whatsapp-message.entity';
+import { WhatsappQrService } from '../whatsapp-qr/whatsapp-qr.service';
 
 /** Meta Cloud API media-message types we emit. */
 type MetaMediaType = 'audio' | 'image' | 'video' | 'document';
@@ -43,8 +44,20 @@ export class WhatsAppService implements IWhatsAppService {
   private readonly appSecret: string;
   private readonly apiUrl: string;
   private readonly isConfigured: boolean;
+  private readonly prisma = new PrismaClient();
 
-  constructor() {
+  constructor(
+    // Marcos 2026-07-03: cuando WHATSAPP_QR_ENABLED=true y la sesión de
+    // Baileys está enganchada, rutamos outbound por acá en lugar de
+    // Meta Cloud (Meta nos denegó verificación). @Optional() para no
+    // acoplar duro: si el módulo QR no está cargado por alguna razón,
+    // caemos a Meta Cloud como antes. forwardRef porque QR y WA se
+    // importan mutuamente (QR consume ConversationHandler de WA para
+    // inbound; WA consume QR para outbound).
+    @Optional()
+    @Inject(forwardRef(() => WhatsappQrService))
+    private readonly qr?: WhatsappQrService,
+  ) {
     // ✅ RULE 1: All config from .env, never hardcoded
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
     this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
@@ -74,12 +87,24 @@ export class WhatsAppService implements IWhatsAppService {
   }
 
   async sendMessage(message: WhatsAppOutgoingMessage): Promise<WhatsAppSendResult> {
-    if (!this.isConfigured) {
-      return WhatsAppSendResult.failure('WhatsApp not configured');
-    }
-
     if (!message.validate()) {
       return WhatsAppSendResult.failure('Invalid message (empty or too long)');
+    }
+
+    // Marcos 2026-07-03: preferir Baileys/QR cuando está enganchado.
+    // Meta Cloud sigue como fallback si el QR no está conectado.
+    if (this.qr && this.qr.getStatus().status === 'connected') {
+      const target = await this.resolveWhatsAppJid(message.to);
+      const r = await this.qr.sendMessage(target, message.text);
+      if (r.success) {
+        this.logger.log(`✅ WhatsApp (Baileys) message sent to ${target}: ${r.messageId ?? '(no id)'}`);
+        return WhatsAppSendResult.success(r.messageId ?? `qr-${Date.now()}`);
+      }
+      this.logger.warn(`Baileys send to ${target} failed: ${r.error}; falling back to Meta Cloud`);
+    }
+
+    if (!this.isConfigured) {
+      return WhatsAppSendResult.failure('WhatsApp not configured');
     }
 
     try {
@@ -132,6 +157,29 @@ export class WhatsAppService implements IWhatsAppService {
       this.logger.error(`Error sending WhatsApp message: ${error.message}`);
       return WhatsAppSendResult.failure(error.message);
     }
+  }
+
+  /**
+   * Marcos 2026-07-03: para rutear outbound al JID correcto miramos
+   * primero contact.metadata.waJid (guardado en el handler cuando entró
+   * el inbound original). Si no está — contacto viejo, o outbound antes
+   * de haber recibido nada de este contacto — caemos al phone crudo
+   * asumiendo `@s.whatsapp.net`, que es el esquema clásico.
+   */
+  private async resolveWhatsAppJid(to: string): Promise<string> {
+    if (to.includes('@')) return to;
+    try {
+      const c = await this.prisma.contact.findUnique({
+        where: { phone: to },
+        select: { metadata: true },
+      });
+      const meta = (c?.metadata ?? {}) as Record<string, unknown>;
+      const stored = typeof meta.waJid === 'string' ? meta.waJid : null;
+      if (stored && stored.includes('@')) return stored;
+    } catch (err: any) {
+      this.logger.warn(`waJid lookup failed for ${to}: ${err?.message ?? err}`);
+    }
+    return to;
   }
 
   async sendTextMessage(to: string, text: string): Promise<WhatsAppSendResult> {

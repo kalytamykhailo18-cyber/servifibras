@@ -24,12 +24,17 @@ export enum WhatsAppMessageStatus {
 export class WhatsAppIncomingMessage {
   constructor(
     public readonly messageId: string,
-    public readonly from: string, // Phone number
+    public readonly from: string, // Phone number (or LID digits when senderPn unavailable)
     public readonly timestamp: Date,
     public readonly type: WhatsAppMessageType,
     public readonly text: string | null,
     public readonly mediaUrl: string | null,
     public readonly mediaId: string | null,
+    // Marcos 2026-07-03: full JID as received from Baileys (e.g.
+    // "5491135880083@s.whatsapp.net" or "15552277905498@lid"). Handler
+    // stashes this on contact.metadata.waJid so outbound WhatsAppService
+    // can route back on the same scheme without guessing.
+    public readonly jid: string | null = null,
   ) {}
 
   isTextMessage(): boolean {

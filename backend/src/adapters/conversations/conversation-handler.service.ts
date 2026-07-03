@@ -548,8 +548,9 @@ export class ConversationHandlerService implements IConversationHandler {
         };
       }
 
-      // Find or create contact
-      const contact = await this.findOrCreateContact(message.from);
+      // Find or create contact — pass the full JID so we can route
+      // outbound to the same scheme (@lid vs @s.whatsapp.net).
+      const contact = await this.findOrCreateContact(message.from, message.jid);
 
       // Find or create conversation
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
@@ -1578,21 +1579,36 @@ export class ConversationHandlerService implements IConversationHandler {
     }
   }
 
-  private async findOrCreateContact(phoneNumber: string) {
+  private async findOrCreateContact(phoneNumber: string, waJid?: string | null) {
     let contact = await this.prisma.contact.findUnique({
       where: { phone: phoneNumber },
     });
 
     if (!contact) {
-      this.logger.log(`Creating new contact: ${phoneNumber}`);
+      this.logger.log(`Creating new contact: ${phoneNumber} (waJid=${waJid ?? 'n/a'})`);
       contact = await this.prisma.contact.create({
         data: {
           phone: phoneNumber,
           name: phoneNumber, // Will be updated later with real name
           type: ContactType.MINORISTA, // Default, can be updated based on conversation
           channel: Channel.WHATSAPP,
+          // Marcos 2026-07-03: stash el JID completo (`<num>@<scheme>`) para
+          // que WhatsAppService.sendMessage rutee de vuelta con el mismo
+          // esquema. Los contactos LID no tienen phone real y sólo se
+          // pueden alcanzar por su `<lid>@lid`.
+          metadata: waJid ? { waJid } : undefined,
         },
       });
+    } else if (waJid) {
+      // Refresh el waJid si cambió (contactos migran entre @s.whatsapp.net
+      // y @lid). No pisamos el resto de metadata.
+      const existingMeta = (contact.metadata ?? {}) as Record<string, unknown>;
+      if (existingMeta.waJid !== waJid) {
+        await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: { metadata: { ...existingMeta, waJid } },
+        });
+      }
     }
 
     return contact;

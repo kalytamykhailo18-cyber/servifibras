@@ -342,10 +342,13 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           text.trim(),
           null,
           null,
+          remoteJid,
         );
         const result = await this.conversationHandler.handleWhatsAppMessage(incoming);
         if (result.success && result.response) {
-          await this.sendMessage(from, result.response);
+          // Auto-reply usa el mismo JID del inbound para no perder el
+          // esquema (@lid vs @s.whatsapp.net) en el retorno.
+          await this.sendMessage(remoteJid, result.response);
         }
       } catch (err: any) {
         this.logger.error(`handler invocation failed for ${from}: ${err?.message ?? err}`);
