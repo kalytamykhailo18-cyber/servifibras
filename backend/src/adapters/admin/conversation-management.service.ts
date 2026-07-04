@@ -16,6 +16,7 @@ import { FileShareService } from '../files/file-share.service';
 import { WebchatService } from '../webchat/webchat.service';
 import { SocialMediaService } from '../social/social-media.service';
 import { WebchatOutgoingMessage, WebchatMessageType } from '../../domain/entities/webchat-message.entity';
+import { WhatsAppOutgoingMessage } from '../../domain/entities/whatsapp-message.entity';
 import {
   SocialOutgoingMessage,
   SocialPlatform,
@@ -858,7 +859,70 @@ export class ConversationManagementService implements IConversationManagementSer
         },
       });
 
-      this.logger.log(`✅ Manual message sent in conversation ${conversationId}`);
+      this.logger.log(`✅ Manual message saved for conversation ${conversationId}`);
+
+      // Marcos 2026-07-04: hasta hoy este método SÓLO guardaba en DB
+      // — no había código que empujara el texto al canal del cliente.
+      // El "replyHook" opcional nunca fue seteado por nadie. Como
+      // consecuencia toda respuesta manual desde el CRM era fantasma:
+      // aparecía en la conversación pero el cliente jamás la recibía.
+      // Marcos flagged esto el 2026-07-03 apenas conectamos el número
+      // real ("no salen del CRM"). El fix es despachar por el provider
+      // que corresponda según canal. Errores de envío se loguean pero
+      // NO tiran la respuesta del endpoint — la fila del mensaje queda
+      // en el CRM con el warning en journalctl para diagnóstico.
+      try {
+        const conv = await this.prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: {
+            channel: true,
+            contact: { select: { phone: true, metadata: true } },
+          },
+        });
+        if (conv) {
+          if (conv.channel === Channel.WHATSAPP && conv.contact?.phone) {
+            const r = await this.whatsapp.sendMessage(
+              new WhatsAppOutgoingMessage(conv.contact.phone, content),
+            );
+            if (!r.success) {
+              this.logger.warn(`WhatsApp manual send failed for ${conversationId}: ${r.error}`);
+            }
+          } else if (conv.channel === Channel.TIENDANUBE_WEBCHAT) {
+            const r = await this.webchat.sendMessage(
+              new WebchatOutgoingMessage(conversationId, content, WebchatMessageType.TEXT),
+            );
+            if (!r.success) {
+              this.logger.warn(`Webchat manual send failed for ${conversationId}: ${r.error}`);
+            }
+          } else if (
+            conv.channel === Channel.FACEBOOK ||
+            conv.channel === Channel.INSTAGRAM
+          ) {
+            const md = (conv.contact?.metadata as Record<string, any>) ?? {};
+            const senderId = md.facebookSenderId ?? md.instagramSenderId ?? md.socialSenderId;
+            if (!senderId) {
+              this.logger.warn(`Skip social manual send: no senderId on contact for conv ${conversationId}`);
+            } else {
+              const platform =
+                conv.channel === Channel.FACEBOOK ? SocialPlatform.FACEBOOK : SocialPlatform.INSTAGRAM;
+              const r = await this.social.sendMessage(
+                new SocialOutgoingMessage(platform, SocialMessageType.DIRECT_MESSAGE, senderId, content),
+              );
+              if (!r.success) {
+                this.logger.warn(`Social manual send failed for ${conversationId}: ${r.error}`);
+              }
+            }
+          } else if (conv.channel === Channel.MERCADOLIBRE) {
+            // ML no soporta DMs proactivos — la conversación existe
+            // sólo si el buyer inició, y las respuestas van por otro
+            // canal (postventa / claims). Skip silencioso.
+            this.logger.debug(`Skip ML manual outbound for conv ${conversationId} (provider limitation)`);
+          }
+        }
+      } catch (sendErr: any) {
+        this.logger.warn(`Channel dispatch failed for ${conversationId}: ${sendErr?.message ?? sendErr}`);
+      }
+
       if (this.replyHook) {
         try {
           this.replyHook(conversationId);
