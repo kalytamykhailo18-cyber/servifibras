@@ -580,6 +580,27 @@ export class ConversationHandlerService implements IConversationHandler {
       this.summary?.scheduleRegenerate(conversation.id);
       this.metrics.emitTick('inbound_message');
 
+      // Marcos 2026-07-06: la comprobación de aiPaused tiene que correr
+      // ANTES que cualquier canned reply o cadena de detección — sino,
+      // mayorista + product lookup + FAQ + order-status siguen mandando
+      // texto al cliente aunque el operador haya apagado la IA en el
+      // detalle. Marcos reportó "algunos mensajes se están respondiendo
+      // con IA automáticamente" en WA con la IA por default pausada;
+      // trace mostró que el detector mayorista disparaba un canned
+      // reply en 4 convs marcadas aiPaused=true. Movido acá arriba del
+      // mayorista para que aiPaused corte todo el fan-out.
+      if (await this.isAiPaused(conversation.id)) {
+        await this.handoff.escalate({
+          conversationId: conversation.id,
+          contactId: contact.id,
+          source: 'customer',
+          signals: ['ai_paused'],
+          reason: 'ai_paused_by_operator',
+        });
+        this.logger.log(`⏸️  AI paused on ${conversation.id} — routed to human queue`);
+        return { success: true, response: null, error: null };
+      }
+
       // Mayorista gate — if detected, lead goes to Franco, conversation
       // is flagged for human, AND the AI does NOT cotize (per Marcos's
       // policy: mayorista pricing is manual). The customer gets a short
@@ -605,22 +626,6 @@ export class ConversationHandlerService implements IConversationHandler {
       const route = await this.classifyAndMaybeEscalate(conversation.id, contact.id, message.text);
       if (!route.aiShouldRespond) {
         this.logger.log(`L3 routing — AI skipped, conversation escalated to human queue`);
-        return { success: true, response: null, error: null };
-      }
-
-      // Get AI response
-      // Per-conversation AI pause — when an operator hit "Pausar IA" on
-      // this thread, save the inbound + escalate to the human queue but
-      // do NOT let Claude (or the canned auto-reply) respond.
-      if (await this.isAiPaused(conversation.id)) {
-        await this.handoff.escalate({
-          conversationId: conversation.id,
-          contactId: contact.id,
-          source: 'customer',
-          signals: ['ai_paused'],
-          reason: 'ai_paused_by_operator',
-        });
-        this.logger.log(`⏸️  AI paused on ${conversation.id} — routed to human queue`);
         return { success: true, response: null, error: null };
       }
 
