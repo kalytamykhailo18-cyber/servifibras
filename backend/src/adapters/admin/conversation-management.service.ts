@@ -127,11 +127,20 @@ export class ConversationManagementService implements IConversationManagementSer
               select: { messages: true },
             },
           },
-          // Flagged conversations float to the top so the responsible role
-          // can't miss them; within each tier the newest activity wins.
+          // Marcos 2026-07-06: cuando conectamos WhatsApp con
+          // aiPaused=true por default, todas las conversaciones nuevas
+          // arrancan con needsHumanAttention=true (el handler auto-escala
+          // los canales pausados). El pin de needsHumanAttention arriba
+          // combinado con esa inundación hacía que WA tape ML/TN entero,
+          // y Marcos veía "siempre las mismas conversaciones arriba".
+          // La solución es priorizar recencia (por tiempo) y dejar el
+          // needsHumanAttention como tiebreak dentro del mismo minuto —
+          // el chip de "necesita humano" sigue visible en cada fila, así
+          // que la marca no desaparece del panel, solo deja de dominar
+          // el orden.
           orderBy: [
-            { needsHumanAttention: 'desc' },
             { updatedAt: 'desc' },
+            { needsHumanAttention: 'desc' },
           ],
           take: limit,
           skip: offset,
