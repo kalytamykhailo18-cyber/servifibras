@@ -8,7 +8,7 @@
  * servidor — solo Marcos / Yanina deberían tener esa palanca.
  */
 
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
@@ -19,6 +19,7 @@ import { WhatsappQrService } from '../../../adapters/whatsapp-qr/whatsapp-qr.ser
 @Roles(UserRole.ADMIN)
 export class WhatsappQrController {
   constructor(private readonly svc: WhatsappQrService) {}
+
 
   @Get('status')
   async status() {
@@ -51,5 +52,34 @@ export class WhatsappQrController {
   @Post('disconnect')
   async disconnect(@Body() body: { wipeSession?: boolean }) {
     return { success: true, data: await this.svc.disconnect({ wipeSession: !!body?.wipeSession }) };
+  }
+
+}
+
+/**
+ * Marcos 2026-07-06: controller separado (sin AuthGuard/RolesGuard)
+ * para prueba de envío desde el propio servidor. Gate: shared secret
+ * en header X-Test-Token contra WHATSAPP_QR_TEST_TOKEN del .env. Sin
+ * token en .env el endpoint devuelve 401. Diseñado para hacer un
+ * curl desde localhost y validar el path outbound Baileys sin tocar
+ * conversaciones reales.
+ */
+@Controller('admin/whatsapp-qr')
+export class WhatsappQrTestController {
+  constructor(private readonly svc: WhatsappQrService) {}
+
+  @Post('test-send')
+  async testSend(
+    @Body() body: { to: string; text: string },
+    @Headers('x-test-token') tokenHeader?: string,
+  ) {
+    const expected = (process.env.WHATSAPP_QR_TEST_TOKEN ?? '').trim();
+    if (!expected) throw new UnauthorizedException('test-send disabled');
+    if ((tokenHeader ?? '').trim() !== expected) throw new UnauthorizedException('bad token');
+    if (!body?.to || !body?.text) {
+      return { success: false, error: 'to and text are required' };
+    }
+    const r = await this.svc.sendMessage(body.to, body.text);
+    return { success: r.success, data: r };
   }
 }

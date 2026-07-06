@@ -8,7 +8,7 @@
 
 import { forwardRef, Module } from '@nestjs/common';
 import { WhatsappQrService } from '../../../adapters/whatsapp-qr/whatsapp-qr.service';
-import { WhatsappQrController } from './whatsapp-qr.controller';
+import { WhatsappQrController, WhatsappQrTestController } from './whatsapp-qr.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AuthModule } from '../auth/auth.module';
 
@@ -23,7 +23,7 @@ import { AuthModule } from '../auth/auth.module';
     // AuthGuard + RolesGuard del controller.
     AuthModule,
   ],
-  controllers: [WhatsappQrController],
+  controllers: [WhatsappQrController, WhatsappQrTestController],
   providers: [WhatsappQrService],
   exports: [WhatsappQrService],
 })
