@@ -555,11 +555,19 @@ export class MlPublicationKnowledgeService {
     const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { reply: null, usedConstrained: false, reason: 'no API key' };
 
-    // Cargar Q&A curadas (kept + edited). discarded y pending se ignoran.
+    // Marcos 2026-07-06: el histórico de preguntas (excel cargado +
+    // sync ML) también cuenta como memoria de la publicación. Antes el
+    // filtro excluía 'pending' — sólo entraban las que un operador
+    // curaba a mano — y eso dejaba miles de Q&A fuera del modo cerrado.
+    // Ahora aceptamos 'kept' + 'edited' + 'pending' con answerText
+    // presente. Sólo 'discarded' queda afuera (irrelevante / desactualizada).
     const curated = await this.prisma.mlPublicationKnowledge.findMany({
       where: {
         itemId: args.itemId,
-        curationStatus: { in: ['kept', 'edited'] },
+        OR: [
+          { curationStatus: { in: ['kept', 'edited'] } },
+          { curationStatus: 'pending', answerText: { not: null } },
+        ],
       },
       orderBy: { questionAt: 'desc' },
       take: 50,
