@@ -1840,6 +1840,56 @@ export class ConversationHandlerService implements IConversationHandler {
     return l2 && l2.length > 0 ? l2 : undefined;
   }
 
+  /**
+   * Marcos 2026-07-06: mirror phone-side outbound al CRM. Cuando
+   * alguien del equipo contesta el WhatsApp desde el celular (no
+   * desde el CRM), la sesión Baileys ve el evento como `fromMe=true`
+   * en messages.upsert. Antes lo tirábamos como "own outgoing echo",
+   * pero Marcos quiere ver esas respuestas también en la conversación
+   * del CRM para tener el hilo completo en un lugar.
+   *
+   * Guardamos como sender=ADMIN + isFromAI=false + metadata.source='phone'
+   * y stampeamos el messageId de WA en la metadata para poder deduplicar
+   * si Baileys re-emite el mismo mensaje después de un reconnect.
+   */
+  async recordPhoneSideOutbound(args: {
+    to: string;          // teléfono/LID del cliente (destino)
+    text: string;
+    jid: string;         // full JID (@s.whatsapp.net o @lid)
+    waMessageId: string;
+    timestamp: Date;
+  }) {
+    try {
+      // Dedup: si ya guardamos este waMessageId, saltamos.
+      const existing = await this.prisma.message.findFirst({
+        where: {
+          metadata: { path: ['waMessageId'], equals: args.waMessageId },
+        },
+        select: { id: true },
+      });
+      if (existing) return;
+
+      const contact = await this.findOrCreateContact(args.to, args.jid);
+      const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
+      await this.saveMessage(
+        conversation.id,
+        MessageSender.ADMIN,
+        args.text,
+        false,
+        { source: 'phone', waMessageId: args.waMessageId },
+      );
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessage: getMessageCipher().encrypt(args.text),
+          lastMessageAt: args.timestamp,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`recordPhoneSideOutbound failed for jid=${args.jid}: ${err?.message ?? err}`);
+    }
+  }
+
   private async saveMessage(
     conversationId: string,
     sender: MessageSender,

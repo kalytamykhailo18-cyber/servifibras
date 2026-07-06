@@ -286,7 +286,6 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     if (m.type !== 'notify') return; // Skip history syncs.
     for (const msg of m.messages) {
       if (!msg.message) continue;
-      if (msg.key.fromMe) continue; // Skip our own outgoing echo.
       const remoteJid = msg.key.remoteJid ?? '';
       // Marcos 2026-07-03: WhatsApp roll-out of Linked Identity (LID) —
       // muchos contactos ahora llegan como `<number>@lid` en lugar de
@@ -322,6 +321,26 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       const from = senderPn && senderPn.length > 0
         ? this.fromJid(senderPn)
         : this.fromJid(remoteJid);
+
+      // Marcos 2026-07-06: si el mensaje viene con fromMe=true significa
+      // que alguien del equipo respondió desde el celular (no desde el
+      // CRM). Espejeamos ese texto en la conversación del CRM para que
+      // el hilo quede completo en un solo lugar. Antes tirábamos estos
+      // upserts como "own outgoing echo".
+      if (msg.key.fromMe) {
+        this.logger.log(`Phone-side outbound to ${from} (jid=${remoteJid}): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
+        if (!this.conversationHandler) continue;
+        const ts = Number(msg.messageTimestamp);
+        await this.conversationHandler.recordPhoneSideOutbound({
+          to: from,
+          text: text.trim(),
+          jid: remoteJid,
+          waMessageId: msg.key.id ?? `qr-${Date.now()}`,
+          timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+        });
+        continue;
+      }
+
       this.logger.log(`Inbound from ${from} (jid=${remoteJid}): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
       if (!this.autoReply) {
         this.logger.debug(`WHATSAPP_QR_AUTO_REPLY=false — not invoking handler`);
