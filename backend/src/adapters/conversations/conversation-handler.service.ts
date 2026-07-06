@@ -1858,6 +1858,13 @@ export class ConversationHandlerService implements IConversationHandler {
     jid: string;         // full JID (@s.whatsapp.net o @lid)
     waMessageId: string;
     timestamp: Date;
+    attachment?: {
+      url: string;
+      name: string;
+      mime: string;
+      size: number;
+      contentType: ContentType;
+    } | null;
   }) {
     try {
       // Dedup: si ya guardamos este waMessageId, saltamos.
@@ -1871,22 +1878,98 @@ export class ConversationHandlerService implements IConversationHandler {
 
       const contact = await this.findOrCreateContact(args.to, args.jid);
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
+      // Marcos 2026-07-06: si el mensaje del celular es una foto /
+      // audio / video / documento, lo pasamos como attachment. El
+      // saveMessage cifra el content (caption o vacío) y persiste los
+      // metadata del archivo. Si `content` queda vacío el CRM muestra
+      // solo la miniatura.
+      const contentForRow = args.text || (args.attachment ? '' : '');
       await this.saveMessage(
         conversation.id,
         MessageSender.ADMIN,
-        args.text,
+        contentForRow,
         false,
         { source: 'phone', waMessageId: args.waMessageId },
+        args.attachment ?? null,
       );
+      // lastMessage preview: si hay caption la usamos, sino un placeholder
+      // por tipo para que la fila del inbox no quede en blanco.
+      const preview = args.text
+        || (args.attachment
+            ? this.previewForAttachment(args.attachment.contentType)
+            : '');
       await this.prisma.conversation.update({
         where: { id: conversation.id },
         data: {
-          lastMessage: getMessageCipher().encrypt(args.text),
+          lastMessage: getMessageCipher().encrypt(preview),
           lastMessageAt: args.timestamp,
         },
       });
     } catch (err: any) {
       this.logger.warn(`recordPhoneSideOutbound failed for jid=${args.jid}: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * Marcos 2026-07-06: media inbound del cliente por WhatsApp. Se guarda
+   * como mensaje con attachment y NO se llama al agente (foto / audio /
+   * documento requiere visión humana). El operador ve la miniatura en
+   * el hilo y decide.
+   */
+  async recordWhatsAppMediaInbound(args: {
+    from: string;
+    jid: string;
+    caption: string;
+    waMessageId: string;
+    timestamp: Date;
+    attachment: {
+      url: string;
+      name: string;
+      mime: string;
+      size: number;
+      contentType: ContentType;
+    };
+  }) {
+    try {
+      const existing = await this.prisma.message.findFirst({
+        where: {
+          metadata: { path: ['waMessageId'], equals: args.waMessageId },
+        },
+        select: { id: true },
+      });
+      if (existing) return;
+
+      const contact = await this.findOrCreateContact(args.from, args.jid);
+      const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
+      await this.saveMessage(
+        conversation.id,
+        MessageSender.CUSTOMER,
+        args.caption,
+        false,
+        { source: 'wa-inbound-media', waMessageId: args.waMessageId },
+        args.attachment,
+      );
+      const preview = args.caption || this.previewForAttachment(args.attachment.contentType);
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessage: getMessageCipher().encrypt(preview),
+          lastMessageAt: args.timestamp,
+          needsHumanAttention: true,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`recordWhatsAppMediaInbound failed for jid=${args.jid}: ${err?.message ?? err}`);
+    }
+  }
+
+  private previewForAttachment(ct: ContentType): string {
+    switch (ct) {
+      case ContentType.IMAGE:    return '📷 Foto';
+      case ContentType.VIDEO:    return '🎥 Video';
+      case ContentType.VOICE:    return '🎤 Audio';
+      case ContentType.DOCUMENT: return '📎 Documento';
+      default:                   return '📎 Adjunto';
     }
   }
 

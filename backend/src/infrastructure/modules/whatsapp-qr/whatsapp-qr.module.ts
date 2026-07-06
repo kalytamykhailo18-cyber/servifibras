@@ -11,6 +11,7 @@ import { WhatsappQrService } from '../../../adapters/whatsapp-qr/whatsapp-qr.ser
 import { WhatsappQrController, WhatsappQrTestController } from './whatsapp-qr.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AuthModule } from '../auth/auth.module';
+import { UploadStorageService } from '../../../adapters/uploads/upload-storage.service';
 
 @Module({
   imports: [
@@ -24,7 +25,11 @@ import { AuthModule } from '../auth/auth.module';
     AuthModule,
   ],
   controllers: [WhatsappQrController, WhatsappQrTestController],
-  providers: [WhatsappQrService],
+  // Marcos 2026-07-06: UploadStorageService lo provee este módulo para
+  // el download de media WA. Es stateless — el mismo servicio también
+  // vive en WhatsAppModule; instanciarlo dos veces no genera problemas
+  // (no hay estado compartido, solo escribe a UPLOADS_DIR).
+  providers: [WhatsappQrService, UploadStorageService],
   exports: [WhatsappQrService],
 })
 export class WhatsappQrModule {}

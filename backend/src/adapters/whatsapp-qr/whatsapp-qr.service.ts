@@ -29,6 +29,7 @@ import { Boom } from '@hapi/boom';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
+  downloadMediaMessage,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -36,7 +37,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as QRCode from 'qrcode';
 import { ConversationHandlerService } from '../conversations/conversation-handler.service';
+import { UploadStorageService } from '../uploads/upload-storage.service';
 import { WhatsAppIncomingMessage, WhatsAppMessageType } from '../../domain/entities/whatsapp-message.entity';
+import { ContentType } from '@prisma/client';
 
 type ConnectionStatus =
   | 'disabled'        // env flag off
@@ -64,6 +67,10 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     // ConversationHandler completo. Sin handler los inbounds se loguean
     // pero no se procesan.
     @Optional() private readonly conversationHandler?: ConversationHandlerService,
+    // Uploads: guardamos imágenes / audios / videos / documentos de
+    // WhatsApp en la misma carpeta que el resto de attachments del CRM
+    // para que aparezcan en el hilo con miniatura y click-to-download.
+    @Optional() private readonly uploads?: UploadStorageService,
   ) {}
 
   private get enabled(): boolean {
@@ -238,6 +245,104 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     return jid.split('@')[0] ?? jid;
   }
 
+  /**
+   * Marcos 2026-07-06: descarga la media adjunta de un mensaje WA
+   * (imagen / video / audio / voice / documento / sticker) y la
+   * persiste con UploadStorageService para que aparezca como attachment
+   * en la conversación del CRM. Devuelve null cuando no hay media
+   * usable (mensaje texto puro, mime bloqueado por el allow-list,
+   * download fallado, o cuando UploadStorageService no está wireado
+   * — p.ej. en E2E). Cuando hay caption (image/video/document lo
+   * permiten), lo devuelve por separado para que el caller lo guarde
+   * como content del mensaje.
+   */
+  private async extractMediaAttachment(msg: WAMessage): Promise<{
+    attachment: {
+      url: string;
+      name: string;
+      mime: string;
+      size: number;
+      contentType: ContentType;
+    };
+    caption: string;
+  } | null> {
+    if (!this.uploads || !this.sock) return null;
+    const m = msg.message;
+    if (!m) return null;
+
+    // Detectar el shape del mensaje y sacar mime + caption + nombre.
+    type MediaKind = 'image' | 'video' | 'audio' | 'document' | 'sticker';
+    let kind: MediaKind | null = null;
+    let mime = '';
+    let caption = '';
+    let originalName = '';
+
+    if (m.imageMessage) {
+      kind = 'image';
+      mime = m.imageMessage.mimetype || 'image/jpeg';
+      caption = (m.imageMessage.caption || '').trim();
+      originalName = 'foto.jpg';
+    } else if (m.videoMessage) {
+      kind = 'video';
+      mime = m.videoMessage.mimetype || 'video/mp4';
+      caption = (m.videoMessage.caption || '').trim();
+      originalName = 'video.mp4';
+    } else if (m.audioMessage) {
+      kind = 'audio';
+      mime = m.audioMessage.mimetype || 'audio/ogg';
+      // PTT = push-to-talk (nota de voz)
+      originalName = m.audioMessage.ptt ? 'nota-de-voz.ogg' : 'audio.ogg';
+    } else if (m.documentMessage) {
+      kind = 'document';
+      mime = m.documentMessage.mimetype || 'application/octet-stream';
+      caption = (m.documentMessage.caption || '').trim();
+      originalName = m.documentMessage.fileName || 'documento';
+    } else if (m.stickerMessage) {
+      kind = 'sticker';
+      mime = m.stickerMessage.mimetype || 'image/webp';
+      originalName = 'sticker.webp';
+    }
+    if (!kind) return null;
+
+    try {
+      const buffer = await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        {
+          logger: this.sock.logger as any,
+          reuploadRequest: this.sock.updateMediaMessage,
+        },
+      );
+      if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+        this.logger.warn(`downloadMediaMessage returned empty buffer for ${kind}`);
+        return null;
+      }
+      // Normalizar mime: WhatsApp a veces reporta 'audio/ogg; codecs=opus'
+      // — cortamos al primer ';' para que matchee el allow-list.
+      const cleanMime = mime.split(';')[0].trim().toLowerCase();
+      const stored = await this.uploads.store({
+        buffer,
+        originalname: originalName,
+        mimetype: cleanMime,
+        size: buffer.length,
+      });
+      return {
+        attachment: {
+          url: stored.url,
+          name: stored.name,
+          mime: stored.mime,
+          size: stored.size,
+          contentType: stored.contentType,
+        },
+        caption,
+      };
+    } catch (err: any) {
+      this.logger.warn(`Failed to download/store WA media (${kind}): ${err?.message ?? err}`);
+      return null;
+    }
+  }
+
   private async onConnectionUpdate(update: any): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
@@ -304,13 +409,22 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`Skipping unknown JID scheme: ${remoteJid}`);
         continue;
       }
-      const text =
-        msg.message.conversation
-        ?? msg.message.extendedTextMessage?.text
-        ?? msg.message.imageMessage?.caption
-        ?? msg.message.videoMessage?.caption
-        ?? '';
-      if (!text.trim()) continue;
+      // Marcos 2026-07-06: si el mensaje trae media (foto / video /
+      // audio / voice / documento / sticker), la bajamos y la
+      // guardamos como attachment. El texto del mensaje es la caption
+      // cuando existe (o vacío para audio/sticker/documento sin
+      // caption). Para mensajes de sólo texto seguimos el path viejo.
+      const media = await this.extractMediaAttachment(msg);
+      const text = media
+        ? media.caption
+        : (
+            msg.message.conversation
+            ?? msg.message.extendedTextMessage?.text
+            ?? ''
+          );
+      // Si NO hay media y NO hay texto → nada que guardar (mensaje
+      // vacío, marker, etc).
+      if (!media && !text.trim()) continue;
       // Marcos 2026-07-03: para JIDs @lid preferimos el phone real que
       // Baileys expone en `senderPn` (senderPhoneNumber). Sin senderPn,
       // caemos al número crudo del JID — el CRM mostrará el LID como
@@ -327,8 +441,9 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       // CRM). Espejeamos ese texto en la conversación del CRM para que
       // el hilo quede completo en un solo lugar. Antes tirábamos estos
       // upserts como "own outgoing echo".
+      const mediaTag = media ? ` [${media.attachment.mime}]` : '';
       if (msg.key.fromMe) {
-        this.logger.log(`Phone-side outbound to ${from} (jid=${remoteJid}): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
+        this.logger.log(`Phone-side outbound to ${from} (jid=${remoteJid})${mediaTag}: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
         if (!this.conversationHandler) continue;
         const ts = Number(msg.messageTimestamp);
         await this.conversationHandler.recordPhoneSideOutbound({
@@ -337,17 +452,37 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           jid: remoteJid,
           waMessageId: msg.key.id ?? `qr-${Date.now()}`,
           timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+          attachment: media?.attachment ?? null,
         });
         continue;
       }
 
-      this.logger.log(`Inbound from ${from} (jid=${remoteJid}): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
-      if (!this.autoReply) {
-        this.logger.debug(`WHATSAPP_QR_AUTO_REPLY=false — not invoking handler`);
-        continue;
-      }
+      this.logger.log(`Inbound from ${from} (jid=${remoteJid})${mediaTag}: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
       if (!this.conversationHandler) {
         this.logger.warn(`No ConversationHandler wired — inbound dropped`);
+        continue;
+      }
+
+      // Marcos 2026-07-06: media del cliente (foto / audio / video /
+      // documento / sticker) va por un path aparte — se guarda con
+      // attachment y NO llama al agente (no tenemos visión y el
+      // operador tiene que ver el archivo). Sólo texto puro sigue por
+      // el pipeline del agente.
+      if (media) {
+        const ts = Number(msg.messageTimestamp);
+        await this.conversationHandler.recordWhatsAppMediaInbound({
+          from,
+          jid: remoteJid,
+          caption: text.trim(),
+          waMessageId: msg.key.id ?? `qr-${Date.now()}`,
+          timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+          attachment: media.attachment,
+        });
+        continue;
+      }
+
+      if (!this.autoReply) {
+        this.logger.debug(`WHATSAPP_QR_AUTO_REPLY=false — not invoking handler`);
         continue;
       }
       try {
