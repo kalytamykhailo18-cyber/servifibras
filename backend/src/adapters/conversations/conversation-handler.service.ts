@@ -550,7 +550,9 @@ export class ConversationHandlerService implements IConversationHandler {
 
       // Find or create contact — pass the full JID so we can route
       // outbound to the same scheme (@lid vs @s.whatsapp.net).
-      const contact = await this.findOrCreateContact(message.from, message.jid);
+      // Marcos 2026-07-06: fallbackLookup permite migrar contactos
+      // legacy que quedaron guardados con LID digits como phone.
+      const contact = await this.findOrCreateContact(message.from, message.jid, message.fallbackLookup);
 
       // Find or create conversation
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
@@ -1584,10 +1586,50 @@ export class ConversationHandlerService implements IConversationHandler {
     }
   }
 
-  private async findOrCreateContact(phoneNumber: string, waJid?: string | null) {
+  private async findOrCreateContact(
+    phoneNumber: string,
+    waJid?: string | null,
+    fallbackLookup?: string | null,
+  ) {
     let contact = await this.prisma.contact.findUnique({
       where: { phone: phoneNumber },
     });
+
+    // Marcos 2026-07-06: cuando un cliente arrancó antes de que
+    // pudiéramos resolver el phone real (WhatsApp LID), el contacto
+    // quedó guardado con los dígitos del LID como phone y como name.
+    // Ahora que tenemos el phone real (via remoteJidAlt / senderPn), el
+    // findUnique de arriba no encuentra el contacto y podríamos crear
+    // uno duplicado. Fallback: buscamos por el identificador previo
+    // (LID digits). Si aparece, migramos su phone al real. Esto evita
+    // duplicados y muestra el número correcto en el CRM de acá en más.
+    if (!contact && fallbackLookup && fallbackLookup !== phoneNumber) {
+      const legacy = await this.prisma.contact.findUnique({
+        where: { phone: fallbackLookup },
+      });
+      if (legacy) {
+        const existingMeta =
+          legacy.metadata && typeof legacy.metadata === 'object' && !Array.isArray(legacy.metadata)
+            ? (legacy.metadata as Record<string, string | number | boolean | null>)
+            : {};
+        const existingWaJid = typeof existingMeta.waJid === 'string' ? existingMeta.waJid : null;
+        contact = await this.prisma.contact.update({
+          where: { id: legacy.id },
+          data: {
+            phone: phoneNumber,
+            // Si el name era el LID digits (default en el create), lo
+            // renombramos al phone real para que no siga apareciendo
+            // el string opaco en el listado. Si el operador ya le puso
+            // un nombre real ("Juan Pérez"), lo respetamos.
+            name: legacy.name === fallbackLookup ? phoneNumber : legacy.name,
+            metadata: { ...existingMeta, waJid: waJid ?? existingWaJid ?? null },
+          },
+        });
+        this.logger.log(
+          `LID→phone migration: contact ${legacy.id.slice(0, 8)} moved ${fallbackLookup} → ${phoneNumber}`,
+        );
+      }
+    }
 
     if (!contact) {
       this.logger.log(`Creating new contact: ${phoneNumber} (waJid=${waJid ?? 'n/a'})`);
@@ -1607,7 +1649,10 @@ export class ConversationHandlerService implements IConversationHandler {
     } else if (waJid) {
       // Refresh el waJid si cambió (contactos migran entre @s.whatsapp.net
       // y @lid). No pisamos el resto de metadata.
-      const existingMeta = (contact.metadata ?? {}) as Record<string, unknown>;
+      const existingMeta =
+        contact.metadata && typeof contact.metadata === 'object' && !Array.isArray(contact.metadata)
+          ? (contact.metadata as Record<string, string | number | boolean | null>)
+          : {};
       if (existingMeta.waJid !== waJid) {
         await this.prisma.contact.update({
           where: { id: contact.id },
@@ -1858,11 +1903,12 @@ export class ConversationHandlerService implements IConversationHandler {
    * si Baileys re-emite el mismo mensaje después de un reconnect.
    */
   async recordPhoneSideOutbound(args: {
-    to: string;          // teléfono/LID del cliente (destino)
+    to: string;          // teléfono real cuando lo tenemos (via remoteJidAlt/senderPn); sino LID
     text: string;
     jid: string;         // full JID (@s.whatsapp.net o @lid)
     waMessageId: string;
     timestamp: Date;
+    fallbackLookup?: string | null;  // LID digits legacy (para migrar contactos viejos)
     attachment?: {
       url: string;
       name: string;
@@ -1881,7 +1927,7 @@ export class ConversationHandlerService implements IConversationHandler {
       });
       if (existing) return;
 
-      const contact = await this.findOrCreateContact(args.to, args.jid);
+      const contact = await this.findOrCreateContact(args.to, args.jid, args.fallbackLookup ?? null);
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
       // Marcos 2026-07-06: si el mensaje del celular es una foto /
       // audio / video / documento, lo pasamos como attachment. El
@@ -1927,6 +1973,7 @@ export class ConversationHandlerService implements IConversationHandler {
     caption: string;
     waMessageId: string;
     timestamp: Date;
+    fallbackLookup?: string | null;
     attachment: {
       url: string;
       name: string;
@@ -1944,7 +1991,7 @@ export class ConversationHandlerService implements IConversationHandler {
       });
       if (existing) return;
 
-      const contact = await this.findOrCreateContact(args.from, args.jid);
+      const contact = await this.findOrCreateContact(args.from, args.jid, args.fallbackLookup ?? null);
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
       await this.saveMessage(
         conversation.id,

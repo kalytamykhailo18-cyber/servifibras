@@ -430,11 +430,35 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       // caemos al número crudo del JID — el CRM mostrará el LID como
       // identificador, aún matcheable por unicidad. Contactos futuros
       // que respondan desde el mismo LID se agrupan en la misma conv.
+      // Marcos 2026-07-06: teléfono real del contacto. WhatsApp está
+      // rolando LID (Linked Identity) — muchos contactos llegan con
+      // remoteJid=<digits>@lid en vez del <phone>@s.whatsapp.net que
+      // el CRM espera. Baileys 7 expone en `msg.key.remoteJidAlt` el
+      // JID en el otro esquema (o sea, cuando primary es LID el Alt
+      // trae el phone-based JID). También algunos mensajes vienen con
+      // senderPn (senderPhoneNumber) directo. Hierarchy:
+      //   1. senderPn si trae phone real
+      //   2. remoteJidAlt si es @s.whatsapp.net (contiene el phone)
+      //   3. remoteJid si YA es @s.whatsapp.net
+      //   4. remoteJid crudo (LID) — último recurso, contact identifier
+      //      queda como LID digits pero al menos matcheamos por unicidad.
       const senderPn: string | undefined =
         (msg.key as any)?.senderPn ?? (msg as any)?.senderPn ?? undefined;
-      const from = senderPn && senderPn.length > 0
-        ? this.fromJid(senderPn)
-        : this.fromJid(remoteJid);
+      const remoteJidAlt: string | undefined = (msg.key as any)?.remoteJidAlt;
+      let realPhoneJid: string | null = null;
+      if (senderPn && senderPn.length > 0) {
+        realPhoneJid = senderPn.includes('@') ? senderPn : `${senderPn}@s.whatsapp.net`;
+      } else if (remoteJidAlt && remoteJidAlt.endsWith('@s.whatsapp.net')) {
+        realPhoneJid = remoteJidAlt;
+      } else if (remoteJid.endsWith('@s.whatsapp.net')) {
+        realPhoneJid = remoteJid;
+      }
+      const from = this.fromJid(realPhoneJid ?? remoteJid);
+      // Si el `from` (phone real) es distinto del identificador crudo
+      // del JID (LID digits), guardamos ese último como fallbackLookup
+      // para que el handler pueda migrar el contacto legacy.
+      const lidDigits = this.fromJid(remoteJid);
+      const fallbackLookup = realPhoneJid && lidDigits !== from ? lidDigits : null;
 
       // Marcos 2026-07-06: si el mensaje viene con fromMe=true significa
       // que alguien del equipo respondió desde el celular (no desde el
@@ -452,6 +476,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           jid: remoteJid,
           waMessageId: msg.key.id ?? `qr-${Date.now()}`,
           timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+          fallbackLookup,
           attachment: media?.attachment ?? null,
         });
         continue;
@@ -476,6 +501,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           caption: text.trim(),
           waMessageId: msg.key.id ?? `qr-${Date.now()}`,
           timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+          fallbackLookup,
           attachment: media.attachment,
         });
         continue;
@@ -497,6 +523,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           null,
           null,
           remoteJid,
+          fallbackLookup,
         );
         const result = await this.conversationHandler.handleWhatsAppMessage(incoming);
         if (result.success && result.response) {

@@ -35,6 +35,11 @@ export class WhatsAppIncomingMessage {
     // stashes this on contact.metadata.waJid so outbound WhatsAppService
     // can route back on the same scheme without guessing.
     public readonly jid: string | null = null,
+    // Marcos 2026-07-06: dígitos del identificador legacy (LID) cuando
+    // el phone real vino resuelto via remoteJidAlt/senderPn. Sirve para
+    // que findOrCreateContact matchee contactos viejos que se guardaron
+    // con el LID como phone y los migre al phone real.
+    public readonly fallbackLookup: string | null = null,
   ) {}
 
   isTextMessage(): boolean {
