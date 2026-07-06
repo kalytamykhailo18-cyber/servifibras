@@ -727,6 +727,85 @@ export class ConversationScorerService {
     this.logger.log(
       `per-turn correction promoted: msgId=${messageId.slice(0, 8)} convId=${message.conversationId.slice(0, 8)} scenario=${scenario} exampleId=${exampleId.slice(0, 8)}`,
     );
+
+    // Marcos 2026-07-06: hasta hoy la corrección solo aterrizaba en
+    // ConversationExample (few-shot del pipeline general de Claude). En
+    // ML el pipeline pasa PRIMERO por tryConstrainedReply que lee de
+    // MlPublicationKnowledge.curatedAnswer (min 3 curadas por publicación)
+    // — si Marcos corregía una respuesta pero nunca actualizaba la
+    // knowledge row de la pregunta, la próxima vez que llegaba una
+    // pregunta parecida el modo constrained no leía la corrección y
+    // volvía a contestar mal. Ahora, cuando la corrección viene de un
+    // mensaje ML con itemId conocido, TAMBIÉN upserteamos la knowledge
+    // row para esa (itemId, questionText) marcándola como 'edited' con
+    // curatedAnswer=<texto corregido>. Así la corrección impacta tanto
+    // en el few-shot como en el modo constrained.
+    if (sourceChannel === 'MERCADOLIBRE') {
+      try {
+        // El texto del cliente (userTurn) es el questionText. Buscamos la
+        // knowledge row más reciente que matchee el itemId del mensaje
+        // ML y el mismo questionText. Si existe la actualizamos; si no
+        // la creamos con lo que ya sabemos.
+        const custMsg = await this.prisma.message.findFirst({
+          where: {
+            conversationId: message.conversationId,
+            sender: 'CUSTOMER' as any,
+            timestamp: { lt: message.timestamp },
+          },
+          orderBy: { timestamp: 'desc' },
+          select: { metadata: true },
+        });
+        const meta = (custMsg?.metadata ?? {}) as Record<string, any>;
+        const itemId = typeof meta.mlItemId === 'string' ? meta.mlItemId : null;
+        if (itemId) {
+          const existing = await this.prisma.mlPublicationKnowledge.findFirst({
+            where: { itemId, questionText: userTurn },
+            select: { id: true },
+          });
+          const now = new Date();
+          if (existing) {
+            await this.prisma.mlPublicationKnowledge.update({
+              where: { id: existing.id },
+              data: {
+                curationStatus: 'edited',
+                curatedAnswer: cleaned,
+                curatedAt: now,
+              },
+            });
+            this.logger.log(
+              `ML curatedAnswer updated for ${itemId} (existing row ${existing.id.slice(0, 8)})`,
+            );
+          } else {
+            // Synthetic row: la pregunta y el itemId son reales (los
+            // sacamos del mensaje). accountKey y mlQuestionId son
+            // sintéticos porque no vinieron del ingest ML normal —
+            // usamos un prefijo 'correction-' para que quede claro en
+            // audit que este row fue sembrado por la corrección, no
+            // por el sync.
+            await this.prisma.mlPublicationKnowledge.create({
+              data: {
+                itemId,
+                accountKey: 'mercadolibre',
+                mlQuestionId: `correction-${messageId}`,
+                questionText: userTurn,
+                answerText: cleaned,
+                curationStatus: 'edited',
+                curatedAnswer: cleaned,
+                curatedAt: now,
+                questionAt: now,
+                answeredAt: now,
+              },
+            });
+            this.logger.log(`ML curatedAnswer seeded for ${itemId} (new knowledge row)`);
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to propagate correction to MlPublicationKnowledge: ${err?.message ?? err}`,
+        );
+      }
+    }
+
     return { success: true, exampleId, scenario, messageId };
   }
 
