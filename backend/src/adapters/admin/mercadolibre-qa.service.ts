@@ -125,23 +125,45 @@ export class MercadolibreQaService {
         id: true,
         conversationId: true,
         metadata: true,
+        timestamp: true,
       },
     });
     if (!draft) return { ok: false, reason: 'Draft no encontrado' };
     const meta = (draft.metadata as Record<string, unknown> | null) ?? {};
     const mlQuestionId = typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null;
-    if (!mlQuestionId) return { ok: false, reason: 'Draft sin mlQuestionId' };
 
-    // Buyer question that triggered this draft
-    const customerMsg = await this.prisma.message.findFirst({
-      where: {
-        conversationId: draft.conversationId,
-        isFromAI: false,
-        metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
-      },
-      orderBy: { timestamp: 'desc' },
-      select: { content: true, metadata: true },
-    });
+    // Buyer question that triggered this draft.
+    // Marcos 2026-07-06: dos paths. (1) Preferimos matchear por
+    // metadata.mlQuestionId — ese es el link fuerte cuando la pregunta
+    // del cliente se guarda con el ID de ML. (2) Fallback por proximidad
+    // — buscamos el CUSTOMER más reciente ANTES del draft en la misma
+    // conversación. Es lo que necesitábamos porque mensajes históricos
+    // de clientes se persistían con {mlItemId} pero SIN mlQuestionId,
+    // entonces el path #1 devolvía null y toda la solapa "Mejorar/Regenerar"
+    // tiraba "Pregunta original no encontrada".
+    let customerMsg = mlQuestionId
+      ? await this.prisma.message.findFirst({
+          where: {
+            conversationId: draft.conversationId,
+            isFromAI: false,
+            metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
+          },
+          orderBy: { timestamp: 'desc' },
+          select: { content: true, metadata: true },
+        })
+      : null;
+    if (!customerMsg) {
+      customerMsg = await this.prisma.message.findFirst({
+        where: {
+          conversationId: draft.conversationId,
+          isFromAI: false,
+          sender: 'CUSTOMER' as any,
+          timestamp: { lt: draft.timestamp },
+        },
+        orderBy: { timestamp: 'desc' },
+        select: { content: true, metadata: true },
+      });
+    }
     if (!customerMsg) return { ok: false, reason: 'Pregunta original no encontrada' };
     const cipher = getMessageCipher();
     const buyerQuestion = cipher.decrypt(customerMsg.content);
@@ -241,6 +263,7 @@ export class MercadolibreQaService {
         conversationId: true,
         metadata: true,
         isFromAI: true,
+        timestamp: true,
         conversation: {
           select: {
             id: true,
@@ -258,19 +281,32 @@ export class MercadolibreQaService {
     }
     const meta = (draft.metadata as Record<string, unknown> | null) ?? {};
     const mlQuestionId = typeof meta.mlQuestionId === 'string' ? meta.mlQuestionId : null;
-    if (!mlQuestionId) return { ok: false, reason: 'Draft has no mlQuestionId in metadata' };
-    // Encontrar la pregunta del comprador que disparó este draft.
-    // Convención: el CUSTOMER message más reciente anterior al draft,
-    // que tenga metadata.mlQuestionId === el mismo id.
-    const customerMsg = await this.prisma.message.findFirst({
-      where: {
-        conversationId: draft.conversationId,
-        isFromAI: false,
-        metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
-      },
-      orderBy: { timestamp: 'desc' },
-    });
-    if (!customerMsg) return { ok: false, reason: 'Original buyer question not found' };
+    // Marcos 2026-07-06: mismo patrón que en improveOperatorDraft — path
+    // preferido por metadata.mlQuestionId, fallback por proximidad
+    // temporal para que Regenerar también funcione en filas históricas
+    // sin mlQuestionId en el CUSTOMER inbound.
+    let customerMsg = mlQuestionId
+      ? await this.prisma.message.findFirst({
+          where: {
+            conversationId: draft.conversationId,
+            isFromAI: false,
+            metadata: { path: ['mlQuestionId'], equals: mlQuestionId } as any,
+          },
+          orderBy: { timestamp: 'desc' },
+        })
+      : null;
+    if (!customerMsg) {
+      customerMsg = await this.prisma.message.findFirst({
+        where: {
+          conversationId: draft.conversationId,
+          isFromAI: false,
+          sender: 'CUSTOMER' as any,
+          timestamp: { lt: draft.timestamp },
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+    }
+    if (!customerMsg) return { ok: false, reason: 'Pregunta original no encontrada' };
     const cipher = getMessageCipher();
     const questionText = cipher.decrypt(customerMsg.content);
     const customerMeta = (customerMsg.metadata as Record<string, unknown> | null) ?? {};

@@ -31,6 +31,8 @@ export interface ConversationDetails {
     email: string | null;
     channel: Channel;
     avatarUrl: string | null;
+    type: string;
+    customerType: string | null;
   };
   channel: Channel;
   status: ConversationStatus;

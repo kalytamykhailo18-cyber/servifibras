@@ -113,38 +113,66 @@ export class ConversationManagementService implements IConversationManagementSer
       const limit = filter.limit || 50;
       const offset = filter.offset || 0;
 
+      // Marcos 2026-07-06 PM: mayoristas arriba del inbox.
+      // Un mayorista se define por contact.type='MAYORISTA'
+      // (taxonomía legacy) O contact.customerType='MAYORISTA' (la
+      // nueva de 6 valores). Cualquiera de las dos hace que la
+      // conversación flote al tope. Para la primera página (offset=0)
+      // fetch los mayoristas separados y los prepende; para páginas
+      // siguientes cae al orden recency estándar.
+      const mayoristaContactFilter = {
+        OR: [
+          { type: 'MAYORISTA' as const },
+          { customerType: 'MAYORISTA' as const },
+        ],
+      };
+      const includeShape = {
+        contact: true,
+        assigned: true,
+        messages: {
+          orderBy: { timestamp: 'desc' as const },
+          take: 1,
+        },
+        _count: {
+          select: { messages: true },
+        },
+      };
+      const orderShape = [
+        { updatedAt: 'desc' as const },
+        { needsHumanAttention: 'desc' as const },
+      ];
+
       let [conversations, total] = await Promise.all([
-        this.prisma.conversation.findMany({
-          where,
-          include: {
-            contact: true,
-            assigned: true,
-            messages: {
-              orderBy: { timestamp: 'desc' },
-              take: 1,
-            },
-            _count: {
-              select: { messages: true },
-            },
-          },
-          // Marcos 2026-07-06: cuando conectamos WhatsApp con
-          // aiPaused=true por default, todas las conversaciones nuevas
-          // arrancan con needsHumanAttention=true (el handler auto-escala
-          // los canales pausados). El pin de needsHumanAttention arriba
-          // combinado con esa inundación hacía que WA tape ML/TN entero,
-          // y Marcos veía "siempre las mismas conversaciones arriba".
-          // La solución es priorizar recencia (por tiempo) y dejar el
-          // needsHumanAttention como tiebreak dentro del mismo minuto —
-          // el chip de "necesita humano" sigue visible en cada fila, así
-          // que la marca no desaparece del panel, solo deja de dominar
-          // el orden.
-          orderBy: [
-            { updatedAt: 'desc' },
-            { needsHumanAttention: 'desc' },
-          ],
-          take: limit,
-          skip: offset,
-        }),
+        (async () => {
+          if (offset > 0) {
+            // Página >1: fallback a orden por recencia sin la capa
+            // mayorista — evita duplicados y offset math complejo.
+            return this.prisma.conversation.findMany({
+              where,
+              include: includeShape,
+              orderBy: orderShape,
+              take: limit,
+              skip: offset,
+            });
+          }
+          const [mayoristas, everyoneElse] = await Promise.all([
+            this.prisma.conversation.findMany({
+              where: { ...where, contact: { is: mayoristaContactFilter } },
+              include: includeShape,
+              orderBy: orderShape,
+              take: limit,
+            }),
+            this.prisma.conversation.findMany({
+              where,
+              include: includeShape,
+              orderBy: orderShape,
+              take: limit,
+            }),
+          ]);
+          const mayoristaIds = new Set(mayoristas.map((c) => c.id));
+          const filler = everyoneElse.filter((c) => !mayoristaIds.has(c.id));
+          return [...mayoristas, ...filler].slice(0, limit);
+        })(),
         this.prisma.conversation.count({ where }),
       ]);
 
@@ -249,6 +277,14 @@ export class ConversationManagementService implements IConversationManagementSer
           email: conv.contact.email,
           channel: conv.contact.channel,
           avatarUrl: conv.contact.avatarUrl,
+          // Marcos 2026-07-06 PM: la fila del inbox necesita saber si el
+          // contacto es MAYORISTA para (a) renderizar el chip visible y
+          // (b) validar el ordenamiento del backend. Ambos campos van —
+          // `type` es la taxonomía legacy y `customerType` es la nueva
+          // de 6 valores; con cualquiera que sea MAYORISTA alcanza para
+          // que el frontend pinte la fila con el badge.
+          type: conv.contact.type,
+          customerType: conv.contact.customerType,
         },
         channel: conv.channel,
         status: conv.status,
@@ -338,6 +374,8 @@ export class ConversationManagementService implements IConversationManagementSer
           email: conversation.contact.email,
           channel: conversation.contact.channel,
           avatarUrl: conversation.contact.avatarUrl,
+          type: conversation.contact.type,
+          customerType: conversation.contact.customerType,
         },
         channel: conversation.channel,
         status: conversation.status,

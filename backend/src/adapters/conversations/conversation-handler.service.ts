@@ -1056,13 +1056,21 @@ export class ConversationHandlerService implements IConversationHandler {
       // message metadata so the /mercadolibre Q&A panel can pivot each
       // question to its publication (thumbnail / title / permalink) —
       // resolved on render via Product.mlPermalink mapping.
+      // Marcos 2026-07-06: también stampeamos mlQuestionId — el botón
+      // "Regenerar" / "Mejorar con IA" del panel busca la pregunta
+      // original por ese path en metadata. Sin mlQuestionId el lookup
+      // devolvía "Pregunta original no encontrada" y ni el mejorar ni
+      // el regenerar funcionaban.
       const inboundItemId = message.itemId ? String(message.itemId) : null;
+      const inboundMeta: Record<string, string> = {};
+      if (inboundItemId) inboundMeta.mlItemId = inboundItemId;
+      if (message.id) inboundMeta.mlQuestionId = message.id;
       await this.saveMessage(
         conversation.id,
         MessageSender.CUSTOMER,
         message.text,
         false,
-        inboundItemId ? { mlItemId: inboundItemId } : null,
+        Object.keys(inboundMeta).length > 0 ? inboundMeta : null,
       );
 
       // ML pre-venta (a QUESTION on a publication) is a one-shot Q&A:
