@@ -377,6 +377,12 @@ export class MlBatchQueueService {
         reviewMode = !autoReplyOn;
       }
     } catch { /* fall through to env */ }
+    // Marcos 2026-07-07: kill-switch global (mismo del webhook path).
+    // Cuando ML_AUTO_SEND_DISABLED=true forzamos review — el batch
+    // queue tampoco puede enviar directo a ML.
+    if ((process.env.ML_AUTO_SEND_DISABLED ?? 'false').toLowerCase() === 'true') {
+      reviewMode = true;
+    }
     await this.prisma.message.create({
       data: {
         conversationId,

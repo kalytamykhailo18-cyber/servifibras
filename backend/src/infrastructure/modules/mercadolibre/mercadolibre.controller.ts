@@ -326,8 +326,19 @@ export class MercadoLibreController {
       // Y el self-eval fue >= ML_CONSTRAINED_AUTOSEND_THRESHOLD (8.5).
       // En ese caso bypass del review-mode global — la respuesta
       // confiable se envía directo, las dudosas siguen como draft.
-      const reviewMode = !(await this.isAutoReplyOn());
-      const forceAutoSend = (result as any)?.forceAutoSend === true;
+      // Marcos 2026-07-07: kill-switch global. Cuando
+      // ML_AUTO_SEND_DISABLED=true en .env, forzamos review-mode y
+      // desactivamos cualquier bypass del modo cerrado. Todas las
+      // respuestas quedan como draft para revisión humana. Marcos lo
+      // pidió esta mañana ("respondiendo solo" — operador vio un
+      // auto-envío que rompía reglas del prompt). Sin redeploy — se
+      // levanta cambiando el .env y reiniciando el backend.
+      const mlAutoSendDisabled =
+        (process.env.ML_AUTO_SEND_DISABLED ?? 'false').toLowerCase() === 'true';
+      const reviewMode = mlAutoSendDisabled ? true : !(await this.isAutoReplyOn());
+      const forceAutoSend = mlAutoSendDisabled
+        ? false
+        : (result as any)?.forceAutoSend === true;
       if (reviewMode && !forceAutoSend) {
         // Marcos 2026-06-25: si el reply vino del modo cerrado con
         // un self-eval bajo, pasamos el score a la metadata del draft
