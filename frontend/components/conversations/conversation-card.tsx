@@ -61,6 +61,15 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
 
   const needsHuman = !!conversation.needsHumanAttention;
 
+  // Marcos 2026-07-08: mayoristas se marcan como MAYORISTA en cualquiera
+  // de las dos clasificaciones (la vieja `type` de 4 valores o la nueva
+  // `customerType` de 6). El backend ya ordena estas filas primero en el
+  // inbox; sin el chip visible el ordenamiento pasa desapercibido. Chip
+  // ámbar para diferenciarlo del status (verde) y del canal (varios).
+  const isMayorista =
+    conversation.contact.type === "MAYORISTA" ||
+    conversation.contact.customerType === "MAYORISTA";
+
   return (
     <Link
       href={`/conversations/${conversation.id}`}
@@ -158,6 +167,11 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
 
         {/* Badges */}
         <div className="flex flex-wrap gap-1.5">
+          {isMayorista && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+              MAYORISTA
+            </span>
+          )}
           {needsHuman && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700">
               <SupportAgentIcon sx={{ fontSize: 12 }} />
