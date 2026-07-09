@@ -229,6 +229,11 @@ async function seedContacts(): Promise<Array<{ id: string; type: CustomerType; c
         customerType,
         funnelStage,
         channel: pickWeighted<Channel>(CHANNEL_WEIGHTS as any, 'ch'),
+        // Marcos 2026-07-09: demoSeed contacts stay out of every dashboard
+        // aggregator. Before this flag the 80 demo contacts + their orders
+        // + leads leaked into "pedidos a despachar" / "cotizaciones sin
+        // respuesta" as if they were real.
+        isSandbox: true,
         metadata: { demoSeed: true, locality: pick(LOCALITIES) },
         createdAt,
       },
@@ -263,6 +268,7 @@ async function seedConversationsAndMessages(contacts: Array<{ id: string; type: 
         contactId: c.id,
         channel,
         status,
+        isSandbox: true,
         isUnread: status === ConversationStatus.ACTIVE && Math.random() < 0.4,
         needsHumanAttention: needsHuman,
         escalatedAt: needsHuman ? new Date(startedAt.getTime() + 5 * 60 * 1000) : null,

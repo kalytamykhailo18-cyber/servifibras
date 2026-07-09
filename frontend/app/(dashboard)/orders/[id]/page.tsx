@@ -26,7 +26,10 @@ import { useAuthStore } from "@/lib/store/auth-store";
 //   DELETE             → ADMIN only
 // So we open the route to VENTAS but disable status/tracking writes for them.
 // Marcos 2026-06-23: ENCARGADO supervisa logística — incluido explícito.
-const ORDERS_DETAIL_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO];
+// Marcos 2026-07-08: ATENCION crea pedidos desde el hilo y salta al
+// detalle recién guardado. Sin este rol el detalle la rebota a "no
+// autorizado" (write-actions siguen con su propio gate abajo).
+const ORDERS_DETAIL_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO, UserRole.ATENCION];
 const ORDERS_ROLES = ORDERS_DETAIL_ROLES;
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";

@@ -1,6 +1,12 @@
 /**
  * Database Seed Script - Complete Test Data
- * Populates database with users, contacts, conversations, leads, orders, and knowledge base
+ * Populates database with users, contacts, conversations, leads, orders, and knowledge base.
+ *
+ * Marcos 2026-07-09: this script DELETES every messages/conversations/orders/leads/contacts
+ * row before writing its fixtures. If it runs against prod it wipes the business.
+ * The pre-launch seed pass on 2026-04-28 left 8 fake contacts + 10 orders behind that
+ * quietly polluted every dashboard until today. Guard added so it refuses to run unless
+ * ALLOW_DESTRUCTIVE_SEED=1 is set explicitly. Never set that in prod.
  */
 
 import { PrismaClient, UserRole, ContactType, Channel, ConversationStatus, LeadStatus, OrderStatus, ContentType } from '@prisma/client';
@@ -9,6 +15,11 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== '1') {
+    console.error('❌ seed.ts ABORTED: this script deletes every conversation/message/order/lead/contact row.');
+    console.error('   Set ALLOW_DESTRUCTIVE_SEED=1 to override. NEVER do that in prod.');
+    process.exit(2);
+  }
   console.log('🌱 Seeding Servifibras Database...');
   console.log('');
 

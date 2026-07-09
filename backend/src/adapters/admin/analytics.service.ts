@@ -756,16 +756,40 @@ export class AnalyticsService implements IAnalyticsService {
     if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) {
       return { fromIso: args.fromIso, toIso: args.toIso, total: 0, totalShippingCost: 0, totalEstimatedCost: null, rowsWithoutTariff: 0, byCarrier: [] };
     }
-    const stamps = await this.prisma.logisticaArmado.findMany({
-      where: { manuallyDispatchedAt: { gte: from, lte: to } },
+    // Marcos 2026-07-09: antes esta query solo miraba manuallyDispatchedAt
+    // (el "Marcar como despachadas" manual desde el panel). El flujo real
+    // es: el operador tilda LISTO cuando la mensajería retira el paquete
+    // — ese momento ES el despacho. La lista de mensajerías estaba
+    // saliendo con 3 nombres (los pocos que Marcos marcaba a mano) en
+    // lugar de las 5+ reales (JyJ / M2 / Baires / Andreani / Uber),
+    // así los pagos a las mensajerías no se podían segmentar. Ahora la
+    // ventana incluye LISTO o manuallyDispatched — cualquiera que caiga
+    // adentro cuenta. role-metrics.getLogisticaMetrics ya usa el mismo
+    // criterio para dispatchedRecent (2026-06-29 fix).
+    const stampsRaw = await this.prisma.logisticaArmado.findMany({
+      where: {
+        OR: [
+          { manuallyDispatchedAt: { gte: from, lte: to } },
+          { listoAt: { gte: from, lte: to } },
+        ],
+      },
       select: {
         rowKey: true,
         manuallyDispatchedAt: true,
+        listoAt: true,
         flexCourier: true,
       },
-      orderBy: { manuallyDispatchedAt: 'desc' },
+      orderBy: { stampedAt: 'desc' },
       take: 5000,
     });
+    // Normalize: pick the dispatch instant (manuallyDispatchedAt wins
+    // when both present — that's the explicit stamp), so the downstream
+    // grouping code sees a single manuallyDispatchedAt-shaped field.
+    const stamps = stampsRaw.map((s) => ({
+      rowKey: s.rowKey,
+      flexCourier: s.flexCourier,
+      manuallyDispatchedAt: (s.manuallyDispatchedAt ?? s.listoAt)!,
+    }));
     if (stamps.length === 0) {
       return { fromIso: args.fromIso, toIso: args.toIso, total: 0, totalShippingCost: 0, totalEstimatedCost: null, rowsWithoutTariff: 0, byCarrier: [] };
     }

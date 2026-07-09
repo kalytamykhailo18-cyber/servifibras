@@ -137,9 +137,17 @@ export class ConversationManagementService implements IConversationManagementSer
           select: { messages: true },
         },
       };
+      // Marcos 2026-07-08: ordenar por actividad real del chat, no por
+      // updatedAt. updatedAt se bumpea con cualquier UPDATE (flags,
+      // aiPaused toggle, needsHumanAttention flip, replays de Baileys
+      // tras un reconnect); lastMessageAt sólo se mueve cuando entra o
+      // sale un mensaje de verdad. Antes: un reconnect de WhatsApp con
+      // 300 events "notify" hacía que conversaciones cerradas de hace
+      // 60 días flotaran al tope. lastMessageAt DESC (nulls al final,
+      // updatedAt como tiebreak) los devuelve a su lugar.
       const orderShape = [
+        { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } },
         { updatedAt: 'desc' as const },
-        { needsHumanAttention: 'desc' as const },
       ];
 
       let [conversations, total] = await Promise.all([
@@ -222,7 +230,10 @@ export class ConversationManagementService implements IConversationManagementSer
             },
             _count: { select: { messages: true } },
           },
-          orderBy: { updatedAt: 'desc' },
+          orderBy: [
+            { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+            { updatedAt: 'desc' },
+          ],
           take: haystackCap,
         });
 
@@ -260,6 +271,11 @@ export class ConversationManagementService implements IConversationManagementSer
               if (a.needsHumanAttention !== b.needsHumanAttention) {
                 return a.needsHumanAttention ? -1 : 1;
               }
+              // Espeja el orden del DB: lastMessageAt (nulls al final),
+              // updatedAt como tiebreak.
+              const aMs = a.lastMessageAt?.getTime() ?? -1;
+              const bMs = b.lastMessageAt?.getTime() ?? -1;
+              if (aMs !== bMs) return bMs - aMs;
               return b.updatedAt.getTime() - a.updatedAt.getTime();
             })
             .slice(0, limit);

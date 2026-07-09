@@ -247,12 +247,17 @@ export class RoleMetricsService {
     const weekAgo = new Date(Date.now() - recentWindowMs());
 
     const assignFilter = userId ? { assignedTo: userId } : {};
+    // Marcos 2026-07-09: Lead no tiene columna isSandbox, así que
+    // filtramos vía el Contact asociado. Sin esto el dashboard de
+    // Ventas contaba leads de fixtures E2E ("STALE-FOLLOWUP-TEST",
+    // "UI LF …", "Pipeline UI Buyer …") como reales.
+    const realCustomerScope = { contact: { is: { isSandbox: false } } } as const;
 
     const mayoristasToday = await this.prisma.lead.count({
-      where: { createdAt: { gte: startOfDay }, ...assignFilter },
+      where: { createdAt: { gte: startOfDay }, ...assignFilter, ...realCustomerScope },
     });
     const mayoristasWeek = await this.prisma.lead.count({
-      where: { createdAt: { gte: weekAgo }, ...assignFilter },
+      where: { createdAt: { gte: weekAgo }, ...assignFilter, ...realCustomerScope },
     });
 
     const followupMinutes = quoteFollowupMinutes();
@@ -262,6 +267,7 @@ export class RoleMetricsService {
         status: LeadStatus.QUOTE_SENT,
         updatedAt: { lt: followupCutoff },
         ...assignFilter,
+        ...realCustomerScope,
       },
       include: { contact: { select: { name: true } } },
       orderBy: { updatedAt: 'asc' },
@@ -271,7 +277,7 @@ export class RoleMetricsService {
     const since30 = new Date(Date.now() - longWindowMs());
     const buckets = await this.prisma.lead.groupBy({
       by: ['status'],
-      where: { updatedAt: { gte: since30 }, ...assignFilter },
+      where: { updatedAt: { gte: since30 }, ...assignFilter, ...realCustomerScope },
       _count: { _all: true },
     });
     const counts = Object.fromEntries(
@@ -317,12 +323,16 @@ export class RoleMetricsService {
     // Mensajes salientes escritos por staff (no AI) hoy — el
     // "authorId" se stampea SOLO cuando el mensaje sale del panel
     // por un human staff (see message.entity comment on authorId).
+    // Marcos 2026-07-09: filtramos por conversación no-sandbox para que
+    // las respuestas dadas dentro de tests E2E no inflen el chip del
+    // agente (afectaba a Brenda cuando los tests corrían de mañana).
     const grouped = await this.prisma.message.groupBy({
       by: ['authorId'],
       where: {
         isFromAI: false,
         authorId: { not: null },
         timestamp: { gte: startOfDay },
+        conversation: { is: { isSandbox: false } },
       },
       _count: { _all: true },
     });
@@ -352,11 +362,14 @@ export class RoleMetricsService {
     // Leads updated hoy con assignedTo — updated puede ser cualquier
     // acción (estado, followup, quote). Refleja actividad real del
     // vendedor sobre sus leads.
+    // Marcos 2026-07-09: mismo motivo que en Atención — leads fixture
+    // no cuentan como actividad real del vendedor.
     const grouped = await this.prisma.lead.groupBy({
       by: ['assignedTo'],
       where: {
         assignedTo: { not: null },
         updatedAt: { gte: startOfDay },
+        contact: { is: { isSandbox: false } },
       },
       _count: { _all: true },
     });
@@ -435,6 +448,12 @@ export class RoleMetricsService {
 
     const PENDING_STATUSES: OrderStatus[] = [OrderStatus.CONFIRMED, OrderStatus.PROCESSING];
 
+    // Marcos 2026-07-09: Order tampoco tiene isSandbox propia; filtramos
+    // vía el Contact asociado. Sin esto la card de Logística mostraba
+    // los pedidos seed (ORD-2026-001..009 con nombres fake) como
+    // pendientes reales y le hinchaba el "1148 pendientes".
+    const realCustomerOrderScope = { contact: { is: { isSandbox: false } } } as const;
+
     const [
       pendingOrders,
       overdueOrders,
@@ -443,11 +462,12 @@ export class RoleMetricsService {
       dispatchedRecent,
       pendingTopRows,
     ] = await Promise.all([
-      this.prisma.order.count({ where: { status: { in: PENDING_STATUSES } } }),
+      this.prisma.order.count({ where: { status: { in: PENDING_STATUSES }, ...realCustomerOrderScope } }),
       this.prisma.order.count({
         where: {
           status: { in: PENDING_STATUSES },
           createdAt: { lt: overdueCutoff },
+          ...realCustomerOrderScope,
         },
       }),
       this.prisma.$queryRaw<Array<{ count: bigint }>>`
@@ -489,7 +509,7 @@ export class RoleMetricsService {
         },
       }),
       this.prisma.order.findMany({
-        where: { status: { in: PENDING_STATUSES } },
+        where: { status: { in: PENDING_STATUSES }, ...realCustomerOrderScope },
         orderBy: { createdAt: 'asc' },
         take: 6,
         select: {

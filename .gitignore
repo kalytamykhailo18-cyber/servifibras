@@ -42,3 +42,9 @@ next-env.d.ts
 
 *.md
 e2e/
+
+# WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
+# customer voice notes, photos, docs. Only May PDFs were tracked in
+# initial dev; going forward the runtime persists these to disk and
+# git shouldn't carry them.
+uploads/

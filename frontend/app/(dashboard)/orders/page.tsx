@@ -37,7 +37,11 @@ import { Pagination } from "@/components/ui/pagination";
 // El backend POST /admin/orders ya admite VENTAS; sólo faltaba el gate
 // del listado. Las acciones de cambiar estado / tracking siguen
 // disabled para VENTAS desde el detalle (gate aparte en [id]/page.tsx).
-const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS];
+// Marcos 2026-07-08: agregado ATENCION. Brenda (atención) crea pedidos
+// desde el hilo de WhatsApp; el gate viejo la mandaba a "no autorizado"
+// al entrar a /orders. Backend POST/GET admin/orders también se abre a
+// ATENCION en el mismo push.
+const ORDERS_ROLES = [UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS, UserRole.ATENCION];
 import AddIcon from "@mui/icons-material/Add";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import DeleteIcon from "@mui/icons-material/Delete";

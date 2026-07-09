@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api/endpoints";
-import { useAuthStore, selectUserRole } from "@/lib/store/auth-store";
+import { useAuthStore, selectUser, selectUserRole } from "@/lib/store/auth-store";
 import { UserRole, CHANNEL_LABELS } from "@/types";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
@@ -148,7 +148,17 @@ function AtencionCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getAtencionMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Marcos 2026-06-29: selected agent narrowing.
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Marcos 2026-07-08: cuando el usuario logueado es ATENCION o ENCARGADO,
+  // por default la card apunta a él/ella (no a "Todos"). Admin arranca en
+  // Todos como antes. Objetivo: cada operador ve sus propios parámetros
+  // sin tener que clickear su chip primero.
+  const currentUser = useAuthStore(selectUser);
+  const initialUserId =
+    currentUser &&
+    (currentUser.role === UserRole.ATENCION || currentUser.role === UserRole.ENCARGADO)
+      ? currentUser.id
+      : null;
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId);
   // Marcos 2026-06-30: per-agent activity subscript. Same pattern as
   // LogisticaCard — un fetch al mount, mapa userId → repliesToday.
   const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());
@@ -248,7 +258,15 @@ function AtencionCard() {
 function VentasCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getVentasMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Marcos 2026-07-08: default narrowing al agente logueado (mismo criterio
+  // que AtencionCard). Admin arranca en Todos.
+  const currentUser = useAuthStore(selectUser);
+  const initialUserId =
+    currentUser &&
+    (currentUser.role === UserRole.VENTAS || currentUser.role === UserRole.ENCARGADO)
+      ? currentUser.id
+      : null;
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId);
   const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());
   useEffect(() => {
     api.analytics.getVentasPerAgentToday()
@@ -353,7 +371,15 @@ function VentasCard() {
 function LogisticaCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.getLogisticaMetrics>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Marcos 2026-07-08: default narrowing al agente logueado (Aldo /
+  // ENCARGADO ven su propio corte al entrar).
+  const currentUser = useAuthStore(selectUser);
+  const initialUserId =
+    currentUser &&
+    (currentUser.role === UserRole.LOGISTICA || currentUser.role === UserRole.ENCARGADO)
+      ? currentUser.id
+      : null;
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId);
   // Marcos 2026-06-30: per-agent armado-today para los chips.
   // Independiente del fetch principal (no depende de selectedUserId).
   const [perAgent, setPerAgent] = useState<Map<string, number>>(new Map());

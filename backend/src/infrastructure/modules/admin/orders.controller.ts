@@ -41,7 +41,7 @@ export class OrdersController {
   // Marcos 2026-06-23: VENTAS también ve los counts del header del
   // listado (mismas tabs que ADMIN/LOG ven).
   @Get('stats/summary')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS, UserRole.ATENCION)
   async getOrderStatistics() {
     const data = await this.orderManagement.getOrderStatistics();
     return { success: true, data };
@@ -190,8 +190,11 @@ export class OrdersController {
   // List orders with filters.
   // Marcos 2026-06-23: VENTAS suma a la lista de pedidos para poder
   // cargar nuevos pedidos (normales y laminados PRFV) desde el listado.
+  // Marcos 2026-07-08: ATENCION también — Brenda arma pedidos desde el
+  // hilo de WhatsApp y necesita entrar al listado para hacerlo. El POST
+  // ya la incluía; sin este GET se topa con 403 al cargar la página.
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.VENTAS, UserRole.ATENCION)
   async listOrders(
     @Query('status') status?: OrderStatus,
     @Query('contactId') contactId?: string,
@@ -270,8 +273,10 @@ export class OrdersController {
   }
 
   // Get order by ID
+  // Marcos 2026-07-08: ATENCION recibe el pedido recién guardado en
+  // el detalle — sin este rol el detalle rebota a 403.
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO)
+  @Roles(UserRole.ADMIN, UserRole.LOGISTICA, UserRole.VENTAS, UserRole.ENCARGADO, UserRole.ATENCION)
   async getOrderById(@Param('id') id: string) {
     const data = await this.orderManagement.getOrderById(id);
 
@@ -316,8 +321,11 @@ export class OrdersController {
   }
 
   // Update order
+  // Marcos 2026-07-08: ATENCION puede editar pedidos propios (cliente le
+  // corrige un ítem por WhatsApp). Status/tracking siguen sin ATENCION —
+  // esos son de logística.
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO)
+  @Roles(UserRole.ADMIN, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO, UserRole.ATENCION)
   async updateOrder(@Param('id') id: string, @Body() body: any) {
     const data = await this.orderManagement.updateOrder(id, body);
 
