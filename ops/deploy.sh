@@ -27,6 +27,7 @@
 #   --backend-only      skip frontend
 #   --frontend-only     skip backend
 #   --no-build          skip builds (config-only redeploys)
+#   --no-pull           skip pulling from origin (deploy from local working copy)
 #   --allow-schema-change   acknowledge that prisma/schema.prisma changed
 #                       and you've already applied the matching SQL
 #   --dry-run           print the plan, don't execute
@@ -61,6 +62,7 @@ LOG_FILE="$LOG_DIR/servifibras-deploy-$TS.log"
 DO_BACKEND=1
 DO_FRONTEND=1
 DO_BUILD=1
+DO_PULL=1
 ALLOW_SCHEMA=0
 DRY_RUN=0
 
@@ -69,6 +71,7 @@ while [[ ${1-} ]]; do
     --backend-only)        DO_FRONTEND=0 ;;
     --frontend-only)       DO_BACKEND=0 ;;
     --no-build)            DO_BUILD=0 ;;
+    --no-pull)             DO_PULL=0 ;;
     --allow-schema-change) ALLOW_SCHEMA=1 ;;
     --dry-run)             DRY_RUN=1 ;;
     --help|-h)
@@ -134,6 +137,33 @@ PG_PORT="$(grep -oP '^DATABASE_URL=postgres(ql)?://[^@]+@[^:/]+:\K[0-9]+' "$BACK
 if [[ -n "$PG_HOST" ]]; then
   if command -v pg_isready >/dev/null 2>&1; then
     pg_isready -q -h "$PG_HOST" -p "$PG_PORT" || fatal "postgres not reachable at $PG_HOST:$PG_PORT" 2
+  fi
+fi
+
+# ---- git sync from origin (Marcos 2026-07-10) ---------------------------
+# Marcos moved the repo to servifibras-crm/app and asked for the deploy
+# to pick up changes from a push instead of running against whatever is
+# in the local working copy. Safe-mode sync: refuse to auto-pull if the
+# working copy is dirty (would clobber in-progress work) and fast-forward
+# only (won't attempt merges that could conflict). --no-pull skips this
+# stage so a config-only redeploy from the server still works.
+if [[ $DO_PULL -eq 1 ]]; then
+  REPO_DIR="/home/servifibras"
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log "=== GIT SYNC ==="
+    if [[ -n "$(git -C "$REPO_DIR" status --porcelain 2>/dev/null)" ]]; then
+      log "⚠ working copy has uncommitted changes — skipping git pull"
+      log "  commit / stash first, or run with --no-pull to skip this stage"
+    else
+      run git -C "$REPO_DIR" fetch origin
+      behind="$(git -C "$REPO_DIR" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
+      if [[ "$behind" -gt 0 ]]; then
+        log "» pulling $behind new commit(s) from origin/main"
+        run git -C "$REPO_DIR" pull --ff-only origin main || fatal "git pull failed — resolve manually" 2
+      else
+        log "» working copy already at origin/main"
+      fi
+    fi
   fi
 fi
 

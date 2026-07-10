@@ -1962,6 +1962,17 @@ export class ConversationHandlerService implements IConversationHandler {
         data: {
           lastMessage: getMessageCipher().encrypt(preview),
           lastMessageAt: args.timestamp,
+          // Marcos 2026-07-10: cuando el equipo responde desde el celular
+          // (no desde el CRM), la conversación sigue estando "atendida"
+          // igual — el cliente recibió su respuesta. Antes sólo el path
+          // por CRM (sendManualReply) clareaba needsHumanAttention, y las
+          // respuestas por celular dejaban el chat marcado "Pendiente
+          // humano" para siempre. Consecuencia: el inbox mostraba arriba
+          // conversaciones que Marcos ya había respondido "en la vuelta"
+          // como si estuvieran esperando. Ahora una respuesta phone-side
+          // también limpia el flag y baja el status a ACTIVE.
+          needsHumanAttention: false,
+          status: ConversationStatus.ACTIVE,
         },
       });
     } catch (err: any) {

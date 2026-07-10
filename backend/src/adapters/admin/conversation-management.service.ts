@@ -98,9 +98,17 @@ export class ConversationManagementService implements IConversationManagementSer
         // for legacy plaintext rows that haven't been backfilled, then
         // run a second post-decrypt scan further down to recover the
         // ciphertext-row matches. lastMessage gets the same treatment.
+        // Marcos 2026-07-10: sumado contact.phone al match. Mucha
+        // conversación de mayorista arranca sin nombre — el chip del
+        // inbox muestra el número crudo (ej. "5493513105082"). Al
+        // buscar por número no matcheaba porque solo cruzábamos name,
+        // lastMessage y messages.content. Ahora el número entra por
+        // phone directo (y por name para los casos donde el número
+        // quedó grabado como nombre — WhatsApp inbound sin perfil).
         ands.push({
           OR: [
             { contact: { name: { contains: q, mode: 'insensitive' } } },
+            { contact: { phone: { contains: q } } },
             { lastMessage: { contains: q, mode: 'insensitive' } },
             { messages: { some: { content: { contains: q, mode: 'insensitive' } } } },
           ],
