@@ -164,37 +164,24 @@ export class ConversationManagementService implements IConversationManagementSer
         { updatedAt: 'desc' as const },
       ];
 
+      // Marcos 2026-07-13: removida la capa que "prependía" mayoristas
+      // al tope del inbox. La capa hacía que un mayorista con último
+      // mensaje de hace 5-7 días quedara arriba de una conversación de
+      // cliente común pendiente desde hace minutos — Marcos flagó esto
+      // como "no posiciona correctamente" en la iteración de hoy.
+      // Ahora el orden es puro: needsHumanAttention DESC → lastMessageAt
+      // DESC → updatedAt DESC. La condición de mayorista sigue viva en
+      // la fila del inbox como badge amarillo (visual, no de orden).
+      // Referencia para revert si Marcos lo pide de vuelta: chip
+      // `mayoristaContactFilter` sigue definido arriba.
       let [conversations, total] = await Promise.all([
-        (async () => {
-          if (offset > 0) {
-            // Página >1: fallback a orden por recencia sin la capa
-            // mayorista — evita duplicados y offset math complejo.
-            return this.prisma.conversation.findMany({
-              where,
-              include: includeShape,
-              orderBy: orderShape,
-              take: limit,
-              skip: offset,
-            });
-          }
-          const [mayoristas, everyoneElse] = await Promise.all([
-            this.prisma.conversation.findMany({
-              where: { ...where, contact: { is: mayoristaContactFilter } },
-              include: includeShape,
-              orderBy: orderShape,
-              take: limit,
-            }),
-            this.prisma.conversation.findMany({
-              where,
-              include: includeShape,
-              orderBy: orderShape,
-              take: limit,
-            }),
-          ]);
-          const mayoristaIds = new Set(mayoristas.map((c) => c.id));
-          const filler = everyoneElse.filter((c) => !mayoristaIds.has(c.id));
-          return [...mayoristas, ...filler].slice(0, limit);
-        })(),
+        this.prisma.conversation.findMany({
+          where,
+          include: includeShape,
+          orderBy: orderShape,
+          take: limit,
+          skip: offset,
+        }),
         this.prisma.conversation.count({ where }),
       ]);
 
