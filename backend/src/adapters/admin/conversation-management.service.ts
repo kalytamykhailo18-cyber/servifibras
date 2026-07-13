@@ -149,11 +149,17 @@ export class ConversationManagementService implements IConversationManagementSer
       // updatedAt. updatedAt se bumpea con cualquier UPDATE (flags,
       // aiPaused toggle, needsHumanAttention flip, replays de Baileys
       // tras un reconnect); lastMessageAt sólo se mueve cuando entra o
-      // sale un mensaje de verdad. Antes: un reconnect de WhatsApp con
-      // 300 events "notify" hacía que conversaciones cerradas de hace
-      // 60 días flotaran al tope. lastMessageAt DESC (nulls al final,
-      // updatedAt como tiebreak) los devuelve a su lugar.
+      // sale un mensaje de verdad.
+      //
+      // Marcos 2026-07-13: agregado needsHumanAttention DESC como
+      // primer criterio. Antes, si el equipo respondía desde el
+      // celular, la respuesta era el nuevo lastMessage y la
+      // conversación flotaba al tope aunque ya estuviera atendida.
+      // Ahora las que todavía esperan respuesta (needsHumanAttention
+      // = true) quedan arriba de las que el equipo ya respondió.
+      // W1 del documento del 10-07 fue explícito en este orden.
       const orderShape = [
+        { needsHumanAttention: 'desc' as const },
         { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } },
         { updatedAt: 'desc' as const },
       ];
@@ -239,6 +245,7 @@ export class ConversationManagementService implements IConversationManagementSer
             _count: { select: { messages: true } },
           },
           orderBy: [
+            { needsHumanAttention: 'desc' },
             { lastMessageAt: { sort: 'desc', nulls: 'last' } },
             { updatedAt: 'desc' },
           ],

@@ -1043,10 +1043,17 @@ export class ConversationHandlerService implements IConversationHandler {
       }
 
       // Load recent conversation history
+      // Marcos 2026-07-13 (B2): filtramos por publicación (mlItemId)
+      // así el agente sólo ve preguntas de ESTA publicación. Cuando
+      // llega inbound sin itemId (raro en pre-venta ML), pasamos null
+      // y el historial completo queda como antes para no cortar el
+      // hilo. El itemId ya está resuelto arriba como inboundItemId.
+      const inboundItemIdForHistory: string | null = message.itemId ? String(message.itemId) : null;
       const recentMessages = await this.getConversationHistoryById(
         contact.id,
         Channel.MERCADOLIBRE,
         10,
+        { mlItemId: inboundItemIdForHistory },
       );
 
       // Build AI conversation context
@@ -1793,6 +1800,7 @@ export class ConversationHandlerService implements IConversationHandler {
     contactId: string,
     channel: Channel,
     limit: number = 10,
+    opts: { mlItemId?: string | null } = {},
   ): Promise<any[]> {
     try {
       const conversation = await this.prisma.conversation.findFirst({
@@ -1802,6 +1810,24 @@ export class ConversationHandlerService implements IConversationHandler {
         },
         include: {
           messages: {
+            // Marcos 2026-07-13 (B2 del documento): en MercadoLibre, si
+            // vino el itemId de la publicación en curso, filtramos el
+            // historial a mensajes de ESA publicación. Antes se pasaba
+            // el historial completo del comprador mezclando preguntas
+            // de publicaciones distintas — el agente cruzaba datos.
+            // Los mensajes viejos sin mlItemId en metadata no
+            // aparecen; se acepta como trade-off (mejor menos contexto
+            // que contexto cruzado).
+            ...(opts.mlItemId
+              ? {
+                  where: {
+                    metadata: {
+                      path: ['mlItemId'],
+                      equals: opts.mlItemId,
+                    },
+                  },
+                }
+              : {}),
             orderBy: { timestamp: 'desc' },
             take: limit,
           },

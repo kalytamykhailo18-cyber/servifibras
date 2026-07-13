@@ -75,6 +75,18 @@ export class ConversationStyleService {
     return Number.isFinite(n) && n > 0 ? Math.min(50, n) : 8;
   }
 
+  // Marcos 2026-07-13 (B1 del documento): las correcciones tienen su
+  // propio cupo, INDEPENDIENTE del cupo total y del reserve de style.
+  // Antes: rulesCap = max(0, maxExamples - styleReserve) — con defaults
+  // (8 - 16) daba CERO y ninguna corrección llegaba al prompt aunque
+  // hubiera 142 filas curadas. Ahora rulesCap tiene su propio env
+  // (default 8) que no depende de nada más.
+  private maxCorrections(): number {
+    const raw = process.env.CONVERSATION_STYLE_MAX_CORRECTIONS;
+    const n = raw != null ? Number(raw) : 8;
+    return Number.isFinite(n) && n >= 0 ? Math.min(50, n) : 8;
+  }
+
   /**
    * Load examples for the prompt. When `scenario` is supplied we prefer
    * matching rows but always backfill with `general` so the prompt never
@@ -92,24 +104,16 @@ export class ConversationStyleService {
   async loadExamples(
     scenario?: string,
     channel?: Channel,
+    buyerQuestion?: string,
   ): Promise<Array<{ scenario: string; turns: StyleTurn[] }>> {
     if (!this.isEnabled()) return [];
     try {
-      const cap = this.maxExamples();
-      // Marcos 2026-06-17: split the budget into two pools so the
-      // 1540-row Prometheo import (priority 60) ALWAYS gets a slot
-      // for tone/style — otherwise the manual corrections + hand-
-      // curated rules (priority 120+) consume every slot and the
-      // conversational tone never reaches the prompt.
-      //   Rules pool   (priority >= 100): corrections + hand-curated
-      //                policy rules; sorted by priority desc.
-      //   Style pool   (priority <  100): Prometheo conversational
-      //                tone; sorted by createdAt desc (stable for
-      //                cache hit; newest imports rotate first).
-      // CONVERSATION_STYLE_MAX_STYLE_EXAMPLES governs the style
-      // reservation; the rest of the cap goes to rules.
+      // Marcos 2026-07-13 (B1): cada pool tiene su propio cupo,
+      // ambos independientes. El bug viejo era rulesCap = max(0,
+      // maxExamples - styleReserve) que con defaults daba CERO — el
+      // pool de reglas se vaciaba entero.
+      const rulesCap = this.maxCorrections();
       const styleReserve = this.maxStyleExamples();
-      const rulesCap = Math.max(0, cap - styleReserve);
       // Channel filter: load rows that are either un-scoped (channel
       // is NULL, the legacy hand-seeded examples) OR scoped to the
       // current channel. Rows scoped to a DIFFERENT channel are
@@ -118,12 +122,23 @@ export class ConversationStyleService {
       const channelFilter: any = channel
         ? { OR: [{ channel: null }, { channel }] }
         : {};
+      // Marcos 2026-07-13 (B1): si vino buyerQuestion, rankeamos las
+      // reglas por similitud lexica al mensaje entrante (mismo patrón
+      // FTS con OR-shaped tsquery que usamos en B3). Antes se traían
+      // las N más recientes por fecha — un parafraseo del cliente no
+      // cruzaba con la corrección relevante. Cuando no se pasa
+      // buyerQuestion (o queda vacío) cae al orden viejo por
+      // priority + fecha. Cumulativo por diseño: no hay filtro de
+      // fecha, la corrección más vieja SIEMPRE participa del ranking.
+      const rulesAllPromise = buyerQuestion && buyerQuestion.trim().length > 0
+        ? this.loadRulesByRelevance(rulesCap, channel, buyerQuestion)
+        : this.prisma.conversationExample.findMany({
+            where: { active: true, priority: { gte: 100 }, ...channelFilter },
+            orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+            take: rulesCap * 2,
+          });
       const [rulesAll, styleAll] = await Promise.all([
-        this.prisma.conversationExample.findMany({
-          where: { active: true, priority: { gte: 100 }, ...channelFilter },
-          orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
-          take: rulesCap * 2,
-        }),
+        rulesAllPromise,
         styleReserve > 0
           ? this.prisma.conversationExample.findMany({
               where: { active: true, priority: { lt: 100 }, ...channelFilter },
@@ -168,6 +183,49 @@ export class ConversationStyleService {
     }
   }
 
+  /**
+   * Marcos 2026-07-13 (B1): rules loader with relevance ranking.
+   * Extrae el content del primer turno de user desde el JSON `turns`
+   * y lo cruza contra buyerQuestion via full-text search en español
+   * con OR-shaped tsquery (mismo patrón que ml-publication-knowledge
+   * usa en B3). Prioridad como criterio secundario, fecha como
+   * tercer desempate.
+   */
+  private async loadRulesByRelevance(
+    limit: number,
+    channel: Channel | undefined,
+    buyerQuestion: string,
+  ): Promise<any[]> {
+    const channelClause = channel
+      ? `AND ("channel" IS NULL OR "channel" = '${channel}'::"Channel")`
+      : '';
+    // Text field for matching: title + first user turn content
+    // (COALESCE handles rows with null title, "->" indexes into JSON).
+    const matchText = `
+      coalesce(title, '') || ' ' ||
+      coalesce(turns::jsonb->0->>'content', '')
+    `;
+    return this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, scenario, title, turns, priority, channel::text AS channel_str
+       FROM conversation_examples
+       WHERE "active" = true
+         AND "priority" >= 100
+         ${channelClause}
+       ORDER BY
+         (to_tsvector('spanish', ${matchText})
+           @@ replace(plainto_tsquery('spanish', $1)::text, ' & ', ' | ')::tsquery)::int DESC,
+         ts_rank(
+           to_tsvector('spanish', ${matchText}),
+           replace(plainto_tsquery('spanish', $1)::text, ' & ', ' | ')::tsquery
+         ) DESC,
+         "priority" DESC,
+         "createdAt" DESC
+       LIMIT $2`,
+      buyerQuestion,
+      limit * 2,
+    );
+  }
+
   private maxStyleExamples(): number {
     const raw = process.env.CONVERSATION_STYLE_MAX_STYLE_EXAMPLES;
     const n = raw != null ? Number(raw) : 16;
@@ -180,8 +238,12 @@ export class ConversationStyleService {
    * polluting the system prompt). Format is intentionally readable so
    * a human can audit the prompt by reading the logs.
    */
-  async buildSystemPromptBlock(scenario?: string, channel?: Channel): Promise<string> {
-    const examples = await this.loadExamples(scenario, channel);
+  async buildSystemPromptBlock(
+    scenario?: string,
+    channel?: Channel,
+    buyerQuestion?: string,
+  ): Promise<string> {
+    const examples = await this.loadExamples(scenario, channel, buyerQuestion);
     if (examples.length === 0) return '';
 
     const lines: string[] = [];

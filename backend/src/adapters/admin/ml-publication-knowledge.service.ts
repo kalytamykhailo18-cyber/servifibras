@@ -561,22 +561,58 @@ export class MlPublicationKnowledgeService {
     // curaba a mano — y eso dejaba miles de Q&A fuera del modo cerrado.
     // Ahora aceptamos 'kept' + 'edited' + 'pending' con answerText
     // presente. Sólo 'discarded' queda afuera (irrelevante / desactualizada).
-    const curated = await this.prisma.mlPublicationKnowledge.findMany({
-      where: {
-        itemId: args.itemId,
-        OR: [
-          { curationStatus: { in: ['kept', 'edited'] } },
-          { curationStatus: 'pending', answerText: { not: null } },
-        ],
-      },
-      orderBy: { questionAt: 'desc' },
-      take: 50,
-      select: {
-        questionText: true,
-        answerText: true,
-        curatedAnswer: true,
-      },
-    });
+    //
+    // Marcos 2026-07-13 (B3 del documento): en publicaciones con muchas
+    // Q&A curadas (top hoy: 529 filas en MLA1484744515), tomar las 50
+    // más recientes por fecha significa perder respuestas viejas que
+    // matchean semánticamente con la pregunta actual. Antes de este
+    // cambio, un parafraseo del comprador raramente cruzaba con la Q&A
+    // correcta porque quedaba fuera de la ventana de 50.
+    // Ahora rankeamos por relevancia lexica usando Postgres full-text
+    // search con stemming en español (`plainto_tsquery('spanish', ...)`)
+    // y desempatamos por recencia. Cuando la pregunta actual no
+    // comparte términos con ninguna curada (ts_rank = 0 en todas), el
+    // orden efectivo cae al viejo (recencia) — mismo comportamiento
+    // que antes. Esto es una aproximación léxica con stemming; para
+    // sinonimia real (envío ↔ entrega, precio ↔ cuánto sale) se
+    // necesita un índice de embeddings, planificado como sub-item.
+    const curated = await this.prisma.$queryRawUnsafe<Array<{
+      questionText: string;
+      answerText: string | null;
+      curatedAnswer: string | null;
+    }>>(
+      // Primer criterio: MATCH sí/no. Toda fila cuyo vector matchea al
+      // menos un término del buyerQuestion viene antes que cualquier
+      // no-match, independientemente de la fecha. Segundo criterio:
+      // ts_rank dentro de los matches (más términos compartidos ganan).
+      // Tercer criterio: recencia como desempate cuando no hay match
+      // (comportamiento viejo) o cuando dos rows matchean parejo.
+      //
+      // plainto_tsquery genera un AND ('cuant' & 'tard' & 'sec' & 'resin')
+      // que rara vez matchea todo. Convertimos el AND a OR reemplazando
+      // '&' por '|' en la representación de texto y casteando de vuelta
+      // a tsquery — así basta con que UNA palabra clave se comparta
+      // (stemming del castellano ya viene aplicado) para que el row sea
+      // candidato. Precedencia por # de matches queda a cargo de ts_rank.
+      `SELECT "questionText", "answerText", "curatedAnswer"
+       FROM ml_publication_knowledge
+       WHERE "itemId" = $1
+         AND (
+           "curationStatus" IN ('kept', 'edited')
+           OR ("curationStatus" = 'pending' AND "answerText" IS NOT NULL)
+         )
+       ORDER BY
+         (to_tsvector('spanish', coalesce("questionText", ''))
+           @@ replace(plainto_tsquery('spanish', $2)::text, ' & ', ' | ')::tsquery)::int DESC,
+         ts_rank(
+           to_tsvector('spanish', coalesce("questionText", '')),
+           replace(plainto_tsquery('spanish', $2)::text, ' & ', ' | ')::tsquery
+         ) DESC,
+         "questionAt" DESC
+       LIMIT 50`,
+      args.itemId,
+      args.buyerQuestion ?? '',
+    );
     const minRequired = (() => {
       const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED);
       return Number.isFinite(raw) && raw > 0 ? raw : 3;

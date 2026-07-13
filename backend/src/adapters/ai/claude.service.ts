@@ -1677,9 +1677,14 @@ IMPORTANTE sobre precios:
       },
     ];
 
+    // Marcos 2026-07-13 (B1): pasamos el mensaje entrante del buyer
+    // al selector de estilo así rankea las correcciones por similitud
+    // con la consulta actual (no por fecha). Antes se ignoraba y sólo
+    // entraban las N más recientes por priority + createdAt.
     const styleBlock = await this.conversationStyle.buildSystemPromptBlock(
       undefined,
       turn?.channel,
+      newMessage,
     );
     const systemBlocks: Array<{
       type: 'text';

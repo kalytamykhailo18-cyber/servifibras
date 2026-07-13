@@ -41,7 +41,15 @@ yarn-error.log*
 next-env.d.ts
 
 *.md
-e2e/
+# Marcos 2026-07-13: los tests puntuales que sirven como criterio de
+# aceptación del documento de trabajo del 10-07 SÍ viajan con el repo.
+# El resto de e2e/ (100+ tests, probes, shots, logs) sigue ignorado —
+# se irán versionando de a poco a medida que sean auditables.
+# Para que los `!` funcionen, ignoramos e2e/* y desbloqueamos por nombre.
+e2e/*
+!e2e/test-b1-correction-memory-e2e.js
+!e2e/test-ml-history-b3-semantic-retrieval-e2e.js
+!e2e/test-ml-history-isolation-b2-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
