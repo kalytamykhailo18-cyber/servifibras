@@ -335,6 +335,12 @@ export class ConversationManagementService implements IConversationManagementSer
           : null,
         // lastMessage is encrypted on disk; decrypt for the inbox preview.
         lastMessage: cipher.decrypt(conv.lastMessage ?? ''),
+        // Marcos 2026-07-13: sin devolver este campo el frontend no
+        // puede calcular el "hace X" y muestra "Sin mensajes" para
+        // toda la fila (mismo valor que renderiza cuando lastMessageAt
+        // es null). Se ve peor de lo que está: la conversación tiene
+        // mensajes reales pero visualmente parece vacía.
+        lastMessageAt: conv.lastMessageAt,
         messageCount: conv._count.messages,
         needsHumanAttention: conv.needsHumanAttention,
         escalatedAt: conv.escalatedAt,
@@ -428,6 +434,7 @@ export class ConversationManagementService implements IConversationManagementSer
         // body before returning. Cipher returns plaintext as-is for any
         // legacy rows that pre-date encryption.
         lastMessage: getMessageCipher().decrypt(conversation.lastMessage ?? ''),
+        lastMessageAt: conversation.lastMessageAt,
         messageCount: conversation._count.messages,
         needsHumanAttention: conversation.needsHumanAttention,
         escalatedAt: conversation.escalatedAt,

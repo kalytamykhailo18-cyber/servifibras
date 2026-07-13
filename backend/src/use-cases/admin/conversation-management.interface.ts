@@ -41,6 +41,10 @@ export interface ConversationDetails {
     name: string;
   } | null;
   lastMessage: string | null;
+  // Marcos 2026-07-13: sin este field, el frontend renderiza "Sin
+  // mensajes" en toda fila del inbox aunque la conversación tenga
+  // mensajes recientes; el timeAgo del card lee esta propiedad.
+  lastMessageAt: Date | null;
   messageCount: number;
   needsHumanAttention: boolean;
   escalatedAt: Date | null;
