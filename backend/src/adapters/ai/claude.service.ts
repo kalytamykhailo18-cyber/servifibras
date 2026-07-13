@@ -481,6 +481,12 @@ export class ClaudeService implements IAIService {
   // MLA-XXXXX y salía como link válido. Ahora se compara URL cruda
   // contra este Set (más el store profile como caso puntual).
   private validMlPermalinks: Set<string> = new Set();
+  // Marcos 2026-07-13 (A2 seguimiento): además del set exacto de
+  // permalinks completos, guardamos los itemIds (`MLA<digits>`) de
+  // publicaciones conocidas. El scrub extrae el ID del URL y matchea
+  // acá — así una URL del estilo /MLA-1148594386-anything-_JM pasa
+  // aunque el permalink literal no esté en validMlPermalinks.
+  private validMlItemIds: Set<string> = new Set();
   private static readonly ML_STORE_PROFILE_URL =
     'https://www.mercadolibre.com.ar/tienda/servifibras';
   // Source-of-truth flag for the currently-loaded Lucas prompt:
@@ -691,28 +697,20 @@ export class ClaudeService implements IAIService {
       // URL whitelist still loads so the post-response filter can
       // strip fabricated links. The free-form KB block stays in the
       // prompt because it's small, mostly static, and worth caching.
-      const [kb, urls, mlMap] = await Promise.all([
+      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds] = await Promise.all([
         this.knowledgeRepo.getFormattedForAI(),
         this.productCatalog.getActiveCatalogUrls().catch(() => new Set<string>()),
         this.productCatalog.getCatalogUrlToMlPermalinkMap().catch(() => new Map<string, string>()),
+        this.productCatalog.getAllMlPermalinks().catch(() => new Set<string>()),
+        this.productCatalog.getAllMlItemIds().catch(() => new Set<string>()),
       ]);
       this.knowledgeBaseContext = kb && kb.length > 0 ? kb : null;
       this.validCatalogUrls = urls;
       this.catalogUrlToMlPermalink = mlMap;
-      // Marcos 2026-07-13 (A2): armamos el Set de permalinks ML
-      // válidos desde el mapa de catálogo. Al normalizar acá (una vez
-      // por refresh) evitamos hacerlo en cada scrub de respuesta.
-      const permalinks = new Set<string>();
-      for (const ml of mlMap.values()) {
-        if (ml) {
-          const norm = ml.replace(/\/$/, '');
-          permalinks.add(norm);
-          permalinks.add(norm + '/');
-        }
-      }
-      this.validMlPermalinks = permalinks;
+      this.validMlPermalinks = allMlPermalinks;
+      this.validMlItemIds = allMlItemIds;
       this.logger.log(
-        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} with ML permalink, ${permalinks.size / 2} unique ML permalinks in A2 allowlist`,
+        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist`,
       );
     } catch (error) {
       this.logger.error('Failed to load knowledge base', error);
@@ -807,13 +805,16 @@ export class ClaudeService implements IAIService {
           this.logger.warn(`ML URL on private channel ${channel} stripped (no TN equivalent): ${trimmed}`);
           return '[te lo paso por acá, decime cantidad y zona]';
         }
-        // Marcos 2026-07-13 (A2 del documento): antes cualquier URL
-        // que matcheara `mercadolibre.com(.ar)` pasaba el filtro por
-        // el simple test de dominio. Ahora las URLs de ML tienen que
-        // estar en el set de permalinks reales del catálogo, o ser
-        // el perfil de tienda oficial. Cualquier URL fabricada del
-        // estilo `mercadolibre.com.ar/MLA-XXXXX-inventado` se dropea
-        // como una URL inventada más.
+        // Marcos 2026-07-13 (A2 del documento, refinamiento): antes
+        // cualquier URL que matcheara `mercadolibre.com(.ar)` pasaba
+        // el filtro por el simple test de dominio. Ahora se requiere
+        // que la URL sea (a) permalink exacto conocido, (b) permalink
+        // cuyo itemId (MLA<digits>) matchee una publicación real de
+        // nuestro seller (fuente: mlPublicationKnowledge, 700+
+        // publicaciones), o (c) el perfil de tienda oficial. La
+        // versión inicial de A2 sólo aceptaba (a) y (c), lo que dejó
+        // afuera publicaciones que aún no estaban en el catálogo
+        // interno pero SÍ eran nuestras.
         if (ML_INTERNAL_URL_RE.test(trimmed)) {
           const normalized = trimmed.replace(/\/$/, '');
           if (
@@ -821,6 +822,11 @@ export class ClaudeService implements IAIService {
             this.validMlPermalinks.has(normalized) ||
             normalized === ClaudeService.ML_STORE_PROFILE_URL
           ) {
+            return raw;
+          }
+          // Extract MLA-<digits> and check itemId allowlist
+          const mlaMatch = normalized.match(/\/MLA-?(\d{6,12})/i);
+          if (mlaMatch && this.validMlItemIds.has(`MLA${mlaMatch[1]}`)) {
             return raw;
           }
           dropped++;

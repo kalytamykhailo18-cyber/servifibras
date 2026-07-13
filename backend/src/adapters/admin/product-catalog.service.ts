@@ -408,6 +408,43 @@ export class ProductCatalogService {
   }
 
   /**
+   * Marcos 2026-07-13 (A2 refinamiento): además del mapeo TN→ML,
+   * necesitamos la lista COMPLETA de permalinks ML válidos para el
+   * whitelist post-scrub. La versión anterior sólo aprobaba URLs que
+   * matcheaban con productos que tenían BOTH TN y ML — dejaba afuera
+   * los productos que están SOLO en ML (varios de catálogo interno).
+   */
+  async getAllMlPermalinks(): Promise<Set<string>> {
+    const rows = await this.prisma.product.findMany({
+      where: { mlPermalink: { not: null } },
+      select: { mlPermalink: true },
+    });
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (!r.mlPermalink) continue;
+      const norm = r.mlPermalink.replace(/\/$/, '');
+      set.add(norm);
+      set.add(norm + '/');
+    }
+    return set;
+  }
+
+  /**
+   * Marcos 2026-07-13 (A2 seguimiento): además del set de permalinks
+   * completos, exponemos el set de itemIds (`MLA<digits>`) que sabemos
+   * que son publicaciones reales. Fuente = ml_publication_knowledge
+   * (734+ itemIds a la fecha). El scrub de URLs va a matchear la parte
+   * numerica del URL (MLA-XXXX del permalink) contra este set — cubre
+   * publicaciones nuestras aunque no estén en el catálogo (Prod) local.
+   */
+  async getAllMlItemIds(): Promise<Set<string>> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ itemId: string }>>(
+      `SELECT DISTINCT "itemId" FROM ml_publication_knowledge WHERE "itemId" IS NOT NULL`,
+    );
+    return new Set(rows.map((r) => r.itemId).filter(Boolean));
+  }
+
+  /**
    * Search the active catalog by free-text query — used by the AI tool
    * `buscar_producto`. Replaces the "dump every product into the system
    * prompt" approach (~20k tokens per turn) with on-demand retrieval
