@@ -679,12 +679,25 @@ export class ConversationHandlerService implements IConversationHandler {
 
       this.logger.log(`AI response: "${aiResponse.substring(0, 50)}..."`);
 
+      // Marcos 2026-07-13 (A3 del documento): en WhatsApp también hay
+      // "modo revisión" — gated por WHATSAPP_AUTO_SEND_DISABLED. Cuando
+      // está prendido, la respuesta de la IA se guarda con
+      // metadata.pendingReview=true y el caller (whatsapp-qr.service)
+      // NO la envía automático. El operador la aprueba desde el CRM
+      // (mismo criterio que ML). Default OFF — WhatsApp responde
+      // automático como venía, salvo que se prenda explícito.
+      const waReviewMode =
+        (process.env.WHATSAPP_AUTO_SEND_DISABLED ?? 'false').toLowerCase() === 'true';
+      const aiMetadata: Record<string, boolean | string> = {};
+      if (waReviewMode) aiMetadata.pendingReview = true;
+
       // Save AI response to database
       await this.saveMessage(
         conversation.id,
         MessageSender.AI,
         aiResponse,
         true, // isFromAI
+        Object.keys(aiMetadata).length > 0 ? aiMetadata : undefined,
       );
 
       // Detect AI-side handoff phrase ("te derivo con un asesor"). Same

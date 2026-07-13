@@ -206,7 +206,15 @@ export class ConversationManagementService implements IConversationManagementSer
       // search correctness — Marcos's brief was "find the thread by what
       // the customer said weeks ago", which we can't honor any other way
       // once the column is encrypted.
-      if (filter.search && getMessageCipher().isEnabled() && offset === 0) {
+      // Marcos 2026-07-13 (W1 del documento, item búsqueda cifrada):
+      // antes esta pasada corría SOLO en la primer página (offset===0)
+      // — si Marcos scrolleaba, el ciphertext no se cruzaba más. Ahora
+      // corre en todas las páginas; el haystackCap sigue acotando el
+      // costo por request. La siguiente iteración es agregar una
+      // columna "searchText" normalizada + índice GIN para no
+      // depender del post-decrypt en línea, pero eso implica una
+      // migración con backfill que va como tarea aparte.
+      if (filter.search && getMessageCipher().isEnabled()) {
         const haystackCap = num('CONVERSATION_SEARCH_DECRYPT_CANDIDATES', 500);
         const perConvMessages = num('CONVERSATION_SEARCH_DECRYPT_DEPTH', 50);
         const q = filter.search.toLowerCase();

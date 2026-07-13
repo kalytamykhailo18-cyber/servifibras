@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# .env.example SÍ viaja con el repo — C4 del documento del 10-07.
+!.env.example
+!**/.env.example
 
 # vercel
 .vercel
@@ -47,6 +50,10 @@ next-env.d.ts
 # se irán versionando de a poco a medida que sean auditables.
 # Para que los `!` funcionen, ignoramos e2e/* y desbloqueamos por nombre.
 e2e/*
+!e2e/test-a1-ml-contact-scrub-e2e.js
+!e2e/test-a2-ml-link-whitelist-e2e.js
+!e2e/test-a3-whatsapp-review-mode-e2e.js
+!e2e/test-a4-user-password-order-status-e2e.js
 !e2e/test-b1-correction-memory-e2e.js
 !e2e/test-ml-history-b3-semantic-retrieval-e2e.js
 !e2e/test-ml-history-isolation-b2-e2e.js

@@ -526,10 +526,20 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           fallbackLookup,
         );
         const result = await this.conversationHandler.handleWhatsAppMessage(incoming);
-        if (result.success && result.response) {
+        // Marcos 2026-07-13 (A3): modo revisión. Cuando el switch
+        // WHATSAPP_AUTO_SEND_DISABLED está activo, la IA arma la
+        // respuesta y queda guardada como borrador (pendingReview),
+        // pero NO sale al cliente hasta que el operador la aprueba
+        // desde el CRM. Mismo criterio que ML tiene con
+        // ML_AUTO_SEND_DISABLED.
+        const waReviewMode =
+          (process.env.WHATSAPP_AUTO_SEND_DISABLED ?? 'false').toLowerCase() === 'true';
+        if (result.success && result.response && !waReviewMode) {
           // Auto-reply usa el mismo JID del inbound para no perder el
           // esquema (@lid vs @s.whatsapp.net) en el retorno.
           await this.sendMessage(remoteJid, result.response);
+        } else if (result.success && result.response && waReviewMode) {
+          this.logger.log(`⏸️  A3 modo revisión activo — borrador guardado, no se envía a ${from}`);
         }
       } catch (err: any) {
         this.logger.error(`handler invocation failed for ${from}: ${err?.message ?? err}`);

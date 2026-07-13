@@ -115,6 +115,18 @@ export class UserManagementService {
     }
     if (input.active != null)   data.active = input.active;
     if (input.password) {
+      // Marcos 2026-07-13 (A4 del documento): rechazar valores que
+      // parezcan un hash bcrypt. El browser autofill del panel de
+      // edición inyecta el hash de la BD como si fuera texto plano;
+      // sin este guard el backend re-hashea el hash y la cuenta queda
+      // con una clave que nadie sabe. Ver también [[feedback_admin_edit_password_autofill_trap]].
+      const looksLikeBcryptHash = /^\$2[aby]?\$\d{2}\$/.test(input.password);
+      if (looksLikeBcryptHash) {
+        throw new Error(
+          'password value looks like a stored hash — refusing to re-hash. ' +
+          'Use the dedicated password-reset endpoint with a plain-text value.',
+        );
+      }
       if (input.password.length < 6) throw new Error('password must be at least 6 characters');
       data.password = await this.auth.hashPassword(input.password);
       // Marcos 2026-07-03: session invalidation on password change.

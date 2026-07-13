@@ -371,15 +371,35 @@ export class TiendaNubeOrdersSyncService {
       where: { source_externalId: { source: OrderSource.TIENDANUBE, externalId } },
     });
     if (existing) {
+      // Marcos 2026-07-13 (A4 del documento): antes preservábamos SOLO
+      // los timestamps dispatchedAt/deliveredAt pero dejábamos que TN
+      // pisara el `status`. Consecuencia: un pedido marcado DISPATCHED
+      // localmente volvía a CONFIRMED cuando TN llegaba con su
+      // shipping_status="pending". Ahora bloqueamos también el
+      // retroceso del status: si el estado local ya llegó a DISPATCHED
+      // o DELIVERED, se preserva; si el local es CANCELLED, se preserva
+      // (CANCELLED es terminal en el flujo interno).
+      const RANK: Record<string, number> = {
+        PENDING: 0, CONFIRMED: 1, PROCESSING: 2, DISPATCHED: 3, DELIVERED: 4, CANCELLED: 5,
+      };
+      const localRank = RANK[existing.status as string] ?? 0;
+      const incomingRank = data.status ? (RANK[data.status as string] ?? 0) : 0;
+      const preserveLocalStatus =
+        existing.status === 'CANCELLED' ||
+        (localRank >= RANK.DISPATCHED && incomingRank < localRank);
+      const patch: any = {
+        ...data,
+        // Preserve dispatch/delivered timestamps already stamped
+        // locally — TN sync shouldn't roll them back.
+        dispatchedAt: existing.dispatchedAt,
+        deliveredAt: existing.deliveredAt,
+      };
+      if (preserveLocalStatus) {
+        patch.status = existing.status;
+      }
       await this.prisma.order.update({
         where: { id: existing.id },
-        data: {
-          ...data,
-          // Preserve dispatch/delivered timestamps already stamped
-          // locally — TN sync shouldn't roll them back.
-          dispatchedAt: existing.dispatchedAt,
-          deliveredAt: existing.deliveredAt,
-        },
+        data: patch,
       });
       return 'updated';
     }

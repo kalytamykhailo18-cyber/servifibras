@@ -46,7 +46,39 @@ export class AuthService implements IAuthService {
 
   constructor() {
     this.prisma = new PrismaClient();
-    this.jwtSecret = process.env.JWT_SECRET || 'servifibras-secret-change-in-production';
+    // Marcos 2026-07-13 (C4 del documento, "el sistema NO arranca sin
+    // clave real"): antes usábamos un default hardcodeado como
+    // fallback y sólo se logueaba un warning; un olvido en el deploy
+    // dejaba la producción firmando JWT con "servifibras-secret-
+    // change-in-production" y cualquiera con el binario podía firmar
+    // tokens válidos. Ahora rechazamos si JWT_SECRET no está seteado,
+    // si tiene el valor de dev por default, o si es demasiado corto.
+    // ALLOW_DEV_JWT_SECRET=1 se puede usar en dev/tests para saltar
+    // el guard cuando querés que la clave sea corta.
+    const rawSecret = process.env.JWT_SECRET;
+    const DEFAULT_DEV_SECRET = 'servifibras-secret-change-in-production';
+    const allowDev = process.env.ALLOW_DEV_JWT_SECRET === '1';
+    if (!allowDev) {
+      if (!rawSecret) {
+        throw new Error(
+          'JWT_SECRET no está configurado. Seteá una clave larga en .env ' +
+          '(o ALLOW_DEV_JWT_SECRET=1 en dev/tests).',
+        );
+      }
+      if (rawSecret === DEFAULT_DEV_SECRET) {
+        throw new Error(
+          'JWT_SECRET tiene el valor por default de desarrollo. ' +
+          'Reemplazalo por una clave real (32+ chars aleatorios) antes de deployar.',
+        );
+      }
+      if (rawSecret.length < 32) {
+        throw new Error(
+          `JWT_SECRET es demasiado corto (${rawSecret.length} chars). ` +
+          'Requerimos 32+ chars — usá openssl rand -hex 32.',
+        );
+      }
+    }
+    this.jwtSecret = rawSecret || DEFAULT_DEV_SECRET;
     this.jwtExpiresIn = process.env.JWT_EXPIRES_IN || '24h';
 
     if (!process.env.JWT_SECRET) {

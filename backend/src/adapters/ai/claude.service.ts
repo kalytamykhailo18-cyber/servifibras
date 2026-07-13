@@ -474,6 +474,15 @@ export class ClaudeService implements IAIService {
   // to swap a TN URL the agent emitted for the per-product article
   // permalink. Refreshed alongside `validCatalogUrls`.
   private catalogUrlToMlPermalink: Map<string, string> = new Map();
+  // Marcos 2026-07-13 (A2 del documento): whitelist explícita de
+  // permalinks de publicaciones ML que sabemos que existen en el
+  // catálogo. Antes cualquier URL con dominio mercadolibre.com/.com.ar
+  // pasaba el filtro por regex de dominio — el agente podía inventar
+  // MLA-XXXXX y salía como link válido. Ahora se compara URL cruda
+  // contra este Set (más el store profile como caso puntual).
+  private validMlPermalinks: Set<string> = new Set();
+  private static readonly ML_STORE_PROFILE_URL =
+    'https://www.mercadolibre.com.ar/tienda/servifibras';
   // Source-of-truth flag for the currently-loaded Lucas prompt:
   //   'db'   — admin-edited in the panel, stored in Configuration table
   //   'file' — fallback to the on-disk LUCAS_PROMPT_PATH
@@ -690,14 +699,27 @@ export class ClaudeService implements IAIService {
       this.knowledgeBaseContext = kb && kb.length > 0 ? kb : null;
       this.validCatalogUrls = urls;
       this.catalogUrlToMlPermalink = mlMap;
+      // Marcos 2026-07-13 (A2): armamos el Set de permalinks ML
+      // válidos desde el mapa de catálogo. Al normalizar acá (una vez
+      // por refresh) evitamos hacerlo en cada scrub de respuesta.
+      const permalinks = new Set<string>();
+      for (const ml of mlMap.values()) {
+        if (ml) {
+          const norm = ml.replace(/\/$/, '');
+          permalinks.add(norm);
+          permalinks.add(norm + '/');
+        }
+      }
+      this.validMlPermalinks = permalinks;
       this.logger.log(
-        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} with ML permalink (catalog now via tool calling)`,
+        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} with ML permalink, ${permalinks.size / 2} unique ML permalinks in A2 allowlist`,
       );
     } catch (error) {
       this.logger.error('Failed to load knowledge base', error);
       this.knowledgeBaseContext = null;
       this.validCatalogUrls = new Set();
       this.catalogUrlToMlPermalink = new Map();
+      this.validMlPermalinks = new Set();
     }
   }
 
@@ -785,11 +807,30 @@ export class ClaudeService implements IAIService {
           this.logger.warn(`ML URL on private channel ${channel} stripped (no TN equivalent): ${trimmed}`);
           return '[te lo paso por acá, decime cantidad y zona]';
         }
+        // Marcos 2026-07-13 (A2 del documento): antes cualquier URL
+        // que matcheara `mercadolibre.com(.ar)` pasaba el filtro por
+        // el simple test de dominio. Ahora las URLs de ML tienen que
+        // estar en el set de permalinks reales del catálogo, o ser
+        // el perfil de tienda oficial. Cualquier URL fabricada del
+        // estilo `mercadolibre.com.ar/MLA-XXXXX-inventado` se dropea
+        // como una URL inventada más.
+        if (ML_INTERNAL_URL_RE.test(trimmed)) {
+          const normalized = trimmed.replace(/\/$/, '');
+          if (
+            this.validMlPermalinks.has(trimmed) ||
+            this.validMlPermalinks.has(normalized) ||
+            normalized === ClaudeService.ML_STORE_PROFILE_URL
+          ) {
+            return raw;
+          }
+          dropped++;
+          this.logger.warn(`Fabricated ML URL dropped (not in permalink allowlist): ${trimmed}`);
+          return '[link no disponible — pedímelo y te lo paso del catálogo]';
+        }
         if (
           this.validCatalogUrls.has(trimmed) ||
           this.validCatalogUrls.has(trimmed + '/') ||
-          this.validCatalogUrls.has(trimmed.replace(/\/$/, '')) ||
-          ML_INTERNAL_URL_RE.test(trimmed)
+          this.validCatalogUrls.has(trimmed.replace(/\/$/, ''))
         ) {
           return raw;
         }
@@ -828,7 +869,25 @@ export class ClaudeService implements IAIService {
       const ML_DEFLECT = `lo encontrás en nuestro perfil de tienda: ${ML_STORE_URL}`;
       const EXTERNAL_DOMAIN_RE =
         /\b(?:https?:\/\/)?(?:tienda)?servifibras\.com(?:\.ar)?(?:\/[^\s<>\)\]"',]*)?/gi;
-      const PHONE_RE = /\b(?:\+?54\s*)?9?\s*11[\s.-]*\d{4}[\s.-]*\d{4}\b/g;
+      // Marcos 2026-07-13 (A1 del documento): la regex vieja solo
+      // matcheaba el formato exacto de Buenos Aires (área 11); un
+      // teléfono de Córdoba/Rosario/etc. (351/341/261/381...) o un
+      // número espaciado dígito por dígito ("1 1 3 5 8 8 0 0 8 3")
+      // se colaba entero. Ahora:
+      //  A) todas las áreas AR + el 9 opcional del móvil
+      //  B) un fallback "10+ dígitos con separadores" que junta
+      //     bloques cortos (ej. "1 1", "3 5 8 8", "0 0 8 3") y catchea
+      //     el número aunque venga con espacios raros.
+      const PHONE_RE = new RegExp(
+        [
+          // Formato agrupado: +54 (opcional) + 9 (opcional) + área (2-4) + resto.
+          '\\b(?:\\+?54\\s*)?9?\\s*(?:11|15|22[0-9]|23[0-9]|26[0-9]|29[0-9]|33[0-9]|34[0-9]|35[0-9]|38[0-9]|11\\d?)' +
+          '[\\s.\\-()]*\\d{2,4}[\\s.\\-()]*\\d{2,4}[\\s.\\-()]*\\d{0,4}\\b',
+        ].join('|'),
+        'g',
+      );
+      // Fallback: run separate 10+-digit sniffer for spaced-out numbers.
+      const PHONE_SPACED_RE = /(?:\d[\s.\-()]{0,3}){9,}\d/g;
       const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
       const WHATSAPP_RE = /\bwhats?\s*app\b/gi;
       cleaned = cleaned.replace(EXTERNAL_DOMAIN_RE, (raw) => {
@@ -856,9 +915,30 @@ export class ClaudeService implements IAIService {
         this.logger.warn(`ML scrub: dropped external-domain "${raw}" (no per-product ML permalink available)`);
         return ML_DEFLECT;
       });
-      cleaned = cleaned.replace(PHONE_RE, (raw) => {
+      // Marcos 2026-07-13 (A1 seguimiento): las regex de teléfono no
+      // pueden pisar dígitos que forman parte de una URL válida (los
+      // permalinks de ML tienen "MLA-2447450958" — 10 dígitos que
+      // matchean la heurística "sequence de 10+"). Chequeamos el
+      // contexto previo: si aparece "http[s]://" o "MLA-" en los 80
+      // chars anteriores al match, es URL — dejamos pasar.
+      const inUrlContext = (haystack: string, offset: number): boolean => {
+        const before = haystack.slice(Math.max(0, offset - 80), offset);
+        return /https?:\/\/\S*$/.test(before) || /MLA-\d*$/.test(before);
+      };
+      cleaned = cleaned.replace(PHONE_RE, (raw, offset) => {
+        if (typeof offset === 'number' && inUrlContext(cleaned, offset)) return raw;
         dropped++;
         this.logger.warn(`ML scrub: dropped phone number "${raw}"`);
+        return '[contacto fuera de MercadoLibre no disponible]';
+      });
+      // Second pass: catch spaced-out digit sequences that the grouped
+      // regex misses ("1 1 3 5 8 8 0 0 8 3").
+      cleaned = cleaned.replace(PHONE_SPACED_RE, (raw, offset) => {
+        if (typeof offset === 'number' && inUrlContext(cleaned, offset)) return raw;
+        const digitCount = (raw.match(/\d/g) ?? []).length;
+        if (digitCount < 10) return raw;
+        dropped++;
+        this.logger.warn(`ML scrub: dropped spaced digit sequence "${raw}"`);
         return '[contacto fuera de MercadoLibre no disponible]';
       });
       cleaned = cleaned.replace(EMAIL_RE, (raw) => {
