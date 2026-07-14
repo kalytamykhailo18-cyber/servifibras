@@ -459,11 +459,31 @@ export function OrderFormDialog({
       setSubmitting(true);
       try {
         const prefix = orderMode === 'DEVOLUCION' ? 'Devolución' : 'Reposición';
+        // Marcos 2026-07-14: si el operador cargó productos en la
+        // fila (para que el armador sepa qué reenviar), los adjuntamos.
+        // Si no cargó nada, dejamos el placeholder que existía
+        // (`${prefix} ${carrier} ${zone}`) para no perder la línea.
+        const cleanedReposProducts = rows
+          .map((r) => ({
+            name: r.name.trim(),
+            category: (r.category || '').trim() || 'General',
+            quantity: Number(r.quantity),
+            unitPrice: Number(r.unitPrice),
+            sku: (r.sku || '').trim() || undefined,
+          }))
+          .filter((r) => r.name.length > 0 && r.quantity > 0)
+          .map((r) => ({
+            ...r,
+            totalPrice: Math.round(r.quantity * (Number.isFinite(r.unitPrice) ? r.unitPrice : 0) * 100) / 100,
+          }));
+        const reposicionProducts = cleanedReposProducts.length > 0
+          ? cleanedReposProducts
+          : [{ name: `${prefix} ${carrier} ${zone}`, category: prefix, quantity: 1, unitPrice: cost, totalPrice: cost }];
         await api.orders.create({
           contactId,
           amount: cost,
           currency: 'ARS',
-          products: [{ name: `${prefix} ${carrier} ${zone}`, category: prefix, quantity: 1, unitPrice: cost, totalPrice: cost }],
+          products: reposicionProducts,
           notes: notes.trim() || undefined,
           sectionOverride,
           orderType: orderMode,
@@ -1117,12 +1137,16 @@ export function OrderFormDialog({
             </div>
           )}
 
-          {/* Product rows — the actual manual-load surface. */}
-          {!isReposicion && (
+          {/* Product rows — the actual manual-load surface.
+              Marcos 2026-07-14: antes esto se ocultaba en REPOSICION /
+              DEVOLUCION y el armador quedaba sin saber qué producto
+              tenía que reenviar (sólo tenía la mensajería + costo).
+              Ahora el picker aparece siempre — en reposicion es
+              opcional y va a `products` para que el armador lo vea. */}
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-                Productos <span className="text-emerald-600">*</span>
+                {isReposicion ? 'Producto(s) a reenviar' : (<>Productos <span className="text-emerald-600">*</span></>)}
               </label>
               <button
                 type="button"
@@ -1208,7 +1232,6 @@ export function OrderFormDialog({
               ))}
             </ul>
           </div>
-          )}
 
           {/* Marcos 2026-06-23: descuento general % aplicado al pedido
              entero. Se cobra después de los descuentos por línea, así

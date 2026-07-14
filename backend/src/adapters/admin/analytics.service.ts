@@ -1020,7 +1020,14 @@ export class AnalyticsService implements IAnalyticsService {
     // carrier and zone so "JYJ" loaded by hand still matches the
     // aggregator's normalised "JyJ", and "Caba" / "CABA" / "caba"
     // all hit the same row.
-    const tariffKey = (carrier: string, zone: string) => `${carrier.trim().toLowerCase()}::${zone.trim().toLowerCase()}`;
+    //
+    // Marcos 2026-07-14: además de case-insensitive, strippeamos
+    // espacios internos. Antes "GBA 1" (con espacio, formato que sale
+    // del label TN "GBA 1 GRATIS") no matcheaba "GBA1" (sin espacio,
+    // formato que Marcos cargó a mano en el tariff). Consecuencia
+    // visible: Baires con 64 despachos y 0 tarifa cruzada.
+    const tariffKey = (carrier: string, zone: string) =>
+      `${carrier.trim().toLowerCase().replace(/\s+/g, '')}::${zone.trim().toLowerCase().replace(/\s+/g, '')}`;
     for (const t of allTariffs) tariffIndex.set(tariffKey(t.carrier, t.zone), { costPerPackage: t.costPerPackage, currency: t.currency });
 
     let globalRowsWithoutTariff = 0;
