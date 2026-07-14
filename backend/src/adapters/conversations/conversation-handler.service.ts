@@ -2101,6 +2101,7 @@ export class ConversationHandlerService implements IConversationHandler {
     // passes plaintext through — production turns it on via .env, dev
     // and tests run plaintext for ergonomics. Reads decrypt by sentinel
     // so legacy plaintext rows keep working alongside ciphertext rows.
+    const now = new Date();
     await this.prisma.message.create({
       data: {
         conversationId,
@@ -2114,6 +2115,20 @@ export class ConversationHandlerService implements IConversationHandler {
         attachmentMime: attachment?.mime ?? null,
         attachmentSize: attachment?.size ?? null,
       },
+    });
+    // Marcos 2026-07-14: mantener Conversation.lastMessageAt sincronizado
+    // con el mensaje insertado. Antes: el CUSTOMER inbound en WhatsApp
+    // y en TN/webchat NO bumpeaba el campo — nuevas conversaciones
+    // quedaban con lastMessageAt=null y aparecían al final del inbox
+    // (por el `nulls last`). El fix del 8/7 sólo cubría la actualización
+    // post-envío manual (`sendManualReply`) y phone-side outbound; el
+    // path central de guardado ahora garantiza que TODO mensaje bumpea
+    // el timestamp — regla única para todos los canales.
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: now },
+    }).catch((e) => {
+      this.logger.warn(`Could not bump lastMessageAt on ${conversationId}: ${e?.message ?? e}`);
     });
     // Live quality rescore after every AI reply — keeps the right-rail
     // score panel current as the agent works through the thread. The
