@@ -55,6 +55,8 @@ e2e/*
 !e2e/test-a3-whatsapp-review-mode-e2e.js
 !e2e/test-a4-user-password-order-status-e2e.js
 !e2e/test-b1-correction-memory-e2e.js
+!e2e/test-c2-sku-link-marker-e2e.js
+!e2e/test-c3-lucas-prompt-slim-e2e.js
 !e2e/test-ml-history-b3-semantic-retrieval-e2e.js
 !e2e/test-ml-history-isolation-b2-e2e.js
 

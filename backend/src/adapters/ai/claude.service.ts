@@ -487,6 +487,12 @@ export class ClaudeService implements IAIService {
   // acá — así una URL del estilo /MLA-1148594386-anything-_JM pasa
   // aunque el permalink literal no esté en validMlPermalinks.
   private validMlItemIds: Set<string> = new Set();
+  // Marcos 2026-07-14 (C2 del documento): mapa SKU → URLs. El agente
+  // emite `{{link:SKU-XXX}}` como marcador; el post-procesador lo
+  // reemplaza por la URL real del catálogo según el canal (TN para
+  // privados, ML para MercadoLibre). Se refresca junto con el resto
+  // del knowledgeBase.
+  private skuToUrl: Map<string, { tn: string | null; ml: string | null }> = new Map();
   private static readonly ML_STORE_PROFILE_URL =
     'https://www.mercadolibre.com.ar/tienda/servifibras';
   // Source-of-truth flag for the currently-loaded Lucas prompt:
@@ -697,20 +703,22 @@ export class ClaudeService implements IAIService {
       // URL whitelist still loads so the post-response filter can
       // strip fabricated links. The free-form KB block stays in the
       // prompt because it's small, mostly static, and worth caching.
-      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds] = await Promise.all([
+      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds, skuMap] = await Promise.all([
         this.knowledgeRepo.getFormattedForAI(),
         this.productCatalog.getActiveCatalogUrls().catch(() => new Set<string>()),
         this.productCatalog.getCatalogUrlToMlPermalinkMap().catch(() => new Map<string, string>()),
         this.productCatalog.getAllMlPermalinks().catch(() => new Set<string>()),
         this.productCatalog.getAllMlItemIds().catch(() => new Set<string>()),
+        this.productCatalog.getSkuToUrlMap().catch(() => new Map()),
       ]);
       this.knowledgeBaseContext = kb && kb.length > 0 ? kb : null;
       this.validCatalogUrls = urls;
       this.catalogUrlToMlPermalink = mlMap;
       this.validMlPermalinks = allMlPermalinks;
       this.validMlItemIds = allMlItemIds;
+      this.skuToUrl = skuMap;
       this.logger.log(
-        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist`,
+        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist, ${skuMap.size} SKUs in C2 link-marker resolver`,
       );
     } catch (error) {
       this.logger.error('Failed to load knowledge base', error);
@@ -760,6 +768,38 @@ export class ClaudeService implements IAIService {
       dropped++;
       this.logger.warn(`Internal marker stripped from agent reply: "${raw}"`);
       return '';
+    });
+
+    // Marcos 2026-07-14 (C2 del documento): SKU-marker → URL swap.
+    // El agente puede emitir `{{link:SKU-XXX}}` como marcador; acá se
+    // reemplaza por la URL real del catálogo. En canal ML se prefiere
+    // el mlPermalink; en canales privados (WhatsApp/FB/IG/webchat) se
+    // usa la URL de TN. Si no encontramos el SKU en el catálogo, el
+    // marcador se strippea (nunca lo dejamos sangriento en la
+    // respuesta). Consecuencia: inventar un link se vuelve imposible
+    // por construcción — todo link final viene del catálogo.
+    const SKU_MARKER_RE = /\{\{\s*link\s*:\s*([A-Za-z0-9_\-.]+)\s*\}\}/gi;
+    cleaned = cleaned.replace(SKU_MARKER_RE, (raw, sku) => {
+      const entry = this.skuToUrl.get(sku) ?? this.skuToUrl.get(String(sku).toLowerCase());
+      if (!entry) {
+        this.logger.warn(`C2 link marker for unknown SKU "${sku}" — stripping`);
+        return '[link no disponible — pedímelo y te lo paso del catálogo]';
+      }
+      const isPrivateChan =
+        channel === Channel.WHATSAPP ||
+        channel === Channel.FACEBOOK ||
+        channel === Channel.INSTAGRAM ||
+        channel === Channel.TIENDANUBE_WEBCHAT;
+      const chosen = channel === Channel.MERCADOLIBRE
+        ? (entry.ml ?? entry.tn)
+        : isPrivateChan
+          ? (entry.tn ?? entry.ml)
+          : (entry.tn ?? entry.ml);
+      if (!chosen) {
+        this.logger.warn(`C2 link marker for SKU "${sku}" — no URL for channel ${channel}, stripping`);
+        return '[link no disponible — pedímelo y te lo paso del catálogo]';
+      }
+      return chosen;
     });
 
     // Pass 1 — full URLs with protocol. Strip anything that isn't a

@@ -445,6 +445,33 @@ export class ProductCatalogService {
   }
 
   /**
+   * Marcos 2026-07-14 (C2 del documento): mapa SKU → URLs por canal.
+   * El agente emite un marcador `{{link:SKU-XXX}}` en la respuesta;
+   * el post-procesador lo reemplaza por la URL correcta del catálogo
+   * (TN para canales privados, ML para MercadoLibre). Como el link
+   * final SIEMPRE viene del catálogo — nunca lo escribe el modelo —
+   * inventar un link se vuelve imposible por construcción.
+   */
+  async getSkuToUrlMap(): Promise<Map<string, { tn: string | null; ml: string | null }>> {
+    const rows = await this.prisma.product.findMany({
+      where: { active: true },
+      select: { sku: true, url: true, mlPermalink: true },
+    });
+    const map = new Map<string, { tn: string | null; ml: string | null }>();
+    for (const r of rows) {
+      if (!r.sku) continue;
+      map.set(r.sku, { tn: r.url ?? null, ml: r.mlPermalink ?? null });
+      // Also index by lowercased SKU for tolerant match — agents
+      // sometimes lowercase the marker.
+      const lower = r.sku.toLowerCase();
+      if (lower !== r.sku) {
+        map.set(lower, { tn: r.url ?? null, ml: r.mlPermalink ?? null });
+      }
+    }
+    return map;
+  }
+
+  /**
    * Search the active catalog by free-text query — used by the AI tool
    * `buscar_producto`. Replaces the "dump every product into the system
    * prompt" approach (~20k tokens per turn) with on-demand retrieval
