@@ -21,7 +21,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, ConversationStatus, LeadStatus, MessageSender, OrderStatus, UserRole } from '@prisma/client';
+import { PrismaClient, Channel, ConversationStatus, LeadStatus, MessageSender, OrderStatus, UserRole } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
 import {
   quoteFollowupMinutes,
@@ -164,9 +164,21 @@ export class RoleMetricsService {
     const threshold = num('BRENDA_ALERT_THRESHOLD_MIN', 10);
     const cutoff = new Date(Date.now() - threshold * 60 * 1000);
 
+    // Marcos 2026-07-14: la card de Atención no debe listar preguntas
+    // pendientes de MercadoLibre — las Q&A de ML tienen su propio
+    // panel (Preguntas ML). Este card se enfoca en conversaciones de
+    // canales de chat (WhatsApp / Instagram / Facebook / TN webchat).
+    const NON_ML_CHANNELS = [
+      Channel.WHATSAPP,
+      Channel.FACEBOOK,
+      Channel.INSTAGRAM,
+      Channel.TIENDANUBE_WEBCHAT,
+    ];
+
     const queueWaitingOverThreshold = await this.prisma.conversation.count({
       where: {
         isSandbox: false,
+        channel: { in: NON_ML_CHANNELS },
         needsHumanAttention: true,
         escalatedAt: { lt: cutoff },
         ...(userId ? { assignedTo: userId } : {}),
@@ -177,6 +189,7 @@ export class RoleMetricsService {
     const recentConvs = await this.prisma.conversation.findMany({
       where: {
         isSandbox: false,
+        channel: { in: NON_ML_CHANNELS },
         createdAt: { gte: since },
         ...(userId ? { assignedTo: userId } : {}),
       },
@@ -211,6 +224,7 @@ export class RoleMetricsService {
     const unresolved = await this.prisma.conversation.findMany({
       where: {
         isSandbox: false,
+        channel: { in: NON_ML_CHANNELS },
         needsHumanAttention: true,
         status: ConversationStatus.WAITING,
         ...(userId ? { assignedTo: userId } : {}),
