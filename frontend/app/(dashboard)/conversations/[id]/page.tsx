@@ -109,17 +109,23 @@ export default function ConversationDetailPage() {
   // Marcos 2026-07-14: si el cliente sigue mandando mensajes mientras el
   // operador tiene la conversación abierta, la pantalla ANTES no se
   // enteraba (sólo refrescaba en acciones del operador). Ahora hace un
-  // silent refresh cada 20 s mientras la pestaña esté visible — cuando
-  // pasa a background el `visibilitychange` lo pausa. No hay evento
-  // websocket per-conversación, así que polling es la vía más simple.
+  // silent refresh cada 2 s mientras la pestaña esté visible — cuando
+  // pasa a background el `visibilitychange` lo pausa. Marcos 2026-07-14
+  // (mismo día): bajado de 20 s → 2 s a pedido; con 20 s se sentía
+  // "lento" para su flujo. No hay evento websocket per-conversación,
+  // así que polling es la vía más simple. Un guard extra evita que
+  // dos refrescos concurrentes se pisen si el server responde lento.
+  const refreshBusyRef = useRef(false);
   useEffect(() => {
     if (!conversationId) return;
     let paused = document.visibilityState !== "visible";
     const onVis = () => { paused = document.visibilityState !== "visible"; };
     document.addEventListener("visibilitychange", onVis);
     const iv = setInterval(() => {
-      if (!paused) void refreshConversation();
-    }, 20_000);
+      if (paused || refreshBusyRef.current) return;
+      refreshBusyRef.current = true;
+      void refreshConversation().finally(() => { refreshBusyRef.current = false; });
+    }, 2_000);
     return () => {
       clearInterval(iv);
       document.removeEventListener("visibilitychange", onVis);
