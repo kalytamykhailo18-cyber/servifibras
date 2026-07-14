@@ -165,25 +165,47 @@ export class ConversationManagementService implements IConversationManagementSer
       ];
 
       // Marcos 2026-07-13: removida la capa que "prependía" mayoristas
-      // al tope del inbox. La capa hacía que un mayorista con último
-      // mensaje de hace 5-7 días quedara arriba de una conversación de
-      // cliente común pendiente desde hace minutos — Marcos flagó esto
-      // como "no posiciona correctamente" en la iteración de hoy.
-      // Ahora el orden es puro: needsHumanAttention DESC → lastMessageAt
-      // DESC → updatedAt DESC. La condición de mayorista sigue viva en
-      // la fila del inbox como badge amarillo (visual, no de orden).
-      // Referencia para revert si Marcos lo pide de vuelta: chip
-      // `mayoristaContactFilter` sigue definido arriba.
-      let [conversations, total] = await Promise.all([
+      // al tope. La condición de mayorista queda como badge amarillo
+      // visual (no de orden).
+      //
+      // Marcos 2026-07-14: el orden por needsHumanAttention DESC no
+      // alcanza — el flag puede quedar stale (ver
+      // reference_ml_stale_escalations: 319 flags viejos nunca
+      // cleareados). El signal REAL de "pendiente de respuesta
+      // nuestra" es "el último mensaje del hilo lo mandó el cliente".
+      // Ahora fetch 2x y reordenamos in-app por ese criterio.
+      const fetchLimit = Math.min(500, limit * 3);
+      let [rawFetched, total] = await Promise.all([
         this.prisma.conversation.findMany({
           where,
           include: includeShape,
           orderBy: orderShape,
-          take: limit,
+          take: fetchLimit,
           skip: offset,
         }),
         this.prisma.conversation.count({ where }),
       ]);
+      const isPendingReply = (conv: any): boolean => {
+        const lastMsg = conv.messages?.[0];
+        if (!lastMsg) return false;
+        // Waiting for staff when the last message is from the customer
+        // (CUSTOMER sender) OR when the last message is an AI reply
+        // that ended in a handoff-request phrase (needsHumanAttention
+        // was flipped true elsewhere — trust the flag ONLY when the
+        // last message isn't from staff).
+        if (lastMsg.sender === 'CUSTOMER') return true;
+        // Staff (ADMIN/BRENDA/FRANCO/ALDO) or AI reply → answered.
+        return false;
+      };
+      rawFetched.sort((a: any, b: any) => {
+        const aPend = isPendingReply(a) ? 1 : 0;
+        const bPend = isPendingReply(b) ? 1 : 0;
+        if (aPend !== bPend) return bPend - aPend;
+        const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : -1;
+        const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : -1;
+        return tB - tA;
+      });
+      let conversations = rawFetched.slice(0, limit);
 
       // Post-decrypt scan to recover ciphertext-row search matches that
       // the DB query couldn't see. Only runs when (a) encryption is

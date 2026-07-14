@@ -106,6 +106,27 @@ export default function ConversationDetailPage() {
     loadConversation();
   }, [conversationId]);
 
+  // Marcos 2026-07-14: si el cliente sigue mandando mensajes mientras el
+  // operador tiene la conversación abierta, la pantalla ANTES no se
+  // enteraba (sólo refrescaba en acciones del operador). Ahora hace un
+  // silent refresh cada 20 s mientras la pestaña esté visible — cuando
+  // pasa a background el `visibilitychange` lo pausa. No hay evento
+  // websocket per-conversación, así que polling es la vía más simple.
+  useEffect(() => {
+    if (!conversationId) return;
+    let paused = document.visibilityState !== "visible";
+    const onVis = () => { paused = document.visibilityState !== "visible"; };
+    document.addEventListener("visibilitychange", onVis);
+    const iv = setInterval(() => {
+      if (!paused) void refreshConversation();
+    }, 20_000);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
