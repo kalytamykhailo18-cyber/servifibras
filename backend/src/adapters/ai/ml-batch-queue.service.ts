@@ -396,7 +396,7 @@ export class MlBatchQueueService {
     });
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { lastMessage: getMessageCipher().encrypt(answer) },
+      data: { lastMessage: getMessageCipher().encrypt(answer), lastMessageAt: new Date() },
     });
     if (reviewMode) {
       this.logger.log(

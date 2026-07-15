@@ -19,6 +19,15 @@ async function main() {
   const claude = app.get(ClaudeService);
   const prisma = new PrismaClient();
 
+  // KB loads asynchronously; the outer scrub only runs when
+  // validCatalogUrls is populated. Wait until BOTH the TN catalog
+  // and the ML item-id allowlist have loaded — a race here silently
+  // downgrades the scrub to a no-op and every URL passes through.
+  for (let i = 0; i < 40; i++) {
+    if (claude['validCatalogUrls']?.size > 0 && claude['validMlItemIds']?.size > 0) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
   let pass = 0, fail = 0;
   const ok = (label, cond, extra = '') => {
     console.log(`  ${cond ? '✓' : '✗'} ${label}${extra ? ' — ' + extra : ''}`);

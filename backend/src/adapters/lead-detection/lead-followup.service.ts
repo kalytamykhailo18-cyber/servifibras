@@ -213,7 +213,7 @@ export class LeadFollowupService {
     });
     await this.prisma.conversation.update({
       where: { id: conversation.id },
-      data: { lastMessage: cipherText },
+      data: { lastMessage: cipherText, lastMessageAt: new Date() },
     });
 
     // Best-effort outbound through the appropriate channel adapter.

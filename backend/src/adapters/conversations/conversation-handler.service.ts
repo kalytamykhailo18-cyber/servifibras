@@ -998,6 +998,14 @@ export class ConversationHandlerService implements IConversationHandler {
             },
           });
         }
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { lastMessage: newCipher, lastMessageAt: new Date() },
+        }).catch((err) =>
+          this.logger.warn(
+            `lastMessageAt bump failed on ML review/claim ${conversation.id}: ${err?.message ?? err}`,
+          ),
+        );
         await this.handoff.escalate({
           conversationId: conversation.id,
           contactId: contact.id,

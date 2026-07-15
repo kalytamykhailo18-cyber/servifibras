@@ -769,6 +769,7 @@ export class ConversationManagementService implements IConversationManagementSer
           lastMessage: cipher.encrypt(
             args.caption || `[${args.contentType.toLowerCase()}] ${args.attachmentName}`,
           ),
+          lastMessageAt: new Date(),
           assignedTo: args.userId,
           status: ConversationStatus.ACTIVE,
           needsHumanAttention: false,
@@ -955,6 +956,7 @@ export class ConversationManagementService implements IConversationManagementSer
         where: { id: conversationId },
         data: {
           lastMessage: cipherText,
+          lastMessageAt: new Date(),
           assignedTo: userId,
           status: ConversationStatus.ACTIVE,
           needsHumanAttention: false,
