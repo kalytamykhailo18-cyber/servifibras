@@ -18,6 +18,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+// Marcos 2026-07-14 (Baires GBA1/GBA 1): la clave (carrier, zone) que
+// usa el estimator debe ignorar mayúsculas y espacios internos. TN
+// exporta "GBA 1" en la etiqueta ("GBA 1 GRATIS"), el tariff se cargó
+// como "GBA1"; sin normalizar acá el lookup fallaba y el estimate
+// devolvía 0 (visible en Baires con 64 despachos sin tarifa). El fix
+// original quedó SÓLO en analytics.service.ts (dispatch stats); acá
+// vive el estimator que consumen order-management + los endpoints
+// admin, con el mismo bug de raíz.
+export function normalizeTariffKey(carrier: string, zone: string): string {
+  const c = (carrier ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  const z = (zone ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  return `${c}::${z}`;
+}
+
 export interface DispatchTariffInput {
   carrier: string;
   zone: string;
@@ -118,9 +132,13 @@ export class DispatchTariffService {
     const carrier = args.carrier?.trim();
     const zone = args.zone?.trim();
     if (!carrier || !zone) return null;
-    const tariff = await this.prisma.dispatchTariff.findFirst({
-      where: { carrier, zone, active: true },
-    });
+    // Prisma exact-match antes: "JYJ"/"jyj"/"JyJ " no matcheaban entre
+    // sí ni "GBA 1" vs "GBA1". Cargamos activos y matcheamos por clave
+    // normalizada — mismo criterio que estimateBatch y que el dispatch
+    // stats de analytics.
+    const tariffs = await this.listActive();
+    const wanted = normalizeTariffKey(carrier, zone);
+    const tariff = tariffs.find((t) => normalizeTariffKey(t.carrier, t.zone) === wanted);
     if (!tariff) return null;
     const packages = Math.max(1, args.packages ?? 1);
     return {
@@ -139,12 +157,14 @@ export class DispatchTariffService {
   async estimateBatch(rows: Array<{ carrier: string; zone: string; packages?: number }>): Promise<Array<{ unitCost: number; total: number; currency: string } | null>> {
     const tariffs = await this.listActive();
     const index = new Map<string, { costPerPackage: number; currency: string }>();
-    for (const t of tariffs) index.set(`${t.carrier}::${t.zone}`, { costPerPackage: t.costPerPackage, currency: t.currency });
+    for (const t of tariffs) {
+      index.set(normalizeTariffKey(t.carrier, t.zone), { costPerPackage: t.costPerPackage, currency: t.currency });
+    }
     return rows.map((r) => {
       const carrier = r.carrier?.trim() ?? '';
       const zone = r.zone?.trim() ?? '';
       if (!carrier || !zone) return null;
-      const t = index.get(`${carrier}::${zone}`);
+      const t = index.get(normalizeTariffKey(carrier, zone));
       if (!t) return null;
       const packages = Math.max(1, r.packages ?? 1);
       return { unitCost: t.costPerPackage, total: t.costPerPackage * packages, currency: t.currency };

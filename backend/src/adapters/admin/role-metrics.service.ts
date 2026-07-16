@@ -566,11 +566,21 @@ export class RoleMetricsService {
     const startThis = new Date(now.getTime() - recentMs);
     const startLast = new Date(now.getTime() - 2 * recentMs);
 
+    // Sandbox scope sister-bug (2026-07-16): W/W estaba contando la
+    // conv/lead/order fixture E2E como actividad real y arrastraba
+    // el delta%. Conversation tiene isSandbox propio; Lead y Order lo
+    // heredan del Contact asociado. Alineado con [[reference_dashboard_sandbox_leak]].
+    const sandboxWhereFor = (model: 'conversation' | 'lead' | 'order') =>
+      model === 'conversation'
+        ? { isSandbox: false }
+        : { contact: { is: { isSandbox: false } } };
+
     const wowFor = async (model: 'conversation' | 'lead' | 'order') => {
       const m: any = (this.prisma as any)[model];
+      const sandboxWhere = sandboxWhereFor(model);
       const [thisWeek, lastWeek] = await Promise.all([
-        m.count({ where: { createdAt: { gte: startThis } } }),
-        m.count({ where: { createdAt: { gte: startLast, lt: startThis } } }),
+        m.count({ where: { createdAt: { gte: startThis }, ...sandboxWhere } }),
+        m.count({ where: { createdAt: { gte: startLast, lt: startThis }, ...sandboxWhere } }),
       ]);
       const deltaPct = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : (thisWeek > 0 ? 100 : 0);
       return { thisWeek, lastWeek, deltaPct };
@@ -585,7 +595,7 @@ export class RoleMetricsService {
     const since30 = new Date(now.getTime() - longWindowMs());
     const leadsByChannel = await this.prisma.lead.groupBy({
       by: ['source', 'status'],
-      where: { createdAt: { gte: since30 } },
+      where: { createdAt: { gte: since30 }, contact: { is: { isSandbox: false } } },
       _count: { _all: true },
     });
     const byChan: Record<string, { total: number; won: number }> = {};
@@ -607,7 +617,7 @@ export class RoleMetricsService {
 
     // Top sold products — flatten orders.products[] over last 30d.
     const recentOrders = await this.prisma.order.findMany({
-      where: { createdAt: { gte: since30 } },
+      where: { createdAt: { gte: since30 }, contact: { is: { isSandbox: false } } },
       select: { products: true },
     });
     const totals: Record<string, { quantity: number; orderCount: number }> = {};

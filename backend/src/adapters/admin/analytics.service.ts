@@ -5,7 +5,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prisma/client';
 import { UserRole } from '../../domain/entities/auth.entity';
-import { DispatchTariffService } from './dispatch-tariff.service';
+import { DispatchTariffService, normalizeTariffKey } from './dispatch-tariff.service';
 import { PostalCodeZoneService } from './postal-code-zone.service';
 import { normaliseCarrier, outsideZoneDefaultCarrier, applyOutsideZoneFallback } from './carrier-normalize.util';
 
@@ -1022,13 +1022,11 @@ export class AnalyticsService implements IAnalyticsService {
     // all hit the same row.
     //
     // Marcos 2026-07-14: además de case-insensitive, strippeamos
-    // espacios internos. Antes "GBA 1" (con espacio, formato que sale
-    // del label TN "GBA 1 GRATIS") no matcheaba "GBA1" (sin espacio,
-    // formato que Marcos cargó a mano en el tariff). Consecuencia
-    // visible: Baires con 64 despachos y 0 tarifa cruzada.
-    const tariffKey = (carrier: string, zone: string) =>
-      `${carrier.trim().toLowerCase().replace(/\s+/g, '')}::${zone.trim().toLowerCase().replace(/\s+/g, '')}`;
-    for (const t of allTariffs) tariffIndex.set(tariffKey(t.carrier, t.zone), { costPerPackage: t.costPerPackage, currency: t.currency });
+    // espacios internos ("GBA 1" vs "GBA1"). La función normalizeTariffKey
+    // vive en dispatch-tariff.service (single source of truth) — antes
+    // este archivo tenía su propia versión inline y estimateFor/estimateBatch
+    // hacían la búsqueda cruda, así que la corrección quedaba a medias.
+    for (const t of allTariffs) tariffIndex.set(normalizeTariffKey(t.carrier, t.zone), { costPerPackage: t.costPerPackage, currency: t.currency });
 
     let globalRowsWithoutTariff = 0;
     const byCarrier = Array.from(groups.entries())
@@ -1037,7 +1035,7 @@ export class AnalyticsService implements IAnalyticsService {
         let carrierRowsWithoutTariff = 0;
         const zones = Array.from(b.byZone.entries())
           .map(([zone, z]) => {
-            const tariff = tariffIndex.get(tariffKey(carrier, zone)) ?? null;
+            const tariff = tariffIndex.get(normalizeTariffKey(carrier, zone)) ?? null;
             const estimatedCost = tariff ? tariff.costPerPackage * z.count : null;
             if (tariff == null) {
               carrierRowsWithoutTariff += z.count;

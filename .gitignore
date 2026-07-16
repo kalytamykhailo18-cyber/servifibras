@@ -60,6 +60,7 @@ e2e/*
 !e2e/test-ml-history-b3-semantic-retrieval-e2e.js
 !e2e/test-ml-history-isolation-b2-e2e.js
 !e2e/test-lastmessageat-sister-sites-e2e.js
+!e2e/test-sister-bugs-tariff-sandbox-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
