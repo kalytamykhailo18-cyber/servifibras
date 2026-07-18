@@ -17,9 +17,10 @@
  *   unconfigured  — feature not yet wired (e.g. Claude API key still missing)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { ExchangeRateService } from '../pricing/exchange-rate.service';
+import { WhatsappQrService } from '../whatsapp-qr/whatsapp-qr.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -48,14 +49,18 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
   private readonly prisma = new PrismaClient();
 
-  constructor(private readonly exchangeRate: ExchangeRateService) {}
+  constructor(
+    private readonly exchangeRate: ExchangeRateService,
+    @Optional() private readonly whatsappQr?: WhatsappQrService,
+  ) {}
 
   async check(): Promise<HealthReport> {
-    const [database, dolarBlue, claude, backup] = await Promise.all([
+    const [database, dolarBlue, claude, backup, whatsapp] = await Promise.all([
       this.checkDatabase(),
       this.checkDolarBlueCache(),
       Promise.resolve(this.checkClaudeConfig()),
       Promise.resolve(this.checkBackupRecency()),
+      Promise.resolve(this.checkWhatsAppQr()),
     ]);
 
     const components: Record<string, ComponentReport> = {
@@ -63,6 +68,7 @@ export class HealthService {
       dolarBlue,
       claude,
       backup,
+      whatsapp,
     };
 
     return {
@@ -175,6 +181,40 @@ export class HealthService {
       status: 'ok',
       details: { lastRunAt: stat.mtime.toISOString(), ageHours: rounded, dir },
     };
+  }
+
+  // Marcos 2026-07-18: la CRM se quedó sin sincronizar con WhatsApp
+  // por 48h porque nadie miró el estado de Baileys. Ahora /health
+  // reporta el canal:
+  //   - unconfigured — WHATSAPP_QR_ENABLED=false (Meta Cloud only)
+  //   - degraded     — starting / waiting_qr / connecting (transición)
+  //   - ok           — conectado y con JID
+  //   - down         — disconnected / errored / disabled cuando enabled=true
+  // El frontend consume este estado para mostrar un banner rojo
+  // "WhatsApp desconectado — escaneá el QR" en todas las páginas.
+  private checkWhatsAppQr(): ComponentReport {
+    if (!this.whatsappQr) {
+      return { status: 'unconfigured', details: { reason: 'WhatsappQrService not wired' } };
+    }
+    const s = this.whatsappQr.getStatus();
+    if (!s.enabled) {
+      return { status: 'unconfigured', details: { reason: 'WHATSAPP_QR_ENABLED=false' } };
+    }
+    const details = {
+      connectionStatus: s.status,
+      connectedJid: s.connectedJid,
+      connectedAt: s.connectedAt,
+      accountLabel: s.accountLabel,
+      lastError: s.lastError,
+      sessionDirExists: s.sessionDirExists,
+    };
+    if (s.status === 'connected') {
+      return { status: 'ok', details };
+    }
+    if (s.status === 'starting' || s.status === 'connecting' || s.status === 'waiting_qr') {
+      return { status: 'degraded', details };
+    }
+    return { status: 'down', details };
   }
 
   private aggregate(components: Record<string, ComponentReport>): HealthStatus {

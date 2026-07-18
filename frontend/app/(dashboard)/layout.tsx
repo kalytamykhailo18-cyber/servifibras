@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { RealtimeNotifications } from "@/components/layout/realtime-notifications";
+import { WhatsappStatusBanner } from "@/components/layout/whatsapp-status-banner";
 
 const TOKEN_KEY = "servifibras_auth_token";
 
@@ -109,6 +110,7 @@ export default function DashboardLayout({
          Expandido = 256px (w-64), colapsado = 64px (w-16). */}
       <div className={sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"}>
         <Header onMenuClick={() => setMobileNavOpen(true)} />
+        <WhatsappStatusBanner />
         <main className="p-4 sm:p-6">{children}</main>
       </div>
     </div>
