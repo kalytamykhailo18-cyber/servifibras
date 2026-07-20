@@ -2146,11 +2146,28 @@ export class ConversationHandlerService implements IConversationHandler {
     // post-envío manual (`sendManualReply`) y phone-side outbound; el
     // path central de guardado ahora garantiza que TODO mensaje bumpea
     // el timestamp — regla única para todos los canales.
+    //
+    // Marcos 2026-07-20: además del timestamp, bumpeamos lastMessage
+    // (preview del inbox). Antes 11 de 14 callers no lo escribían y el
+    // inbox mostraba la respuesta previa del Admin en la fila mientras
+    // el cliente ya había vuelto a escribir (Marcos lo reportó con un
+    // "👍" del cliente que no se veía en la fila pero sí al abrir).
+    // El preview usa el content del mensaje o, si es adjunto sin caption,
+    // el ícono del tipo — misma regla que teníamos en el path de media
+    // inbound antes.
+    const preview = content && content.trim().length > 0
+      ? content
+      : attachment
+        ? this.previewForAttachment(attachment.contentType)
+        : '';
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { lastMessageAt: now },
+      data: {
+        lastMessageAt: now,
+        lastMessage: getMessageCipher().encrypt(preview),
+      },
     }).catch((e) => {
-      this.logger.warn(`Could not bump lastMessageAt on ${conversationId}: ${e?.message ?? e}`);
+      this.logger.warn(`Could not bump lastMessage/At on ${conversationId}: ${e?.message ?? e}`);
     });
     // Live quality rescore after every AI reply — keeps the right-rail
     // score panel current as the agent works through the thread. The
