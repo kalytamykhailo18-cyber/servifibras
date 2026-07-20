@@ -1799,13 +1799,27 @@ export class ConversationHandlerService implements IConversationHandler {
     });
 
     if (!contact) {
-      this.logger.log(`Creating new Webchat contact: ${customerName} (${customerId})`);
+      // Marcos 2026-07-20: los tests E2E entran por el mismo endpoint
+      // de webchat con nombres tipo "Cliente Handoff" / "Cliente Test
+      // 1780..." — antes creábamos el contacto con isSandbox=false y
+      // esas rows aparecían para siempre en la cola de Atención. El
+      // patrón centralizado en test-contact-patterns.ts es la misma
+      // señal que usan claude-budget, conversation-scorer y el
+      // conversation-handler para stampear isTestTraffic; ahora
+      // también estampa isSandbox en el contact que se crea.
+      const isTest = looksLikeTestContactName(customerName);
+      if (isTest) {
+        this.logger.log(`Creating SANDBOX Webchat contact (test pattern): ${customerName}`);
+      } else {
+        this.logger.log(`Creating new Webchat contact: ${customerName} (${customerId})`);
+      }
       contact = await this.prisma.contact.create({
         data: {
           name: customerName,
           email: customerEmail,
           type: ContactType.MINORISTA,
           channel: Channel.TIENDANUBE_WEBCHAT,
+          isSandbox: isTest,
           metadata: {
             webchatCustomerId: customerId,
             platform: 'tiendanube',
