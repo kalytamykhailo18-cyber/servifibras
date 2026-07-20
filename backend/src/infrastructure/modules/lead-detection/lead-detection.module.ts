@@ -4,6 +4,7 @@ import { LeadDetectionConfigService } from '../../../adapters/lead-detection/lea
 import { LeadAutoAssignmentService } from '../../../adapters/lead-detection/lead-auto-assignment.service';
 import { KeywordHumanHandoffDetector } from '../../../adapters/lead-detection/keyword-human-handoff-detector';
 import { HumanHandoffService } from '../../../adapters/lead-detection/human-handoff.service';
+import { HandoffReconcileCron } from '../../../adapters/lead-detection/handoff-reconcile.cron';
 import { KeywordCustomerTypeDetector } from '../../../adapters/lead-detection/keyword-customer-type-detector';
 import { ContactDimensionsService } from '../../../adapters/lead-detection/contact-dimensions.service';
 import { KeywordComplexityClassifier } from '../../../adapters/lead-detection/keyword-complexity-classifier';
@@ -93,6 +94,7 @@ const handoffDetectorProvider: Provider = {
     customerTypeDetectorProvider,
     mayoristaDetectorProvider,
     handoffDetectorProvider,
+    HandoffReconcileCron,
   ],
   exports: [
     LeadDetectionConfigService,

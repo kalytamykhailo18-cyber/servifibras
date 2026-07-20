@@ -142,6 +142,98 @@ export class HumanHandoffService implements IHumanHandoffService {
     };
   }
 
+  /**
+   * Marcos 2026-07-20: barrido de reconciliación de needsHumanAttention.
+   *
+   * Contexto: hallado 2026-07-20 en el hunt preventivo. La cola de
+   * Atención mostraba 575 conversaciones con needsHumanAttention=true
+   * mientras que ~254 de ellas YA tenían una respuesta de staff
+   * posterior a escalatedAt. Los paths modernos de clear (sendManualReply,
+   * recordPhoneSideOutbound, saveMessage) están bien; pero rows previas
+   * a esos fixes nunca se limpiaron, e inflaban visualmente la cola
+   * (Brenda veía "575 pendientes" cuando eran ~120 reales).
+   *
+   * NO es heurística "probablemente resuelto": la señal canónica es
+   * "existe mensaje de staff con timestamp > escalatedAt". Si esa señal
+   * es verdadera, el chat ya fue atendido — el flag es el que quedó
+   * stale. Alineado con [[feedback_exception_visibility_over_auto_mark]]
+   * (confiamos en la señal canónica, no en un proxy) y con
+   * [[reference_ml_stale_escalations]] (mismo patrón que en ML).
+   *
+   * Devuelve el conteo por canal y loguea cada conversationId barrido
+   * para que quede audit trail (no es mutación silenciosa).
+   */
+  async reconcileStaleNeedsHumanAttention(options?: {
+    dryRun?: boolean;
+  }): Promise<{ scanned: number; cleared: number; byChannel: Record<string, number>; ids: string[] }> {
+    const dryRun = options?.dryRun ?? false;
+    // Prisma no permite comparar dos columnas de la misma fila via
+    // `where: { escalatedAt: { lt: prisma.field(...) } }`, así que
+    // arrancamos con findMany filtrado + subquery post-fetch de messages.
+    const candidates = await this.prisma.conversation.findMany({
+      where: {
+        needsHumanAttention: true,
+        contact: { is: { isSandbox: false } },
+      },
+      select: {
+        id: true,
+        channel: true,
+        escalatedAt: true,
+        createdAt: true,
+      },
+    });
+    const stale: Array<{ id: string; channel: string }> = [];
+    for (const c of candidates) {
+      const anchor = c.escalatedAt ?? c.createdAt;
+      const staffMsg = await this.prisma.message.findFirst({
+        where: {
+          conversationId: c.id,
+          timestamp: { gt: anchor },
+          isFromAI: false,
+          sender: {
+            in: [MessageSender.ADMIN, MessageSender.BRENDA, MessageSender.FRANCO, MessageSender.ALDO],
+          },
+        },
+        select: { id: true, timestamp: true, sender: true },
+      });
+      if (staffMsg) {
+        stale.push({ id: c.id, channel: c.channel });
+      }
+    }
+    const byChannel: Record<string, number> = {};
+    for (const s of stale) byChannel[s.channel] = (byChannel[s.channel] ?? 0) + 1;
+
+    if (!dryRun && stale.length > 0) {
+      const ids = stale.map((s) => s.id);
+      const CHUNK = 200;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const slice = ids.slice(i, i + CHUNK);
+        await this.prisma.conversation.updateMany({
+          where: { id: { in: slice } },
+          data: { needsHumanAttention: false, status: ConversationStatus.ACTIVE },
+        });
+      }
+      // Audit trail — un log por lote para no inundar journal, y una
+      // línea con la lista completa de IDs (queryable con jq / grep).
+      this.logger.log(
+        `🧹 Reconcile: cleared ${stale.length} stale needsHumanAttention flags across ${Object.keys(byChannel).length} channels — ${JSON.stringify(byChannel)}`,
+      );
+      this.logger.log(`🧹 Reconcile cleared conversation IDs: ${ids.join(',')}`);
+      this.metrics.emitTick('handoff_reconcile_cleared');
+    } else if (dryRun) {
+      this.logger.log(
+        `🔍 Reconcile (dry-run): would clear ${stale.length} across ${JSON.stringify(byChannel)}`,
+      );
+    }
+
+    return {
+      scanned: candidates.length,
+      cleared: dryRun ? 0 : stale.length,
+      byChannel,
+      ids: stale.map((s) => s.id),
+    };
+  }
+
   async clearFlag(conversationId: string): Promise<void> {
     try {
       const c = await this.prisma.conversation.findUnique({
