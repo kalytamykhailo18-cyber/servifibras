@@ -65,6 +65,16 @@ export default function ConversationDetailPage() {
   }>>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Marcos 2026-07-20: el detalle poleaba cada 2s (por su propio pedido)
+  // y el useEffect [conversation?.messages] llamaba a scrollIntoView en
+  // cada refresh porque la referencia del array cambiaba aunque el
+  // contenido no. Consecuencia: el scroll se pegaba abajo cada 2s y
+  // Marcos no podía leer arriba. Ahora sólo scrolleamos cuando (a) es
+  // el primer render de la conversación o (b) hay un mensaje NUEVO Y el
+  // usuario estaba cerca del fondo (siguiendo). Si scroleó arriba para
+  // leer historia, no lo traemos de vuelta.
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const lastSeenMsgIdRef = useRef<string | null>(null);
 
   // ========================================================================
   // FETCH CONVERSATION
@@ -133,10 +143,43 @@ export default function ConversationDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll: sólo cuando hay mensaje nuevo Y el usuario estaba
+  // cerca del fondo. Fix del snap-cada-2s que Marcos reportó 2026-07-20.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [conversation?.messages]);
+    const msgs = conversation?.messages ?? [];
+    const lastId = msgs.length > 0 ? msgs[msgs.length - 1].id : null;
+    const prevId = lastSeenMsgIdRef.current;
+
+    // Cambió de conversación (primer render de este conversationId) o
+    // no había nada antes → llevamos al fondo.
+    if (prevId === null && lastId) {
+      lastSeenMsgIdRef.current = lastId;
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      return;
+    }
+
+    // Sin mensaje nuevo (mismo último id) → no tocamos el scroll. Este
+    // es el caso que se disparaba en cada tick del polling 2s.
+    if (lastId === prevId) return;
+
+    // Hay mensaje nuevo: sólo autoscroll si el usuario estaba cerca del
+    // fondo (siguiendo la conversación). Si scroleó arriba para leer
+    // historia, no interrumpimos su lectura.
+    lastSeenMsgIdRef.current = lastId;
+    const c = messagesScrollRef.current;
+    const nearBottom = c
+      ? c.scrollHeight - c.scrollTop - c.clientHeight < 120
+      : true;
+    if (nearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    }
+  }, [conversation?.messages, conversationId]);
+
+  // Al cambiar de conversación, reseteamos el "último id visto" para
+  // que el próximo render trate esa conversación como primera vista.
+  useEffect(() => {
+    lastSeenMsgIdRef.current = null;
+  }, [conversationId]);
 
   // ========================================================================
   // ACTIONS
@@ -546,7 +589,7 @@ export default function ConversationDetailPage() {
               Uses dynamic viewport height on mobile so the keyboard pushing up
               doesn't crop the composer below the fold. */}
           <div className="flex h-[calc(100dvh-280px)] min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] sm:h-auto sm:max-h-[640px] sm:min-h-[500px]">
-            <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white p-4 sm:p-6">
+            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white p-4 sm:p-6">
               {(conversation.messages && conversation.messages.length > 0) || internalNotes.length > 0 ? (
                 <>
                   {[
