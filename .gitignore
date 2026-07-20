@@ -64,6 +64,7 @@ e2e/*
 !e2e/test-whatsapp-health-banner-e2e.js
 !e2e/test-needs-human-reconcile-e2e.js
 !e2e/test-lastmessage-preview-e2e.js
+!e2e/test-ack-auto-close-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in

@@ -36,6 +36,7 @@ import { MlPublicationKnowledgeService } from '../admin/ml-publication-knowledge
 import { MlBatchQueueService } from '../ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../ai/history-compression.service';
 import { looksLikeTestContactName } from './test-contact-patterns';
+import { isAcknowledgment, looksLikeUnresolvedFromStaff } from './acknowledgment-detector';
 // Used only in the MercadoLibre handler — optional injection so the
 // other channel modules' instances of this handler don't need to
 // resolve the ML service.
@@ -575,6 +576,45 @@ export class ConversationHandlerService implements IConversationHandler {
         message.text,
         false, // isFromAI
       );
+
+      // Marcos 2026-07-20: si el cliente cierra con "👍 / gracias / ok /
+      // dale" DESPUÉS de que el staff/AI ya le dio una respuesta
+      // sustantiva (no una pregunta), la conversación se cierra sola
+      // — el agente responde una despedida corta, marca CLOSED y no
+      // escalamos. Antes cada ack quedaba como "pendiente humano"
+      // porque técnicamente el cliente escribió después del staff.
+      // Marcos pidió textual: "Si el cliente no preguntó nada más y
+      // su consulta fue resuelta y antes ya se lo había saludado se
+      // tiene que dar por finalizada la conversación".
+      if (
+        isAcknowledgment(message.text) &&
+        recentMessages.length > 0 &&
+        (() => {
+          // getConversationHistoryById devuelve desc (más nuevo primero)
+          // y el content viene encriptado — hay que desencriptar antes
+          // de aplicar el detector de "pregunta abierta". Sin esto, el
+          // check corre sobre ciphertext y devuelve resultado random.
+          const prev = recentMessages[0];
+          if (!prev || prev.sender === MessageSender.CUSTOMER) return false;
+          const plain = getMessageCipher().decrypt(prev.content ?? '');
+          return !looksLikeUnresolvedFromStaff(plain);
+        })()
+      ) {
+        const farewell = 'Bárbaro, cualquier cosa avisame.';
+        await this.saveMessage(conversation.id, MessageSender.AI, farewell, true);
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            status: ConversationStatus.CLOSED,
+            needsHumanAttention: false,
+          },
+        }).catch((e) => {
+          this.logger.warn(`Ack auto-close: could not update conversation ${conversation.id}: ${e?.message ?? e}`);
+        });
+        this.metrics.emitTick('conversation_auto_closed_on_ack');
+        this.logger.log(`Auto-closed conversation ${conversation.id.slice(0, 8)} on customer acknowledgment ("${message.text.slice(0, 40)}")`);
+        return { success: true, response: farewell, error: null };
+      }
 
       // Detect explicit human-handoff request from the customer.
       void this.tryHandoff(conversation.id, contact.id, message.text, 'customer');
@@ -1468,6 +1508,39 @@ export class ConversationHandlerService implements IConversationHandler {
         message.text,
         false,
       );
+
+      // Marcos 2026-07-20 (mismo criterio que WhatsApp): auto-cerrar
+      // en acknowledgment del cliente cuando el turno previo del
+      // staff/AI fue una respuesta sustantiva (no una pregunta).
+      if (
+        isAcknowledgment(message.text) &&
+        recentMessages.length > 0 &&
+        (() => {
+          // getConversationHistoryById devuelve desc (más nuevo primero)
+          // y el content viene encriptado — hay que desencriptar antes
+          // de aplicar el detector de "pregunta abierta". Sin esto, el
+          // check corre sobre ciphertext y devuelve resultado random.
+          const prev = recentMessages[0];
+          if (!prev || prev.sender === MessageSender.CUSTOMER) return false;
+          const plain = getMessageCipher().decrypt(prev.content ?? '');
+          return !looksLikeUnresolvedFromStaff(plain);
+        })()
+      ) {
+        const farewell = 'Bárbaro, cualquier cosa avisame.';
+        await this.saveMessage(conversation.id, MessageSender.AI, farewell, true);
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            status: ConversationStatus.CLOSED,
+            needsHumanAttention: false,
+          },
+        }).catch((e) => {
+          this.logger.warn(`Ack auto-close (webchat): could not update conversation ${conversation.id}: ${e?.message ?? e}`);
+        });
+        this.metrics.emitTick('conversation_auto_closed_on_ack');
+        this.logger.log(`Auto-closed webchat conversation ${conversation.id.slice(0, 8)} on customer acknowledgment ("${message.text.slice(0, 40)}")`);
+        return { success: true, response: farewell, error: null };
+      }
 
       void this.tryHandoff(conversation.id, contact.id, message.text, 'customer');
       void this.contactDimensions.classifyOnInbound(contact.id, message.text);

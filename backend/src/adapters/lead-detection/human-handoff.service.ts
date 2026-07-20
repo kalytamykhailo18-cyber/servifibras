@@ -216,13 +216,13 @@ export class HumanHandoffService implements IHumanHandoffService {
       // Audit trail — un log por lote para no inundar journal, y una
       // línea con la lista completa de IDs (queryable con jq / grep).
       this.logger.log(
-        `🧹 Reconcile: cleared ${stale.length} stale needsHumanAttention flags across ${Object.keys(byChannel).length} channels — ${JSON.stringify(byChannel)}`,
+        `Reconcile: cleared ${stale.length} stale needsHumanAttention flags across ${Object.keys(byChannel).length} channels — ${JSON.stringify(byChannel)}`,
       );
-      this.logger.log(`🧹 Reconcile cleared conversation IDs: ${ids.join(',')}`);
+      this.logger.log(`Reconcile cleared conversation IDs: ${ids.join(',')}`);
       this.metrics.emitTick('handoff_reconcile_cleared');
     } else if (dryRun) {
       this.logger.log(
-        `🔍 Reconcile (dry-run): would clear ${stale.length} across ${JSON.stringify(byChannel)}`,
+        `Reconcile (dry-run): would clear ${stale.length} across ${JSON.stringify(byChannel)}`,
       );
     }
 
