@@ -24,7 +24,8 @@ import {
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { MetricsBroadcaster } from '../../infrastructure/notifications/metrics-broadcaster.service';
 import { getMessageCipher } from '../security/message-cipher';
-import { isAcknowledgment, looksLikeUnresolvedFromStaff } from '../conversations/acknowledgment-detector';
+import { isAcknowledgment, looksLikeUnresolvedFromStaff, claudeConfirmAckCloses } from '../conversations/acknowledgment-detector';
+import { ClaudeService } from '../ai/claude.service';
 
 @Injectable()
 export class HumanHandoffService implements IHumanHandoffService {
@@ -34,6 +35,7 @@ export class HumanHandoffService implements IHumanHandoffService {
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly metrics: MetricsBroadcaster,
+    private readonly claudeService: ClaudeService,
   ) {}
 
   async escalate(ctx: HandoffContext): Promise<HandoffOutcome> {
@@ -312,13 +314,29 @@ export class HumanHandoffService implements IHumanHandoffService {
       if (last.sender !== MessageSender.CUSTOMER) continue;
       const lastPlain = cipher.decrypt(last.content ?? '');
       if (!isAcknowledgment(lastPlain)) continue;
-      // Si el turno previo era pregunta abierta del staff/AI, el "ok"
-      // no cierra el loop — misma guarda que usa el hot path.
+      // Guarda barata: turno previo del staff no debe ser pregunta abierta.
       const prev = msgs[1];
       if (prev) {
         const prevPlain = cipher.decrypt(prev.content ?? '');
         if (looksLikeUnresolvedFromStaff(prevPlain)) continue;
       }
+      // Marcos 2026-07-21: second-opinion con Claude — mismo criterio
+      // que el hot path. Si Claude dice OPEN o no responde, dejamos
+      // la conversación sin tocar. Costo bajo (< 200 tokens por check
+      // y sólo se dispara sobre rows que ya pasaron el fast-filter).
+      const contextTurns = msgs
+        .slice(0, 6)
+        .reverse()
+        .map((m) => ({
+          role: (m.sender === MessageSender.CUSTOMER
+            ? 'customer'
+            : m.isFromAI
+              ? 'ai'
+              : 'staff') as 'customer' | 'ai' | 'staff',
+          text: cipher.decrypt(m.content ?? ''),
+        }));
+      const verdict = await claudeConfirmAckCloses(this.claudeService, lastPlain, contextTurns);
+      if (verdict !== true) continue;
       toClose.push({ id: c.id, channel: c.channel });
     }
     const byChannel: Record<string, number> = {};

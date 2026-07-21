@@ -159,3 +159,56 @@ export function looksLikeUnresolvedFromStaff(text: string | null | undefined): b
   if (/:$/.test(t)) return true;
   return false;
 }
+
+/**
+ * Marcos 2026-07-21: pidió que el AGENTE tome contexto para decidir
+ * si un ack cierra o no la conversación. La regla determinística +
+ * la guarda de pregunta abierta atrapan la mayoría de los casos,
+ * pero hay ambigüedades: "dale gracias" puede ser respuesta a
+ * "¿te cotizo el de 2kg?" (SI, sigue esperando) o cierre después de
+ * "quedamos en contacto entonces" (fin de conversación).
+ *
+ * Esta función pasa las últimas N turnos + el ack a Claude para un
+ * "second opinion". Devuelve:
+ *   - true  → CLOSED (Claude confirma que el cliente cerró)
+ *   - false → OPEN (Claude dice que el cliente sigue esperando)
+ *   - null  → indeterminado (API caída, budget agotado, response
+ *             mal formateada — el llamador debe fallar seguro: NO
+ *             cerrar, dejar que fluya al flujo normal del agente)
+ *
+ * El callSite queda separado ("ack_confirm") para poder ver el costo
+ * en el dashboard. Ver askJson en claude.service.ts para budget guard.
+ */
+export interface AckConfirmTurn {
+  role: 'staff' | 'ai' | 'customer';
+  text: string;
+}
+export interface AckConfirmClient {
+  askJson(args: { system: string; user: string; callSite?: string; maxTokens?: number }): Promise<any | null>;
+}
+export async function claudeConfirmAckCloses(
+  client: AckConfirmClient,
+  ackText: string,
+  recentTurns: AckConfirmTurn[],
+): Promise<boolean | null> {
+  const trimmedTurns = recentTurns.slice(-6);
+  const dialogue = trimmedTurns.map((t) => {
+    const label = t.role === 'customer' ? 'CLIENTE' : t.role === 'staff' ? 'STAFF' : 'AGENTE';
+    return `${label}: ${(t.text ?? '').trim()}`;
+  }).join('\n');
+  const system = [
+    'Sos un clasificador conciso.',
+    'Determiná si la conversación de atención al cliente está terminada o si el cliente sigue esperando respuesta del staff.',
+    'Respondé SOLO con JSON: {"decision":"CLOSED"|"OPEN","reason":"<breve>"}',
+    'CLOSED = el cliente cerró con un agradecimiento/confirmación y su consulta original ya fue resuelta o no hay pregunta abierta del staff.',
+    'OPEN = el cliente respondió afirmativamente a una oferta o pregunta del staff, o su ack implica que quiere seguir (ej. staff pregunta "¿te cotizo el de 2kg?" y el cliente contesta "dale gracias" — CLIENTE SIGUE ESPERANDO la cotización).',
+    'Ante duda, respondé OPEN — falso-positivo cerrando cuando no debe es peor que dejarlo abierto.',
+  ].join(' ');
+  const user = `Últimos mensajes (más viejo arriba):\n${dialogue}\n\nÚltimo mensaje del cliente: "${ackText.trim()}"\n\nDecidí.`;
+  const result = await client.askJson({ system, user, callSite: 'ack_confirm', maxTokens: 80 });
+  if (!result || typeof result !== 'object') return null;
+  const decision = String((result as any).decision ?? '').toUpperCase();
+  if (decision === 'CLOSED') return true;
+  if (decision === 'OPEN') return false;
+  return null;
+}

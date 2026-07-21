@@ -36,7 +36,7 @@ import { MlPublicationKnowledgeService } from '../admin/ml-publication-knowledge
 import { MlBatchQueueService } from '../ai/ml-batch-queue.service';
 import { HistoryCompressionService } from '../ai/history-compression.service';
 import { looksLikeTestContactName } from './test-contact-patterns';
-import { isAcknowledgment, looksLikeUnresolvedFromStaff } from './acknowledgment-detector';
+import { isAcknowledgment, looksLikeUnresolvedFromStaff, claudeConfirmAckCloses } from './acknowledgment-detector';
 // Used only in the MercadoLibre handler — optional injection so the
 // other channel modules' instances of this handler don't need to
 // resolve the ML service.
@@ -586,34 +586,8 @@ export class ConversationHandlerService implements IConversationHandler {
       // Marcos pidió textual: "Si el cliente no preguntó nada más y
       // su consulta fue resuelta y antes ya se lo había saludado se
       // tiene que dar por finalizada la conversación".
-      if (
-        isAcknowledgment(message.text) &&
-        recentMessages.length > 0 &&
-        (() => {
-          // getConversationHistoryById devuelve desc (más nuevo primero)
-          // y el content viene encriptado — hay que desencriptar antes
-          // de aplicar el detector de "pregunta abierta". Sin esto, el
-          // check corre sobre ciphertext y devuelve resultado random.
-          const prev = recentMessages[0];
-          if (!prev || prev.sender === MessageSender.CUSTOMER) return false;
-          const plain = getMessageCipher().decrypt(prev.content ?? '');
-          return !looksLikeUnresolvedFromStaff(plain);
-        })()
-      ) {
-        const farewell = 'Bárbaro, cualquier cosa avisame.';
-        await this.saveMessage(conversation.id, MessageSender.AI, farewell, true);
-        await this.prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            status: ConversationStatus.CLOSED,
-            needsHumanAttention: false,
-          },
-        }).catch((e) => {
-          this.logger.warn(`Ack auto-close: could not update conversation ${conversation.id}: ${e?.message ?? e}`);
-        });
-        this.metrics.emitTick('conversation_auto_closed_on_ack');
-        this.logger.log(`Auto-closed conversation ${conversation.id.slice(0, 8)} on customer acknowledgment ("${message.text.slice(0, 40)}")`);
-        return { success: true, response: farewell, error: null };
+      if (await this.maybeAutoCloseOnAck(conversation.id, message.text, recentMessages)) {
+        return { success: true, response: 'Bárbaro, cualquier cosa avisame.', error: null };
       }
 
       // Detect explicit human-handoff request from the customer.
@@ -1512,34 +1486,8 @@ export class ConversationHandlerService implements IConversationHandler {
       // Marcos 2026-07-20 (mismo criterio que WhatsApp): auto-cerrar
       // en acknowledgment del cliente cuando el turno previo del
       // staff/AI fue una respuesta sustantiva (no una pregunta).
-      if (
-        isAcknowledgment(message.text) &&
-        recentMessages.length > 0 &&
-        (() => {
-          // getConversationHistoryById devuelve desc (más nuevo primero)
-          // y el content viene encriptado — hay que desencriptar antes
-          // de aplicar el detector de "pregunta abierta". Sin esto, el
-          // check corre sobre ciphertext y devuelve resultado random.
-          const prev = recentMessages[0];
-          if (!prev || prev.sender === MessageSender.CUSTOMER) return false;
-          const plain = getMessageCipher().decrypt(prev.content ?? '');
-          return !looksLikeUnresolvedFromStaff(plain);
-        })()
-      ) {
-        const farewell = 'Bárbaro, cualquier cosa avisame.';
-        await this.saveMessage(conversation.id, MessageSender.AI, farewell, true);
-        await this.prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            status: ConversationStatus.CLOSED,
-            needsHumanAttention: false,
-          },
-        }).catch((e) => {
-          this.logger.warn(`Ack auto-close (webchat): could not update conversation ${conversation.id}: ${e?.message ?? e}`);
-        });
-        this.metrics.emitTick('conversation_auto_closed_on_ack');
-        this.logger.log(`Auto-closed webchat conversation ${conversation.id.slice(0, 8)} on customer acknowledgment ("${message.text.slice(0, 40)}")`);
-        return { success: true, response: farewell, error: null };
+      if (await this.maybeAutoCloseOnAck(conversation.id, message.text, recentMessages)) {
+        return { success: true, response: 'Bárbaro, cualquier cosa avisame.', error: null };
       }
 
       void this.tryHandoff(conversation.id, contact.id, message.text, 'customer');
@@ -2166,6 +2114,77 @@ export class ConversationHandlerService implements IConversationHandler {
     } catch (err: any) {
       this.logger.warn(`recordWhatsAppMediaInbound failed for jid=${args.jid}: ${err?.message ?? err}`);
     }
+  }
+
+  /**
+   * Marcos 2026-07-21: helper compartido para el auto-cierre en
+   * acknowledgment. Se usa desde handleWhatsAppMessage y
+   * handleWebchatMessage. Pipeline en 3 pasos:
+   *   1) Detector determinístico (isAcknowledgment) — descarta
+   *      preguntas, requests, mensajes largos.
+   *   2) Guarda "el turno previo del staff no fue pregunta abierta"
+   *      (?, terminación con :) — barata, ataja el 90% de OPENs.
+   *   3) Second-opinion con Claude — pasa las últimas ~4 turnos + el
+   *      ack. Si Claude dice OPEN o no responde, NO cerramos.
+   * Marcos textual: "Lo mejor es que el agente tome contexto o
+   * resumen de la conversación para filtrarla como finalizada".
+   * Devuelve true si cerró la conversación, false si dejó fluir al
+   * pipeline normal (el llamador continua con handoff/AI reply).
+   */
+  private async maybeAutoCloseOnAck(
+    conversationId: string,
+    customerText: string,
+    recentMessages: Array<{ sender: MessageSender; content: string | null; isFromAI?: boolean }>,
+  ): Promise<boolean> {
+    if (!isAcknowledgment(customerText)) return false;
+    if (recentMessages.length === 0) return false;
+
+    // getConversationHistoryById devuelve desc — recentMessages[0] es el
+    // más nuevo (el mensaje anterior al que estamos procesando ahora).
+    const prev = recentMessages[0];
+    if (!prev || prev.sender === MessageSender.CUSTOMER) return false;
+    const cipher = getMessageCipher();
+    const prevPlain = cipher.decrypt(prev.content ?? '');
+    if (looksLikeUnresolvedFromStaff(prevPlain)) return false;
+
+    // Second opinion con Claude — construimos contexto desc→asc.
+    const contextTurns = recentMessages
+      .slice(0, 6)
+      .reverse()
+      .map((m) => ({
+        role: (m.sender === MessageSender.CUSTOMER
+          ? 'customer'
+          : m.isFromAI
+            ? 'ai'
+            : 'staff') as 'customer' | 'ai' | 'staff',
+        text: cipher.decrypt(m.content ?? ''),
+      }));
+    const verdict = await claudeConfirmAckCloses(this.claudeService, customerText, contextTurns);
+    if (verdict !== true) {
+      // OPEN o null (indeterminado) → NO cerramos. Marcos: "ante duda
+      // dejar abierto es mejor que cerrar mal".
+      this.logger.log(
+        `Ack fast-match but Claude verdict=${verdict === false ? 'OPEN' : 'null'} on conv ${conversationId.slice(0, 8)} — not closing`,
+      );
+      return false;
+    }
+
+    const farewell = 'Bárbaro, cualquier cosa avisame.';
+    await this.saveMessage(conversationId, MessageSender.AI, farewell, true);
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        status: ConversationStatus.CLOSED,
+        needsHumanAttention: false,
+      },
+    }).catch((e) => {
+      this.logger.warn(`Ack auto-close: could not update conversation ${conversationId}: ${e?.message ?? e}`);
+    });
+    this.metrics.emitTick('conversation_auto_closed_on_ack');
+    this.logger.log(
+      `Auto-closed conversation ${conversationId.slice(0, 8)} on customer ack (Claude confirmed) — text="${customerText.slice(0, 60)}"`,
+    );
+    return true;
   }
 
   private previewForAttachment(ct: ContentType): string {
