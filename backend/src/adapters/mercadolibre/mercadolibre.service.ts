@@ -770,17 +770,22 @@ export class MercadoLibreService implements IMercadoLibreService {
       }
 
       if (topic === 'feedback' || topic === 'orders_feedback') {
-        this.logger.log(`📩 MercadoLibre feedback notification: ${resourceId}`);
-        return new MercadoLibreIncomingMessage(
-          resourceId,
-          MercadoLibreMessageType.REVIEW,
-          'unknown',
-          webhookPayload.user_id || 'unknown',
-          '',
-          null,
-          MercadoLibreStatus.UNANSWERED,
-          new Date(),
+        // Marcos 2026-07-21: los webhooks orders_feedback vienen con
+        // resource=/orders/{orderId}/feedback — el `resourceId` (última
+        // parte del path) es literalmente la palabra "feedback", no un
+        // review id. Antes lo pasábamos como notification.id, el
+        // controller lo enrutaba al handler de QUESTION, y hacíamos
+        // GET /questions/feedback → 404. Cada notificación de feedback
+        // producía dos líneas de error en el journal. El handler real
+        // de reviews todavía es un stub (línea ~947 en
+        // conversation-handler; requiere la API /reviews/{orderId}
+        // que aún no está cableada). Hasta que el flujo de reviews
+        // esté completo, dropeamos el webhook con un debug log en
+        // lugar de generar 404s inútiles.
+        this.logger.debug(
+          `MercadoLibre feedback webhook received (order ${resource}) — review persistence not wired yet, skipping`,
         );
+        return null;
       }
 
       if (topic === 'claims') {
