@@ -130,6 +130,33 @@ export default function ConversationsPage() {
   useRealtimeEvent("conversation:needs_human", onTick);
   useRealtimeEvent("conversation:transferred", onTick);
 
+  // Marcos 2026-07-21 (complaint 16:45 AR): el socket se cayó y el
+  // inbox quedó congelado — los mensajes entraban al backend pero
+  // Marcos no los veía en la pantalla. Poll de fallback cada 15s
+  // cuando la tab está visible. Silent refresh: no muestra skeleton
+  // ni parpadea la lista, sólo actualiza data. Coalesce con el tick
+  // de socket usando el mismo refreshTimer así una ráfaga de socket
+  // events + un tick de poll no dispara dos fetches.
+  useEffect(() => {
+    let paused = document.visibilityState !== "visible";
+    const onVis = () => {
+      const wasVisible = !paused;
+      paused = document.visibilityState !== "visible";
+      // Al volver a la tab, refrescamos inmediatamente (podríamos
+      // haber perdido 15+ minutos de eventos por WebSocket dormido).
+      if (!wasVisible && !paused) onTick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const iv = setInterval(() => {
+      if (paused) return;
+      onTick();
+    }, 15_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearInterval(iv);
+    };
+  }, [onTick]);
+
   useEffect(() => {
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
