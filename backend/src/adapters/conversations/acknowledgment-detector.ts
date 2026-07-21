@@ -7,60 +7,95 @@
  * que el operador hiciera algo. Marcos pidió que el agente lo
  * reconozca y dé por cerrada la conversación solo.
  *
- * Estrategia:
- *   - Regla rápida y determinística (sin llamar a Claude) para el 90%
- *     de los casos obvios: mensaje corto + acknowledgment pattern.
- *   - Cae en el flujo normal cuando duda (frase larga, contiene
- *     pregunta, o no matchea patterns). Preferimos falso-negativo
- *     (mantener pendiente) antes que falso-positivo (cerrar cuando el
- *     cliente en realidad preguntaba algo).
+ * Marcos 2026-07-21 (segunda ronda, screenshot 13:58 AR): la primera
+ * versión del detector era demasiado estricta con anclado ^...$. Los
+ * mensajes reales del cliente vienen con variantes que la regex
+ * anclada no capturaba:
+ *   - "Dale. Gracias"                     (punto en el medio)
+ *   - "Muchas gracias por tu tiempo"      (extra "por tu tiempo")
+ *   - "Genial . Gracias. Estoy atenta"    (compound multi-oración)
+ *   - "Excelente, muchas gracias"         (falta pattern "excelente" + coma)
+ * Marcos flageó 7 rows stuck como pendientes por esto. Nueva regla:
+ * en vez de anclar cada patrón, tokenizamos y contamos:
+ *   (1) mensaje ≤ ACK_MAX_CHARS (default 80, era 40)
+ *   (2) NO contiene "?"
+ *   (3) NO contiene verbos de acción (envíame, mandame, necesito, quiero,
+ *       podés, cuándo, cómo, dónde, sirven, quedo esperando, esperando
+ *       tu respuesta, tengo una duda, otra consulta)
+ *   (4) contiene al menos UN token de ack (gracias, ok, dale, listo,
+ *       perfecto, bárbaro, genial, excelente, buenísimo, entendido,
+ *       copiado, recibido, claro, de acuerdo, exacto, muchas gracias,
+ *       muy amable, muy amable, listísimo, joya, joyita, mil gracias)
+ *   (5) o es emoji-only (👍/🙏/❤️/😊/etc.)
  *
  * Los tunables se leen de .env — nunca hardcodeados:
- *   ACK_MAX_CHARS               longitud máxima para considerar un
- *                                mensaje "corto" (default 40)
- *   ACK_ENABLED                  'false' desactiva el atajo por
- *                                completo (default true)
+ *   ACK_MAX_CHARS               longitud máxima para "corto" (default 80)
+ *   ACK_ENABLED                 'false' desactiva el atajo (default true)
  */
 
-// Patrones de acknowledgment en español rioplatense. Anclado a inicio +
-// fin del string para no matchear "gracias por confirmar el precio del
-// tanque" (que sí es una pregunta implícita). El mensaje entero tiene
-// que ser un ack, no contener uno adentro.
-const ACK_PATTERNS: RegExp[] = [
-  /^gracias!?\.?$/i,
-  /^muchas gracias!?\.?$/i,
-  /^muy amable!?\.?$/i,
-  /^dale!?\.?$/i,
-  /^listo!?\.?$/i,
-  /^perfecto!?\.?$/i,
-  /^b[aá]r[bv]aro!?\.?$/i,
-  /^genial!?\.?$/i,
-  /^gen[ií]al!?\.?$/i,
-  /^buen[íi]simo!?\.?$/i,
-  /^ok(ay)?!?\.?$/i,
-  /^okey!?\.?$/i,
-  /^okis!?\.?$/i,
-  /^okok!?\.?$/i,
-  /^entendido!?\.?$/i,
-  /^copiado!?\.?$/i,
-  /^recibido!?\.?$/i,
-  /^clarísimo!?\.?$/i,
-  /^clar[ií]simo!?\.?$/i,
-  /^claro!?\.?$/i,
-  /^de acuerdo!?\.?$/i,
-  /^perfe(cto)?!?\.?$/i,
-  /^dalee?!?\.?$/i,
-  /^bue(no)?!?\.?$/i,
-  /^exacto!?\.?$/i,
-  // Combos ("ok gracias", "listo gracias", "dale gracias")
-  /^(ok|okay|dale|listo|perfecto|buen[íi]simo)\s+(gracias|muchas gracias)!?\.?$/i,
-  /^(gracias|muchas gracias)\s+(che|entonces|master|totales)?!?\.?$/i,
-];
+// Tokens que solos o combinados con otros indican "cierre de charla".
+// Se normaliza texto quitando acentos + minúsculas antes de matchear.
+const ACK_TOKENS = new Set<string>([
+  'gracias', 'graci',
+  'ok', 'okay', 'okey', 'okis', 'okok',
+  'dale', 'dalee',
+  'listo', 'listisimo', 'listos',
+  'perfecto', 'perfe', 'perfe',
+  'barbaro', 'barbaros',
+  'genial', 'geniales',
+  'excelente', 'excelentes',
+  'buenisimo', 'buenisimos', 'bueno',
+  'entendido', 'entendida',
+  'copiado', 'copiada',
+  'recibido', 'recibida',
+  'clarisimo', 'claro',
+  'exacto', 'exacta',
+  'joya', 'joyita',
+  'mil', // "mil gracias" — mil solo por sí no cierra pero se apoya en gracias
+  'amable', // "muy amable" / "sos muy amable"
+  'atenta', 'atento', // "estoy atenta/atento"
+]);
 
-// Emojis "de cierre" — thumbs-up, corazón, manos rezando, sonrisas
-// simples. Un mensaje entero compuesto SOLO por uno o más de estos
-// emojis se considera acknowledgment.
-// Emoji closing: cualquier combinación de emoji-base + selectores
+// Palabras que si aparecen desactivan el atajo — el cliente sigue
+// esperando algo. Cubre pedidos de info, siguiente paso, o dudas
+// nuevas. NO agregar aquí acknowledgments ni conectores neutros.
+const REQUEST_TOKENS = new Set<string>([
+  'envíame', 'enviame', 'envian', 'envio',
+  'mandame', 'mándame', 'mandan', 'manden', 'mande',
+  'necesito', 'necesitaba', 'necesitamos',
+  'quiero', 'queria', 'quería',
+  'podes', 'podés', 'podria', 'podrías', 'podrian', 'pueden', 'podré', 'podre',
+  'cuando', 'cuándo', 'como', 'cómo', 'donde', 'dónde',
+  'sirve', 'sirven',
+  'quedo', 'queda', // "quedo esperando" / "queda pendiente" — mantiene abierto
+  'esperando',
+  'duda', 'dudas', 'consulta', 'consultas', // "otra consulta", "una duda"
+  'preguntar', 'pregunta',
+  'aviso', 'avisas', 'avisen',
+  'confirmo', 'confirmame', 'confirmen',
+  'pasa', 'pasás', 'pasame',
+  'contame', 'contás',
+  'hola', 'buenas', 'buenos', // saludo de inicio, no cierre
+]);
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenize(text: string): string[] {
+  const norm = normalize(text);
+  if (!norm) return [];
+  return norm.split(' ').filter(Boolean);
+}
+
+// Emoji-only closing: cualquier combinación de emoji-base + selectores
 // de variación (U+FE0F) + zero-width joiners (U+200D) + skin tone
 // modifiers (U+1F3FB..U+1F3FF) + espacios. Sin esto, "❤️" (heart +
 // variation selector U+FE0F) fallaba porque el selector no entra
@@ -88,14 +123,23 @@ export function isAcknowledgment(rawText: string | null | undefined): boolean {
   if (!rawText) return false;
   const text = rawText.trim();
   if (!text) return false;
-  const maxChars = envNum('ACK_MAX_CHARS', 40);
+  const maxChars = envNum('ACK_MAX_CHARS', 80);
   if (text.length > maxChars) return false;
-  // Contiene un "?" → probablemente es una pregunta, aunque corta.
-  // Ejemplos: "ok?", "listo?", "gracias?"
+  // (2) "?" → pregunta, aunque corta. "ok?", "listo?", "gracias?"
   if (/\?/.test(text)) return false;
   // Emoji-only (aunque sean varios): "👍", "🙏🙏", "❤️😊"
   if (CLOSING_EMOJI_RE.test(text)) return true;
-  return ACK_PATTERNS.some((re) => re.test(text));
+  const tokens = tokenize(text);
+  if (tokens.length === 0) return false;
+  // (3) si contiene algún request-verb, no cerramos
+  for (const t of tokens) {
+    if (REQUEST_TOKENS.has(t)) return false;
+  }
+  // (4) al menos un ack-token
+  for (const t of tokens) {
+    if (ACK_TOKENS.has(t)) return true;
+  }
+  return false;
 }
 
 /**

@@ -23,6 +23,8 @@ import {
 } from '../../use-cases/lead-detection/human-handoff.interface';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { MetricsBroadcaster } from '../../infrastructure/notifications/metrics-broadcaster.service';
+import { getMessageCipher } from '../security/message-cipher';
+import { isAcknowledgment, looksLikeUnresolvedFromStaff } from '../conversations/acknowledgment-detector';
 
 @Injectable()
 export class HumanHandoffService implements IHumanHandoffService {
@@ -264,6 +266,92 @@ export class HumanHandoffService implements IHumanHandoffService {
       byChannel,
       ids: stale.map((s) => s.id),
       statusAligned,
+    };
+  }
+
+  /**
+   * Marcos 2026-07-21 (screenshot 13:58): 7 rows quedaron stuck como
+   * "pendiente humano" con el último mensaje del cliente siendo un
+   * ack ("Muchas gracias por tu tiempo", "Dale. Gracias", "Excelente,
+   * muchas gracias", etc.). El detector nuevo lo hubiera atajado en
+   * el momento pero las rows históricas nadie las revisita. Este
+   * barrido escanea pending humanos donde el último mensaje del
+   * cliente matchea el ack detector Y el turno previo del staff/AI
+   * no dejó preguntas abiertas. Los cierra + loguea IDs para audit.
+   */
+  async reconcileStuckOnAck(options?: {
+    dryRun?: boolean;
+  }): Promise<{
+    scanned: number;
+    closed: number;
+    byChannel: Record<string, number>;
+    ids: string[];
+  }> {
+    const dryRun = options?.dryRun ?? false;
+    const cipher = getMessageCipher();
+    const candidates = await this.prisma.conversation.findMany({
+      where: {
+        needsHumanAttention: true,
+        contact: { is: { isSandbox: false } },
+      },
+      select: {
+        id: true,
+        channel: true,
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 2,
+          select: { sender: true, content: true, isFromAI: true },
+        },
+      },
+    });
+    const toClose: Array<{ id: string; channel: string }> = [];
+    for (const c of candidates) {
+      const msgs = c.messages;
+      if (msgs.length === 0) continue;
+      const last = msgs[0];
+      if (last.sender !== MessageSender.CUSTOMER) continue;
+      const lastPlain = cipher.decrypt(last.content ?? '');
+      if (!isAcknowledgment(lastPlain)) continue;
+      // Si el turno previo era pregunta abierta del staff/AI, el "ok"
+      // no cierra el loop — misma guarda que usa el hot path.
+      const prev = msgs[1];
+      if (prev) {
+        const prevPlain = cipher.decrypt(prev.content ?? '');
+        if (looksLikeUnresolvedFromStaff(prevPlain)) continue;
+      }
+      toClose.push({ id: c.id, channel: c.channel });
+    }
+    const byChannel: Record<string, number> = {};
+    for (const t of toClose) byChannel[t.channel] = (byChannel[t.channel] ?? 0) + 1;
+
+    if (!dryRun && toClose.length > 0) {
+      const ids = toClose.map((t) => t.id);
+      const CHUNK = 200;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const slice = ids.slice(i, i + CHUNK);
+        await this.prisma.conversation.updateMany({
+          where: { id: { in: slice } },
+          data: {
+            needsHumanAttention: false,
+            status: ConversationStatus.CLOSED,
+          },
+        });
+      }
+      this.logger.log(
+        `Reconcile-on-ack: closed ${toClose.length} across ${Object.keys(byChannel).length} channels — ${JSON.stringify(byChannel)}`,
+      );
+      this.logger.log(`Reconcile-on-ack closed conversation IDs: ${ids.join(',')}`);
+      this.metrics.emitTick('handoff_reconcile_ack_closed');
+    } else if (dryRun) {
+      this.logger.log(
+        `Reconcile-on-ack (dry-run): would close ${toClose.length} across ${JSON.stringify(byChannel)}`,
+      );
+    }
+    return {
+      scanned: candidates.length,
+      closed: dryRun ? 0 : toClose.length,
+      byChannel,
+      ids: toClose.map((t) => t.id),
     };
   }
 

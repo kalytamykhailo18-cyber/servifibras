@@ -58,15 +58,24 @@ export class HandoffReconcileCron implements OnModuleInit {
   private async tick() {
     try {
       const result = await this.svc.reconcileStaleNeedsHumanAttention();
-      // Log de summary aunque no haya rows para limpiar — así queda claro
-      // que el reconciler está vivo. Sin log, un cron silencioso se
-      // vuelve invisible (mismo motivo por el que health.service ahora
-      // reporta whatsapp).
       this.logger.log(
         `Handoff reconcile tick: scanned=${result.scanned} cleared=${result.cleared} byChannel=${JSON.stringify(result.byChannel)}`,
       );
     } catch (err: any) {
       this.logger.error(`Handoff reconcile tick errored: ${err.message}`);
+    }
+    // Marcos 2026-07-21: además del pass de "staff ya respondió",
+    // corremos el pass de "cliente cerró con ack pero el flag quedó
+    // stuck" (7 rows flageadas por Marcos con "gracias", "ok gracias",
+    // "muchas gracias por tu tiempo" que la primera versión del
+    // detector no matcheaba). Idempotente e igual de audit-log.
+    try {
+      const ackResult = await this.svc.reconcileStuckOnAck();
+      this.logger.log(
+        `Handoff reconcile-ack tick: scanned=${ackResult.scanned} closed=${ackResult.closed} byChannel=${JSON.stringify(ackResult.byChannel)}`,
+      );
+    } catch (err: any) {
+      this.logger.error(`Handoff reconcile-ack tick errored: ${err.message}`);
     }
   }
 }
