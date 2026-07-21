@@ -419,11 +419,20 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
   // RENDER: MAIN CONTENT
   // ========================================================================
 
+  // Marcos 2026-07-21 (video 11:57 AM): el detalle scrolleaba la
+  // página entera. Cuando bajaba con la rueda el composer se despegaba
+  // del fondo y aparecía flotando en el medio con un gran vacío blanco
+  // abajo. Fix: contenedor de altura de viewport con overflow-hidden,
+  // los tramos superiores (action bar + contact info) son shrink-0, el
+  // grid principal ocupa el resto (min-h-0 + overflow-hidden). Dentro
+  // del grid, la columna de mensajes fluye (composer siempre al fondo)
+  // y la columna sidebar tiene su propio scroll. Modelo tipo WhatsApp
+  // Web: nunca scrollea la página, sólo los paneles internos.
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className={"flex flex-col animate-in fade-in duration-500 gap-4 " + (embedded ? "h-full min-h-[500px] overflow-hidden" : "h-[calc(100dvh-140px)] min-h-[500px] overflow-hidden")}>
       {/* TOP ACTION BAR — se oculta en modo embedded porque el split-pane
           ya provee la lista a la izquierda; el botón Volver es redundante. */}
-      <div className={"flex items-center justify-between gap-2 " + (embedded ? "hidden sm:flex" : "")}>
+      <div className={"flex shrink-0 items-center justify-between gap-2 " + (embedded ? "hidden sm:flex" : "")}>
         <button
           type="button"
           onClick={() => (onBack ? onBack() : router.push("/conversations"))}
@@ -450,12 +459,16 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
         </button>
       </div>
 
-      {/* MAIN CONTENT GRID */}
-      <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
+      {/* MAIN CONTENT GRID — flex-1 min-h-0 para que ocupe el resto
+          del viewport sin desbordar. La columna de mensajes fluye
+          adentro, el sidebar tiene su propio scroll. */}
+      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-3 lg:gap-6">
         {/* MESSAGES COLUMN */}
-        <div className="space-y-4 lg:col-span-2">
-          {/* CONVERSATION HEADER — stacks on mobile, inline on lg+ */}
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] sm:p-5 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+        <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden lg:col-span-2">
+          {/* CONVERSATION HEADER — stacks on mobile, inline on lg+.
+              shrink-0 para que el composer/messages tenga siempre su
+              flex-1 sin que este card lo pise. */}
+          <div className="flex shrink-0 flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] sm:p-5 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               {(() => {
                 const name = conversation.contact.name;
@@ -598,10 +611,9 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
             </div>
           )}
 
-          {/* MESSAGES — single shell, two regions (scrolling thread + composer).
-              Uses dynamic viewport height on mobile so the keyboard pushing up
-              doesn't crop the composer below the fold. */}
-          <div className="flex h-[calc(100dvh-280px)] min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)] sm:h-auto sm:max-h-[640px] sm:min-h-[500px]">
+          {/* MESSAGES — shell fills the remaining space of the flex
+              parent (min-h-0 crucial), composer siempre al fondo. */}
+          <div className="flex min-h-0 min-h-[420px] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_0_rgb(15_23_42/0.04)]">
             <div ref={messagesScrollRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white p-4 sm:p-6">
               {(conversation.messages && conversation.messages.length > 0) || internalNotes.length > 0 ? (
                 <>
@@ -654,8 +666,10 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
           </div>
         </div>
 
-        {/* SIDEBAR COLUMN */}
-        <div className="space-y-4">
+        {/* SIDEBAR COLUMN — scroll propio para que no empuje la
+            página cuando los paneles (summary/score/orders/contact
+            info) suman más alto que el viewport. */}
+        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
           {/* AI-GENERATED CONVERSATIONAL SUMMARY — Marcos's #2 ask: the
               operator should see context fast without re-reading the
               full thread. Regenerates on the backend after enough new

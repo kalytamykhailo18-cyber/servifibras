@@ -250,8 +250,11 @@ export default function ConversationsPage() {
           )}
         </div>
 
-        {/* RIGHT — detail (only visible md+) */}
-        <div className="hidden md:block">
+        {/* RIGHT — detail (only visible md+). Contenedor con altura de
+            viewport para que el detalle jamás fuerce a scrollear la
+            página; adentro el panel maneja sus paneles con scroll
+            interno. Alineado con la altura de la columna izquierda. */}
+        <div className="hidden md:block md:h-[calc(100dvh-160px)] md:min-h-[420px] md:overflow-hidden">
           {selectedId ? (
             <ConversationDetailPanel
               key={selectedId}
@@ -260,7 +263,7 @@ export default function ConversationsPage() {
               onBack={() => setSelectedId(null)}
             />
           ) : (
-            <div className="flex h-[calc(100dvh-160px)] min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/40 text-center">
+            <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/40 text-center">
               <span className="mb-3 grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-slate-200 to-slate-100 text-slate-400">
                 <ChatBubbleOutlineIcon sx={{ fontSize: 24 }} />
               </span>
