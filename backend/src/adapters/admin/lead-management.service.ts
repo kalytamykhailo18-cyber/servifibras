@@ -328,6 +328,47 @@ export class LeadManagementService implements ILeadManagementService {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
+    // Marcos 2026-07-21: métricas de actividad real (no sólo del
+    // Kanban de leads, que quedó congelado por falta de disparadores).
+    // Ventana rodante configurable (default 30 días) filtrando
+    // sandbox. Conversaciones cerradas, órdenes generadas, y monto
+    // total. Mismo scope filter que las otras cards del pipeline.
+    const activityWindowDays = (() => {
+      const raw = process.env.LEAD_ACTIVITY_WINDOW_DAYS;
+      const n = raw != null ? Number(raw) : 30;
+      return Number.isFinite(n) && n > 0 ? n : 30;
+    })();
+    const activitySince = new Date(Date.now() - activityWindowDays * 24 * 60 * 60 * 1000);
+    const realCustomerScope = { contact: { is: { isSandbox: false } } } as const;
+
+    const [closedConversationsInWindow, ordersInWindow, ordersAgg] = await Promise.all([
+      this.prisma.conversation.count({
+        where: {
+          status: 'CLOSED' as any,
+          isSandbox: false,
+          updatedAt: { gte: activitySince },
+          ...(scope && scope.role !== UserRole.ADMIN
+            ? { OR: [{ assignedTo: scope.userId }, { assignedTo: null }] }
+            : {}),
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          createdAt: { gte: activitySince },
+          ...realCustomerScope,
+        },
+      }),
+      this.prisma.order.aggregate({
+        _sum: { amount: true },
+        where: {
+          createdAt: { gte: activitySince },
+          currency: 'ARS',
+          ...realCustomerScope,
+        },
+      }),
+    ]);
+    const ordersAmountArsInWindow = Math.round(Number(ordersAgg._sum.amount ?? 0));
+
     return {
       totalLeads,
       byStatus,
@@ -338,6 +379,10 @@ export class LeadManagementService implements ILeadManagementService {
       averageDealSize,
       bySource,
       topProducts,
+      closedConversationsInWindow,
+      ordersInWindow,
+      ordersAmountArsInWindow,
+      activityWindowDays,
     };
   }
 }

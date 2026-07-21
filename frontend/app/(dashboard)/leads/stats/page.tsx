@@ -11,6 +11,9 @@ import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import GpsFixedIcon from "@mui/icons-material/GpsFixed";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutlineOutlined";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import PaidIcon from "@mui/icons-material/Paid";
 import { toast } from "sonner";
 import {
   BarChart,
@@ -122,7 +125,38 @@ export default function LeadsStatsPage() {
         </div>
       </div>
 
-      {/* SUMMARY METRICS */}
+      {/* ACTIVIDAD REAL (Marcos 2026-07-21) — el Kanban de leads
+          venía congelado, estas 3 cards reflejan el negocio real:
+          conversaciones cerradas + pedidos + facturado en la ventana
+          rodante (default 30 días, tunable con LEAD_ACTIVITY_WINDOW_DAYS). */}
+      <div className="grid gap-3 md:grid-cols-3 md:gap-4">
+        <MetricsCard
+          title="Conversaciones cerradas"
+          value={stats.closedConversationsInWindow ?? 0}
+          description={`Últimos ${stats.activityWindowDays ?? 30} días`}
+          icon={ChatBubbleOutlineIcon}
+          gradient="from-slate-600 to-slate-500"
+          glow="shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(71_85_105/0.45)]"
+        />
+        <MetricsCard
+          title="Pedidos generados"
+          value={stats.ordersInWindow ?? 0}
+          description={`Últimos ${stats.activityWindowDays ?? 30} días`}
+          icon={ShoppingCartIcon}
+          gradient="from-indigo-500 to-violet-400"
+          glow="shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(99_102_241/0.45)]"
+        />
+        <MetricsCard
+          title="Facturado"
+          value={`$${formatNumber(stats.ordersAmountArsInWindow ?? 0)}`}
+          description={`ARS, últimos ${stats.activityWindowDays ?? 30} días`}
+          icon={PaidIcon}
+          gradient="from-emerald-500 to-teal-400"
+          glow="shadow-[inset_0_1px_0_0_rgb(255_255_255/0.25),0_8px_20px_-6px_rgb(16_185_129/0.45)]"
+        />
+      </div>
+
+      {/* SUMMARY METRICS (leads del Kanban) */}
       <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
         <MetricsCard
           title="Total Oportunidades"

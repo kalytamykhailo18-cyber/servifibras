@@ -69,6 +69,17 @@ export interface LeadPipelineStats {
   averageDealSize: number;
   bySource: Record<Channel, number>;
   topProducts: Array<{ product: string; count: number }>;
+  // Marcos 2026-07-21: el pipeline sólo mostraba filas de la tabla
+  // leads, que estaba congelada (0 leads nuevos en 7 días) mientras
+  // la actividad real de clientes seguía. Estos 3 números reflejan
+  // la actividad de negocio en una ventana rodante (LEAD_ACTIVITY_WINDOW_DAYS,
+  // default 30) filtrando sandbox: conversaciones cerradas por el
+  // agente, pedidos generados desde la conversación, y monto total
+  // facturado en ese lapso.
+  closedConversationsInWindow: number;
+  ordersInWindow: number;
+  ordersAmountArsInWindow: number;
+  activityWindowDays: number;
 }
 
 export interface ILeadManagementService {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PipelineBoard } from "@/components/leads/pipeline-board";
+import { LeadsActivityStrip } from "@/components/leads/activity-strip";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
 import { api } from "@/lib/api/endpoints";
 import { useRoleGuard } from "@/lib/hooks/use-role-guard";
@@ -247,6 +248,12 @@ export default function LeadsPage() {
           </button>
         </div>
       </div>
+
+      {/* Marcos 2026-07-21: banda de actividad real arriba del board,
+          para que el pipeline no se vea vacío cuando el Kanban de
+          leads está congelado. Refleja conversaciones cerradas +
+          pedidos + facturado en la ventana rodante. */}
+      <LeadsActivityStrip />
 
       <Pagination
         position="top"

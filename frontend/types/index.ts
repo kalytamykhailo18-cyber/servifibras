@@ -581,6 +581,13 @@ export interface LeadPipelineStats {
   totalWonValue?: number;
   totalLostValue?: number;
   averageDealSize?: number;
+  // Marcos 2026-07-21: métricas de actividad real (conversaciones
+  // cerradas + órdenes) para que el pipeline refleje el negocio y no
+  // sólo el Kanban de leads que quedó congelado.
+  closedConversationsInWindow?: number;
+  ordersInWindow?: number;
+  ordersAmountArsInWindow?: number;
+  activityWindowDays?: number;
 }
 
 // Orders
