@@ -17,6 +17,9 @@ export interface ConversationListFilter {
   status?: ConversationStatus;
   search?: string; // Search in contact name or last message
   assignedToUserId?: string;
+  // Marcos 2026-07-21: filtro para la tab "No leídos". Cuando true,
+  // devuelve sólo pending humano (needsHumanAttention=true).
+  needsHumanAttention?: boolean;
   limit?: number;
   offset?: number;
   scope?: RequestScope;

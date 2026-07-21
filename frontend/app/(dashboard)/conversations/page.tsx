@@ -23,10 +23,12 @@ import type { ConversationWithRelations, ConversationFilters, GetConversationsPa
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlineOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import MarkChatUnreadIcon from '@mui/icons-material/MarkChatUnread';
 
-type ConversationsTab = "all" | "mercadolibre";
+type ConversationsTab = "all" | "unread" | "mercadolibre";
 
 const ML_TAB_ROLES: UserRole[] = [
   UserRole.ADMIN,
@@ -42,7 +44,11 @@ export default function ConversationsPage() {
   const searchParams = useSearchParams();
   const role = useAuthStore(selectUserRole);
   const mlTabAllowed = role != null && ML_TAB_ROLES.includes(role);
-  const tabFromUrl = (mlTabAllowed && searchParams.get("view") === "mercadolibre" ? "mercadolibre" : "all") as ConversationsTab;
+  const rawView = searchParams.get("view");
+  const tabFromUrl: ConversationsTab =
+    mlTabAllowed && rawView === "mercadolibre" ? "mercadolibre"
+      : rawView === "unread" ? "unread"
+      : "all";
   const [activeTab, setActiveTab] = useState<ConversationsTab>(tabFromUrl);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -50,6 +56,7 @@ export default function ConversationsPage() {
     setActiveTab(tab);
     const sp = new URLSearchParams(searchParams.toString());
     if (tab === "mercadolibre") sp.set("view", "mercadolibre");
+    else if (tab === "unread") sp.set("view", "unread");
     else sp.delete("view");
     router.replace(`/conversations${sp.toString() ? `?${sp.toString()}` : ""}`, { scroll: false });
   };
@@ -93,6 +100,17 @@ export default function ConversationsPage() {
     search: "",
   });
 
+  // Marcos 2026-07-21: buscador siempre visible en el header (antes
+  // estaba adentro del panel de filtros y "desapareció" al colapsar).
+  // Debounce 250ms para no disparar un fetch por cada tecla.
+  const [searchInput, setSearchInput] = useState("");
+  useEffect(() => {
+    const h = setTimeout(() => {
+      setFilters((f) => (f.search === searchInput.trim() ? f : { ...f, search: searchInput.trim() }));
+    }, 250);
+    return () => clearTimeout(h);
+  }, [searchInput]);
+
   const fetchConversations = async (page: number = 1, silent: boolean = false) => {
     try {
       if (!silent) setIsLoading(true);
@@ -102,6 +120,8 @@ export default function ConversationsPage() {
       if (filters.channel && filters.channel !== "ALL") params.channel = filters.channel;
       if (filters.assignedTo && filters.assignedTo !== "ALL") params.assignedTo = filters.assignedTo;
       if (filters.search && filters.search.trim().length > 0) params.search = filters.search.trim();
+      // Tab "No leídos" → filter server-side por needsHumanAttention=true.
+      if (activeTab === "unread") params.needsHumanAttention = true;
       const response = await api.conversations.getAll(params);
       setConversations(response.conversations);
       setTotalCount(response.total);
@@ -116,7 +136,7 @@ export default function ConversationsPage() {
 
   useEffect(() => {
     fetchConversations(1);
-  }, [filters]);
+  }, [filters, activeTab]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onTick = useCallback(() => {
@@ -196,6 +216,8 @@ export default function ConversationsPage() {
           mlPendingCount={mlPendingCount}
           showFilters={showFilters}
           setShowFilters={setShowFilters}
+          searchValue={searchInput}
+          onSearchChange={setSearchInput}
         />
         <MercadolibreQaList />
       </div>
@@ -213,6 +235,8 @@ export default function ConversationsPage() {
         mlPendingCount={mlPendingCount}
         showFilters={showFilters}
         setShowFilters={setShowFilters}
+        searchValue={searchInput}
+        onSearchChange={setSearchInput}
       />
 
       {showFilters && (
@@ -313,71 +337,114 @@ interface CompactHeaderProps {
   mlPendingCount: number;
   showFilters: boolean;
   setShowFilters: (v: boolean) => void;
+  searchValue: string;
+  onSearchChange: (v: string) => void;
 }
 function CompactHeader({
-  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount, showFilters, setShowFilters,
+  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount,
+  showFilters, setShowFilters, searchValue, onSearchChange,
 }: CompactHeaderProps) {
   return (
-    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-1">
-      <div className="flex flex-wrap items-center gap-1">
-        <button
-          type="button"
-          onClick={() => switchTab("all")}
-          className={
-            "inline-flex h-9 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors " +
-            (activeTab === "all" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
-          }
-        >
-          <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
-          Conversaciones
-        </button>
-        {mlTabAllowed && (
+    <div className="mb-2 border-b border-slate-200 pb-1">
+      {/* Row 1: tabs + acciones */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
-            onClick={() => switchTab("mercadolibre")}
+            onClick={() => switchTab("all")}
             className={
               "inline-flex h-9 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors " +
-              (activeTab === "mercadolibre" ? "border-yellow-600 text-yellow-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
+              (activeTab === "all" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
             }
           >
-            <StorefrontIcon sx={{ fontSize: 15 }} />
-            Mercado Libre
-            {mlPendingCount > 0 && (
-              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold tabular-nums text-white">
-                {mlPendingCount}
-              </span>
-            )}
+            <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
+            Todas
           </button>
-        )}
-      </div>
-      <div className="flex items-center gap-1">
-        {activeTab === "all" && (
           <button
             type="button"
-            onClick={() => setShowFilters(!showFilters)}
-            aria-pressed={showFilters}
+            onClick={() => switchTab("unread")}
             className={
-              "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors " +
-              (showFilters
-                ? "border-blue-300 bg-blue-50 text-blue-700"
-                : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700")
+              "inline-flex h-9 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors " +
+              (activeTab === "unread" ? "border-rose-600 text-rose-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
             }
           >
-            <FilterListIcon sx={{ fontSize: 14 }} />
-            Filtros
+            <MarkChatUnreadIcon sx={{ fontSize: 15 }} />
+            No leídas
           </button>
-        )}
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isLoading}
-          aria-label="Actualizar"
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 disabled:opacity-60"
-        >
-          <RefreshIcon sx={{ fontSize: 14 }} className={isLoading ? "animate-spin" : ""} />
-          Actualizar
-        </button>
+          {mlTabAllowed && (
+            <button
+              type="button"
+              onClick={() => switchTab("mercadolibre")}
+              className={
+                "inline-flex h-9 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors " +
+                (activeTab === "mercadolibre" ? "border-yellow-600 text-yellow-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
+              }
+            >
+              <StorefrontIcon sx={{ fontSize: 15 }} />
+              Mercado Libre
+              {mlPendingCount > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold tabular-nums text-white">
+                  {mlPendingCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {activeTab !== "mercadolibre" && (
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              aria-pressed={showFilters}
+              title="Filtros avanzados (canal, estado, asignado)"
+              className={
+                "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors " +
+                (showFilters
+                  ? "border-blue-300 bg-blue-50 text-blue-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700")
+              }
+            >
+              <FilterListIcon sx={{ fontSize: 14 }} />
+              Filtros
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isLoading}
+            aria-label="Actualizar"
+            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 disabled:opacity-60"
+          >
+            <RefreshIcon sx={{ fontSize: 14 }} className={isLoading ? "animate-spin" : ""} />
+            Actualizar
+          </button>
+        </div>
       </div>
+      {/* Row 2: buscador SIEMPRE visible en las tabs de chat.
+          Marcos 2026-07-21: pidió que el buscador vuelva a estar
+          arriba, sin necesidad de abrir Filtros. Debounce en el
+          componente padre. */}
+      {activeTab !== "mercadolibre" && (
+        <div className="mt-1 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1">
+          <SearchIcon sx={{ fontSize: 16 }} className="text-slate-400" />
+          <input
+            type="search"
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Buscar por nombre, número, o texto del mensaje…"
+            className="min-w-0 flex-1 border-none bg-transparent text-sm outline-none placeholder:text-slate-400"
+          />
+          {searchValue && (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              className="text-[11px] font-medium text-slate-400 hover:text-slate-700"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

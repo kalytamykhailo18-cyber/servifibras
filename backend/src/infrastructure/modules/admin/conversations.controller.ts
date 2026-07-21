@@ -102,6 +102,7 @@ export class ConversationsController {
     @Query('status') status?: ConversationStatus,
     @Query('search') search?: string,
     @Query('assignedTo') assignedTo?: string,
+    @Query('needsHumanAttention') needsHumanAttention?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -110,6 +111,7 @@ export class ConversationsController {
       status,
       search,
       assignedToUserId: assignedTo,
+      needsHumanAttention: needsHumanAttention === 'true',
       limit: limit ? parseInt(limit) : 50,
       offset: offset ? parseInt(offset) : 0,
       scope: { userId: req.user.id, role: req.user.role },

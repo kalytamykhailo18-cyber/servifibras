@@ -372,6 +372,7 @@ export interface GetConversationsParams {
   channel?: Channel;
   assignedTo?: string;
   search?: string;
+  needsHumanAttention?: boolean;
 }
 
 export interface GetConversationsResponse {

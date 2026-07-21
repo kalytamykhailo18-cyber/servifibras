@@ -69,6 +69,13 @@ export class ConversationManagementService implements IConversationManagementSer
         where.assignedTo = filter.assignedToUserId;
       }
 
+      // Marcos 2026-07-21: filtro para la tab "No leídos" del inbox
+      // (símil WhatsApp). Cuando llega true, sólo devolvemos las que
+      // realmente esperan respuesta del staff.
+      if (filter.needsHumanAttention === true) {
+        where.needsHumanAttention = true;
+      }
+
       // Role-based scoping. Admins see everything; everyone else sees only
       // their own slice.
       //   ATENCION (Brenda) — assigned to her OR unassigned (first-line queue)
@@ -197,12 +204,23 @@ export class ConversationManagementService implements IConversationManagementSer
         // Staff (ADMIN/BRENDA/FRANCO/ALDO) or AI reply → answered.
         return false;
       };
+      // Marcos 2026-07-21 (screenshot inbox, 17:41): pidió que las
+      // pendientes se ordenen por PRIORIDAD, no por recencia. Interpretación:
+      // el que esperó más tiempo sin respuesta es el más urgente
+      // (queue-style / SLA), NO el que escribió hace 5 segundos.
+      // Regla:
+      //   - Bucket 1 (top): pendientes (isPendingReply=true) ordenadas
+      //     por lastMessageAt ASCENDENTE (más viejo = más urgente arriba).
+      //   - Bucket 2: resto, por lastMessageAt DESCENDENTE (recientes primero).
       rawFetched.sort((a: any, b: any) => {
         const aPend = isPendingReply(a) ? 1 : 0;
         const bPend = isPendingReply(b) ? 1 : 0;
         if (aPend !== bPend) return bPend - aPend;
         const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : -1;
         const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : -1;
+        // Dentro del bucket de pendientes: viejo primero (SLA).
+        // Dentro del bucket resuelto: nuevo primero (actividad reciente).
+        if (aPend === 1) return tA - tB;
         return tB - tA;
       });
       let conversations = rawFetched.slice(0, limit);

@@ -188,6 +188,8 @@ export const conversationsApi = {
       if (params.channel) backendParams.channel = params.channel;
       if (params.assignedTo) backendParams.assignedTo = params.assignedTo;
       if (params.search) backendParams.search = params.search;
+      // Marcos 2026-07-21: filtro para la tab "No leídos" del inbox.
+      if ((params as any).needsHumanAttention === true) backendParams.needsHumanAttention = 'true';
     }
 
 
