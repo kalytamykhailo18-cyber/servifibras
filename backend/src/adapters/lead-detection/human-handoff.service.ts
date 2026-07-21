@@ -165,7 +165,13 @@ export class HumanHandoffService implements IHumanHandoffService {
    */
   async reconcileStaleNeedsHumanAttention(options?: {
     dryRun?: boolean;
-  }): Promise<{ scanned: number; cleared: number; byChannel: Record<string, number>; ids: string[] }> {
+  }): Promise<{
+    scanned: number;
+    cleared: number;
+    byChannel: Record<string, number>;
+    ids: string[];
+    statusAligned: number;
+  }> {
     const dryRun = options?.dryRun ?? false;
     // Prisma no permite comparar dos columnas de la misma fila via
     // `where: { escalatedAt: { lt: prisma.field(...) } }`, así que
@@ -226,11 +232,38 @@ export class HumanHandoffService implements IHumanHandoffService {
       );
     }
 
+    // Marcos 2026-07-21 (hunt preventivo): además del caso "flag=true
+    // pero staff ya respondió", también existe el simétrico
+    // "flag=false pero status=WAITING" — 186 rows en ese estado al
+    // 07-21. Este segundo pass alinea status=ACTIVE cuando el flag
+    // ya no requiere atención humana. Es data hygiene, no cambia
+    // ninguna prioridad de negocio: WAITING sin flag es un estado
+    // imposible (el inbox lo levanta como pendiente pero no lo es).
+    let statusAligned = 0;
+    if (!dryRun) {
+      const res = await this.prisma.conversation.updateMany({
+        where: {
+          needsHumanAttention: false,
+          status: ConversationStatus.WAITING,
+        },
+        data: { status: ConversationStatus.ACTIVE },
+      });
+      statusAligned = res.count;
+      if (statusAligned > 0) {
+        this.logger.log(`Reconcile: aligned ${statusAligned} rows with needsHumanAttention=false + status=WAITING → status=ACTIVE`);
+      }
+    } else {
+      statusAligned = await this.prisma.conversation.count({
+        where: { needsHumanAttention: false, status: ConversationStatus.WAITING },
+      });
+    }
+
     return {
       scanned: candidates.length,
       cleared: dryRun ? 0 : stale.length,
       byChannel,
       ids: stale.map((s) => s.id),
+      statusAligned,
     };
   }
 
@@ -241,9 +274,17 @@ export class HumanHandoffService implements IHumanHandoffService {
         select: { needsHumanAttention: true },
       });
       if (!c?.needsHumanAttention) return;
+      // Marcos 2026-07-21: cuando limpiamos el flag hay que bajar
+      // también status a ACTIVE — sino la fila queda en WAITING con
+      // needsHumanAttention=false, un estado imposible (el filtro
+      // "esperando respuesta" incluye WAITING y estas rows se colaban
+      // arriba del inbox sin motivo). Hallado 186 rows en ese estado
+      // durante el hunt del 07-21; el reconciler ya baja a ACTIVE en
+      // su path, pero clearFlag no lo hacía. Alineado con
+      // reconcileStaleNeedsHumanAttention() (misma transición).
       await this.prisma.conversation.update({
         where: { id: conversationId },
-        data: { needsHumanAttention: false },
+        data: { needsHumanAttention: false, status: ConversationStatus.ACTIVE },
       });
       this.metrics.emitTick('conversation_handoff_cleared');
       this.logger.log(`✅ Cleared human-needed flag on conversation ${conversationId}`);

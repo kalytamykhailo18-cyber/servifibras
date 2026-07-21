@@ -468,6 +468,31 @@ export class RoleMetricsService {
     // pendientes reales y le hinchaba el "1148 pendientes".
     const realCustomerOrderScope = { contact: { is: { isSandbox: false } } } as const;
 
+    // Marcos 2026-07-21 (hunt preventivo): Order.status en este sistema
+    // NUNCA avanza a DISPATCHED — el flow real de despacho usa
+    // logistica_armado.state='LISTO' como señal (mismo criterio que
+    // dispatchedRecent debajo). Como consecuencia, el count de
+    // "pendientes" contaba históricamente 1096 órdenes de las cuales
+    // 1072 ya estaban LISTO — Marcos veía "1063 atrasados +48h" cuando
+    // el backlog real era ~24. Ahora restamos la intersección con
+    // logistica_armado por (tn:{orderId} | crm:{orderId}) — mismos
+    // rowKey shapes que el aggregator escribe. Alineado con
+    // [[feedback_exception_visibility_over_auto_mark]] (confiamos en
+    // la señal canónica de ops, no en Order.status que quedó stale).
+    const listedRowKeys = await this.prisma.logisticaArmado.findMany({
+      where: { state: 'LISTO' },
+      select: { rowKey: true },
+    });
+    const listedOrderIds = new Set<string>();
+    for (const r of listedRowKeys) {
+      const k = r.rowKey ?? '';
+      if (k.startsWith('tn:')) listedOrderIds.add(k.slice(3));
+      else if (k.startsWith('crm:')) listedOrderIds.add(k.slice(4));
+    }
+    const excludeListedOrderIds = listedOrderIds.size > 0
+      ? { id: { notIn: Array.from(listedOrderIds) } }
+      : {};
+
     const [
       pendingOrders,
       overdueOrders,
@@ -476,12 +501,19 @@ export class RoleMetricsService {
       dispatchedRecent,
       pendingTopRows,
     ] = await Promise.all([
-      this.prisma.order.count({ where: { status: { in: PENDING_STATUSES }, ...realCustomerOrderScope } }),
+      this.prisma.order.count({
+        where: {
+          status: { in: PENDING_STATUSES },
+          ...realCustomerOrderScope,
+          ...excludeListedOrderIds,
+        },
+      }),
       this.prisma.order.count({
         where: {
           status: { in: PENDING_STATUSES },
           createdAt: { lt: overdueCutoff },
           ...realCustomerOrderScope,
+          ...excludeListedOrderIds,
         },
       }),
       this.prisma.$queryRaw<Array<{ count: bigint }>>`
@@ -523,7 +555,11 @@ export class RoleMetricsService {
         },
       }),
       this.prisma.order.findMany({
-        where: { status: { in: PENDING_STATUSES }, ...realCustomerOrderScope },
+        where: {
+          status: { in: PENDING_STATUSES },
+          ...realCustomerOrderScope,
+          ...excludeListedOrderIds,
+        },
         orderBy: { createdAt: 'asc' },
         take: 6,
         select: {
