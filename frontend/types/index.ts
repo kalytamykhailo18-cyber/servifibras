@@ -169,6 +169,9 @@ export interface Conversation {
   // member sends a reply through the panel.
   needsHumanAttention?: boolean;
   escalatedAt?: string | null;
+  // Marcos 2026-07-21: tab "Favoritas" — flag compartido entre operadores.
+  favorite?: boolean;
+  favoritedAt?: string | null;
   // Per-conversation AI kill-switch toggled from the conversation header.
   // When true the inbound pipeline still saves customer messages but the
   // AI does not reply — operators handle it manually.
@@ -373,6 +376,7 @@ export interface GetConversationsParams {
   assignedTo?: string;
   search?: string;
   needsHumanAttention?: boolean;
+  favorite?: boolean;
 }
 
 export interface GetConversationsResponse {

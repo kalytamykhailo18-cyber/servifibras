@@ -20,6 +20,8 @@ export interface ConversationListFilter {
   // Marcos 2026-07-21: filtro para la tab "No leídos". Cuando true,
   // devuelve sólo pending humano (needsHumanAttention=true).
   needsHumanAttention?: boolean;
+  // Marcos 2026-07-21: filtro para la tab "Favoritas".
+  favorite?: boolean;
   limit?: number;
   offset?: number;
   scope?: RequestScope;
@@ -51,6 +53,9 @@ export interface ConversationDetails {
   messageCount: number;
   needsHumanAttention: boolean;
   escalatedAt: Date | null;
+  // Marcos 2026-07-21: tab Favoritas.
+  favorite: boolean;
+  favoritedAt: Date | null;
   aiPaused: boolean;
   aiPausedAt: Date | null;
   aiPausedBy: string | null;

@@ -190,6 +190,8 @@ export const conversationsApi = {
       if (params.search) backendParams.search = params.search;
       // Marcos 2026-07-21: filtro para la tab "No leídos" del inbox.
       if ((params as any).needsHumanAttention === true) backendParams.needsHumanAttention = 'true';
+      // Marcos 2026-07-21: filtro para la tab "Favoritas".
+      if ((params as any).favorite === true) backendParams.favorite = 'true';
     }
 
 
@@ -317,6 +319,20 @@ export const conversationsApi = {
       `/admin/conversations/${id}/takeover`
     );
     return response.data;
+  },
+
+  /**
+   * POST /admin/conversations/:id/favorite
+   * Marcos 2026-07-21: toggle "favorita" (símil WhatsApp).
+   * Devuelve { favorite, favoritedAt } — el llamador actualiza el ícono.
+   */
+  setFavorite: async (id: string, favorite: boolean): Promise<{ favorite: boolean; favoritedAt: string | null } | null> => {
+    const response = await apiClient.post<{ success: boolean; data?: { favorite: boolean; favoritedAt: string | null }; error?: string }>(
+      `/admin/conversations/${id}/favorite`,
+      { favorite }
+    );
+    if (!response.data?.success) return null;
+    return response.data.data ?? null;
   },
 
   /**

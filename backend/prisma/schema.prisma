@@ -190,6 +190,14 @@ model Conversation {
   // cliente" panel tool. Excluded from the inbox + analytics so test
   // chatter doesn't pollute real data; the AI pipeline runs identically.
   isSandbox             Boolean            @default(false)
+  // Marcos 2026-07-21: pestaña "Favoritas" símil WhatsApp. Cuando true,
+  // la conversación aparece en la tab Favoritas del inbox y la estrella
+  // se pinta rellena en la fila. Es un flag compartido entre todos los
+  // operadores (no per-user) — cuando Marcos marca una como favorita,
+  // Brenda también la ve destacada. Si en el futuro Marcos pide per-user,
+  // migramos a una tabla ConversationFavorite (userId + conversationId).
+  favorite              Boolean            @default(false)
+  favoritedAt           DateTime?
   // Bloque B item 1 — Marcos 2026-06-06: ML cuenta split. When this
   // conversation lives on the MERCADOLIBRE channel, this column
   // carries the OAuthCredential `provider` key for the cuenta the

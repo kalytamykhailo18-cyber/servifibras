@@ -79,14 +79,27 @@ export class UserManagementService {
     }
 
     const password = await this.auth.hashPassword(input.password);
+    // Marcos 2026-07-22: safeguard — usuarios con dominio .test SIEMPRE
+    // se crean inactivos, sin importar lo que pida el caller. Los E2E
+    // usan patrones como `ui-mgmt-{ts}@servifibras.test` y hasta hoy
+    // quedaban `active=true` en prod, ensuciando el dropdown "Asignar
+    // a…" que ve Marcos. El bloqueo es de dominio, no de prefijo —
+    // futuras baterías de test también quedan cubiertas.
+    const emailLower = input.email.trim().toLowerCase();
+    const isTestDomain = emailLower.endsWith('.test');
+    if (isTestDomain && input.active !== false) {
+      this.logger.warn(
+        `Fixture user create for ${emailLower} forced to active=false (${'.test'} domain guard)`,
+      );
+    }
     try {
       const created = await this.prisma.user.create({
         data: {
-          email: input.email.trim().toLowerCase(),
+          email: emailLower,
           username: input.username.trim().toLowerCase(),
           name: input.name.trim(),
           role: input.role,
-          active: input.active !== false,
+          active: isTestDomain ? false : input.active !== false,
           password,
         },
         select: {

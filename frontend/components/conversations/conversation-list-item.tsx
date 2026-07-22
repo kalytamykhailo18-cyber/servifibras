@@ -11,11 +11,16 @@
 
 import { safeFormatDistanceToNow } from "@/lib/date";
 import type { ConversationWithRelations } from "@/types";
+import { useState } from "react";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
+import { api } from "@/lib/api/endpoints";
 
 interface Props {
   conversation: ConversationWithRelations;
   selected: boolean;
   onSelect: (id: string) => void;
+  onFavoriteChange?: (id: string, favorite: boolean) => void;
 }
 
 const AVATAR_GRADIENTS = [
@@ -35,7 +40,33 @@ const CHANNEL_DOT: Record<string, string> = {
   TIENDANUBE_WEBCHAT: "bg-violet-500",
 };
 
-export function ConversationListItem({ conversation, selected, onSelect }: Props) {
+export function ConversationListItem({ conversation, selected, onSelect, onFavoriteChange }: Props) {
+  // Marcos 2026-07-21: estado local optimista para la estrella. El
+  // toggle actualiza al instante y le avisa al padre para que si
+  // estamos en la tab Favoritas y desmarcamos, la fila desaparezca.
+  const [localFav, setLocalFav] = useState<boolean>(!!conversation.favorite);
+  const [pending, setPending] = useState(false);
+
+  async function toggleFav(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (pending) return;
+    const next = !localFav;
+    setLocalFav(next);
+    setPending(true);
+    try {
+      const r = await api.conversations.setFavorite(conversation.id, next);
+      if (r) {
+        setLocalFav(r.favorite);
+        onFavoriteChange?.(conversation.id, r.favorite);
+      } else {
+        setLocalFav(!next);
+      }
+    } catch {
+      setLocalFav(!next);
+    } finally {
+      setPending(false);
+    }
+  }
   const name = conversation.contact.name || "Sin nombre";
 
   const initials = (() => {
@@ -92,7 +123,20 @@ export function ConversationListItem({ conversation, selected, onSelect }: Props
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${channelDot}`} title={conversation.channel} />
             <span className="truncate text-[13px] font-semibold text-slate-900">{name}</span>
           </span>
-          <span className="shrink-0 text-[10px] text-slate-500">{timeAgo}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleFav}
+              aria-label={localFav ? "Quitar de favoritas" : "Marcar como favorita"}
+              title={localFav ? "Quitar de favoritas" : "Marcar como favorita"}
+              className={"grid h-5 w-5 place-items-center rounded transition-colors " + (pending ? "opacity-60" : "hover:bg-amber-100")}
+            >
+              {localFav
+                ? <StarIcon sx={{ fontSize: 14 }} className="text-amber-500" />
+                : <StarBorderIcon sx={{ fontSize: 14 }} className="text-slate-400 hover:text-amber-500" />}
+            </button>
+            <span className="text-[10px] text-slate-500">{timeAgo}</span>
+          </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-[12px] leading-snug text-slate-600">{preview || <span className="italic text-slate-400">Sin mensajes</span>}</p>

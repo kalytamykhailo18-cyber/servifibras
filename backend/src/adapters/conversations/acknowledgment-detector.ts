@@ -49,6 +49,7 @@ const ACK_TOKENS = new Set<string>([
   'copiado', 'copiada',
   'recibido', 'recibida',
   'clarisimo', 'claro',
+  'acuerdo', // "de acuerdo"
   'exacto', 'exacta',
   'joya', 'joyita',
   'mil', // "mil gracias" — mil solo por sí no cierra pero se apoya en gracias

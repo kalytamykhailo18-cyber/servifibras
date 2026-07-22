@@ -76,6 +76,11 @@ export class ConversationManagementService implements IConversationManagementSer
         where.needsHumanAttention = true;
       }
 
+      // Marcos 2026-07-21: filtro para la tab "Favoritas".
+      if (filter.favorite === true) {
+        where.favorite = true;
+      }
+
       // Role-based scoping. Admins see everything; everyone else sees only
       // their own slice.
       //   ATENCION (Brenda) — assigned to her OR unassigned (first-line queue)
@@ -371,6 +376,8 @@ export class ConversationManagementService implements IConversationManagementSer
         messageCount: conv._count.messages,
         needsHumanAttention: conv.needsHumanAttention,
         escalatedAt: conv.escalatedAt,
+        favorite: (conv as any).favorite ?? false,
+        favoritedAt: (conv as any).favoritedAt ?? null,
         aiPaused: conv.aiPaused,
         aiPausedAt: conv.aiPausedAt,
         aiPausedBy: conv.aiPausedBy,
@@ -465,6 +472,8 @@ export class ConversationManagementService implements IConversationManagementSer
         messageCount: conversation._count.messages,
         needsHumanAttention: conversation.needsHumanAttention,
         escalatedAt: conversation.escalatedAt,
+        favorite: (conversation as any).favorite ?? false,
+        favoritedAt: (conversation as any).favoritedAt ?? null,
         aiPaused: conversation.aiPaused,
         aiPausedAt: conversation.aiPausedAt,
         aiPausedBy: conversation.aiPausedBy,
@@ -1128,6 +1137,36 @@ export class ConversationManagementService implements IConversationManagementSer
         byStatus: {} as any,
         activeToday: 0,
       };
+    }
+  }
+
+  /**
+   * Marcos 2026-07-21: toggle "favorita" símil WhatsApp. Compartido
+   * entre operadores (no per-user) — cuando Marcos favoritea, Brenda
+   * también la ve destacada. Devuelve el nuevo estado; el caller
+   * decide qué hacer con la respuesta (frontend actualiza el ícono).
+   */
+  async setFavorite(conversationId: string, favorite: boolean): Promise<{ favorite: boolean; favoritedAt: Date | null } | null> {
+    try {
+      const updated = await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          favorite,
+          favoritedAt: favorite ? new Date() : null,
+        } as any,
+        select: {
+          favorite: true,
+          favoritedAt: true,
+        } as any,
+      });
+      return {
+        favorite: (updated as any).favorite,
+        favoritedAt: (updated as any).favoritedAt ?? null,
+      };
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      this.logger.error(`setFavorite failed for ${conversationId}: ${err?.message ?? err}`);
+      throw err;
     }
   }
 

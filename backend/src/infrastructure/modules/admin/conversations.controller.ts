@@ -103,6 +103,7 @@ export class ConversationsController {
     @Query('search') search?: string,
     @Query('assignedTo') assignedTo?: string,
     @Query('needsHumanAttention') needsHumanAttention?: string,
+    @Query('favorite') favorite?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -112,6 +113,7 @@ export class ConversationsController {
       search,
       assignedToUserId: assignedTo,
       needsHumanAttention: needsHumanAttention === 'true',
+      favorite: favorite === 'true',
       limit: limit ? parseInt(limit) : 50,
       offset: offset ? parseInt(offset) : 0,
       scope: { userId: req.user.id, role: req.user.role },
@@ -284,6 +286,34 @@ export class ConversationsController {
     } else {
       return { success: false, error: 'Failed to assign conversation' };
     }
+  }
+
+  /**
+   * Marcos 2026-07-21: toggle "favorita" símil WhatsApp. Endpoint
+   * compartido (no per-user) — cuando cualquier operador marca,
+   * la conversación aparece en la tab Favoritas para todos.
+   *
+   * POST /admin/conversations/:id/favorite   body: { favorite: boolean }
+   */
+  @Post(':id/favorite')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
+  async setFavorite(
+    @Param('id') id: string,
+    @Body() body: { favorite: boolean },
+    @Request() req: any,
+  ) {
+    const result = await this.conversationManagement.setFavorite(id, body.favorite === true);
+    if (!result) return { success: false, error: 'Conversación no encontrada' };
+    const ctx = this.auditCtx(req);
+    await this.audit.log({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: body.favorite ? 'conversation.favorite' : 'conversation.unfavorite',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { conversationId: id },
+    });
+    return { success: true, data: result };
   }
 
   /**

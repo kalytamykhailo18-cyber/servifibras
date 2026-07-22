@@ -43,7 +43,12 @@ async function main() {
     'Cuánto sale la resina de 2kg?',
     'Ok pero cuándo llega?',                 // contiene "?"
     'listo entonces me mandan la cotización?', // pregunta
-    'gracias por confirmar el precio del tanque de fibra grande', // > 40 chars
+    // Nota: la versión estricta anclada rechazaba mensajes largos que
+    // contuvieran "gracias"; el detector tokenizado (2026-07-21) los
+    // marca como candidatos y delega en el confirm de Claude. Este
+    // caso ambiguo se movió al pipeline confirmatorio; acá dejamos
+    // otro puramente negativo (no contiene tokens de cierre).
+    'quería preguntar por el precio del tanque de fibra grande',
     'gracias, me confirmás?',                 // contiene "?"
     '',                                        // vacío
     null,                                      // nulo

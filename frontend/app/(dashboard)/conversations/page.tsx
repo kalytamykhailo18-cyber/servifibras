@@ -27,8 +27,9 @@ import SearchIcon from '@mui/icons-material/Search';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import MarkChatUnreadIcon from '@mui/icons-material/MarkChatUnread';
+import StarIcon from '@mui/icons-material/Star';
 
-type ConversationsTab = "all" | "unread" | "mercadolibre";
+type ConversationsTab = "all" | "unread" | "favorites" | "mercadolibre";
 
 const ML_TAB_ROLES: UserRole[] = [
   UserRole.ADMIN,
@@ -48,6 +49,7 @@ export default function ConversationsPage() {
   const tabFromUrl: ConversationsTab =
     mlTabAllowed && rawView === "mercadolibre" ? "mercadolibre"
       : rawView === "unread" ? "unread"
+      : rawView === "favorites" ? "favorites"
       : "all";
   const [activeTab, setActiveTab] = useState<ConversationsTab>(tabFromUrl);
   const [showFilters, setShowFilters] = useState(false);
@@ -57,6 +59,7 @@ export default function ConversationsPage() {
     const sp = new URLSearchParams(searchParams.toString());
     if (tab === "mercadolibre") sp.set("view", "mercadolibre");
     else if (tab === "unread") sp.set("view", "unread");
+    else if (tab === "favorites") sp.set("view", "favorites");
     else sp.delete("view");
     router.replace(`/conversations${sp.toString() ? `?${sp.toString()}` : ""}`, { scroll: false });
   };
@@ -122,6 +125,8 @@ export default function ConversationsPage() {
       if (filters.search && filters.search.trim().length > 0) params.search = filters.search.trim();
       // Tab "No leídos" → filter server-side por needsHumanAttention=true.
       if (activeTab === "unread") params.needsHumanAttention = true;
+      // Tab "Favoritas" → filter server-side por favorite=true.
+      if (activeTab === "favorites") params.favorite = true;
       const response = await api.conversations.getAll(params);
       setConversations(response.conversations);
       setTotalCount(response.total);
@@ -282,6 +287,20 @@ export default function ConversationsPage() {
                   conversation={c}
                   selected={selectedId === c.id}
                   onSelect={handleSelect}
+                  onFavoriteChange={(id, fav) => {
+                    // Actualizamos la lista optimistamente. Si estamos
+                    // en la tab Favoritas y desmarcamos, la fila
+                    // desaparece; en Todas/No leídas, sólo cambia el
+                    // ícono. Un fetch silencioso confirma el estado.
+                    setConversations((prev) => {
+                      if (activeTab === "favorites" && !fav) {
+                        return prev.filter((p) => p.id !== id);
+                      }
+                      return prev.map((p) => (p.id === id ? { ...p, favorite: fav } : p));
+                    });
+                    // Silent re-sync so page count / server view stays honest.
+                    fetchConversations(currentPage, true);
+                  }}
                 />
               ))
             )}
@@ -370,6 +389,17 @@ function CompactHeader({
           >
             <MarkChatUnreadIcon sx={{ fontSize: 15 }} />
             No leídas
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab("favorites")}
+            className={
+              "inline-flex h-9 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors " +
+              (activeTab === "favorites" ? "border-amber-600 text-amber-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800")
+            }
+          >
+            <StarIcon sx={{ fontSize: 15 }} />
+            Favoritas
           </button>
           {mlTabAllowed && (
             <button
