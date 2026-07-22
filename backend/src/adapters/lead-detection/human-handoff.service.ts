@@ -295,6 +295,10 @@ export class HumanHandoffService implements IHumanHandoffService {
       where: {
         needsHumanAttention: true,
         contact: { is: { isSandbox: false } },
+        // Marcos 2026-07-22: el reconciler comparte pipeline con el
+        // hot-path; si aiPaused=true no cerramos porque el farewell
+        // del agente violaría el kill-switch del operador.
+        aiPaused: false,
       },
       select: {
         id: true,

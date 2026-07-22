@@ -2139,6 +2139,19 @@ export class ConversationHandlerService implements IConversationHandler {
     if (!isAcknowledgment(customerText)) return false;
     if (recentMessages.length === 0) return false;
 
+    // Marcos 2026-07-22: si el operador pausó la IA en esta conversación
+    // (aiPaused=true) NUNCA disparamos el auto-close. El farewell del
+    // agente "Bárbaro, cualquier cosa avisame" es UNA respuesta del
+    // agente y viola el kill-switch. Marcos: "la IA se está activando
+    // sola de forma aleatoria en conversaciones de whatsapp". Esta era
+    // una de las fuentes.
+    if (await this.isAiPaused(conversationId)) {
+      this.logger.log(
+        `Ack fast-match but AI is paused on conv ${conversationId.slice(0, 8)} — not closing (operator handles it)`,
+      );
+      return false;
+    }
+
     // getConversationHistoryById devuelve desc — recentMessages[0] es el
     // más nuevo (el mensaje anterior al que estamos procesando ahora).
     const prev = recentMessages[0];

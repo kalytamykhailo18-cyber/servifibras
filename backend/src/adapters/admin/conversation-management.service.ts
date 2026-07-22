@@ -209,23 +209,24 @@ export class ConversationManagementService implements IConversationManagementSer
         // Staff (ADMIN/BRENDA/FRANCO/ALDO) or AI reply → answered.
         return false;
       };
-      // Marcos 2026-07-21 (screenshot inbox, 17:41): pidió que las
-      // pendientes se ordenen por PRIORIDAD, no por recencia. Interpretación:
-      // el que esperó más tiempo sin respuesta es el más urgente
-      // (queue-style / SLA), NO el que escribió hace 5 segundos.
-      // Regla:
-      //   - Bucket 1 (top): pendientes (isPendingReply=true) ordenadas
-      //     por lastMessageAt ASCENDENTE (más viejo = más urgente arriba).
-      //   - Bucket 2: resto, por lastMessageAt DESCENDENTE (recientes primero).
+      // Marcos 2026-07-22 (screenshot inbox 09:46 AR): la sort
+      // "oldest-first dentro de pendientes" que había interpretado
+      // como SLA queue el 07-21 tapó completamente el inbox — 214
+      // rows pendientes de 7-30 días + 19 de 30d+ (contactos sin
+      // nombre, mensajes vacíos, huérfanos) flotaban al tope y la
+      // actividad de HOY (11 rows <24h) quedaba en la página 6+.
+      // Marcos: "no aparecen conversaciones, solo antiguas". Vuelvo
+      // al criterio simple estilo WhatsApp: newest-first across all,
+      // pending sigue teniendo prioridad de bucket para que No leídas
+      // muestre algo útil, pero DENTRO de cada bucket recientes
+      // primero. Los zombies se hunden a la cola del inbox donde
+      // están si Marcos scrollea, pero no dominan la vista.
       rawFetched.sort((a: any, b: any) => {
         const aPend = isPendingReply(a) ? 1 : 0;
         const bPend = isPendingReply(b) ? 1 : 0;
         if (aPend !== bPend) return bPend - aPend;
         const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : -1;
         const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : -1;
-        // Dentro del bucket de pendientes: viejo primero (SLA).
-        // Dentro del bucket resuelto: nuevo primero (actividad reciente).
-        if (aPend === 1) return tA - tB;
         return tB - tA;
       });
       let conversations = rawFetched.slice(0, limit);
