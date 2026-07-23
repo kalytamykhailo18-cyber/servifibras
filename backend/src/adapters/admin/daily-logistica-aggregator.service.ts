@@ -817,12 +817,20 @@ export class DailyLogisticaAggregatorService {
         // contaminar `notes`. La detección isTnPickup lo lee.
         shippingPickupType: true,
         createdAt: true,
-        contact: { select: { name: true } },
+        contact: { select: { name: true, isSandbox: true } },
       };
+      // Marcos 2026-07-23: el aggregator no filtraba por contact.isSandbox;
+      // órdenes MANUAL cargadas contra contactos sandbox (fixtures) se
+      // colaban al panel de Despachos. Marcos lo detectó vía OCA (2 packs
+      // OD-* que él nunca cargó, con contact.isSandbox=true). Alineamos
+      // con el resto (analytics.service, role-metrics) filtrando en la
+      // query.
+      const realCustomerScope = { contact: { is: { isSandbox: false } } } as const;
       const [activeOrders, recentSettled] = await Promise.all([
         this.prisma.order.findMany({
           where: {
             status: { in: [OrderStatus.CONFIRMED, OrderStatus.PROCESSING] },
+            ...realCustomerScope,
           },
           select: orderSelect,
           orderBy: { createdAt: 'desc' },
@@ -831,6 +839,7 @@ export class DailyLogisticaAggregatorService {
           where: {
             createdAt: { gte: new Date(backlogFromIso), lte: new Date(toIso) },
             status: { in: [OrderStatus.DISPATCHED, OrderStatus.CANCELLED] },
+            ...realCustomerScope,
           },
           select: orderSelect,
           orderBy: { createdAt: 'desc' },
