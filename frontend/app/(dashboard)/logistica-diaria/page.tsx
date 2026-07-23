@@ -397,13 +397,25 @@ export default function LogisticaDiariaPage() {
             if (checked) {
               set.add(itemKey);
             } else {
-              set.delete(itemKey);
-              // Además del delete exact, remover cualquier entrada
-              // con el mismo <sku>: prefix (limpieza de stamps
-              // viejos con índices desactualizados).
-              const pref = skuPrefixOf(itemKey);
-              if (pref) {
-                for (const k of Array.from(set)) if (k.startsWith(pref)) set.delete(k);
+              // Marcos 2026-07-23: antes hacíamos delete exact + un
+              // "clean-by-prefix" que borraba TODAS las entradas con
+              // el mismo `sku:` — perfecto para limpiar stamps
+              // viejos con índices desactualizados, pero cuando el
+              // mismo SKU está en 2 items del mismo pack, un uncheck
+              // borraba también el chequeo del OTRO item duplicado
+              // sin que el usuario lo pidiera. Ahora: preferimos
+              // delete exact; si no existe (el item aparecía
+              // checked vía tolerant match), consumimos UNA sola
+              // entrada con el prefijo del sku. Nunca borramos > 1.
+              if (set.has(itemKey)) {
+                set.delete(itemKey);
+              } else {
+                const pref = skuPrefixOf(itemKey);
+                if (pref) {
+                  for (const k of Array.from(set)) {
+                    if (k.startsWith(pref)) { set.delete(k); break; }
+                  }
+                }
               }
             }
             r.itemsChecked = Array.from(set);
@@ -1950,24 +1962,54 @@ export default function LogisticaDiariaPage() {
                             return `${base}:${idx}`;
                           };
                           const checkedSet = new Set(row.itemsChecked ?? []);
-                          const isItemChecked = (it: typeof row.items[number], idx: number) => {
-                            // Path exact (legacy).
-                            if (checkedSet.has(itemKeyFor(it, idx))) return true;
-                            // Path tolerante: para items CON sku, buscar
-                            // cualquier entrada del set que empiece con
-                            // ese sku (matchea SKU:0..N sin importar el
-                            // índice actual).
-                            if (it.sku && it.sku.length > 0) {
+                          // Marcos 2026-07-23 (pack #2000014153154619,
+                          // OTELIB): cuando 2 items del mismo SKU vienen
+                          // en el mismo pack (mismo SKU en 2 publicaciones),
+                          // la versión tolerante anterior compartía estado
+                          // entre las 2 filas — al tildar una se tildaba
+                          // visualmente la otra, y el count quedaba en 3/4
+                          // aunque parecía 4/4. El bloqueo de LISTO no
+                          // dejaba pasar el pack.
+                          //
+                          // Nueva regla en 2 pasos, consumiendo 1 entrada
+                          // del set por cada item checked:
+                          //   Pass 1 — Exact match: si `sku:idx` está
+                          //     literal en el set, ese item queda checked
+                          //     y consume esa entrada.
+                          //   Pass 2 — Tolerante (para items con sku que
+                          //     no matchearon exact): buscamos UNA entrada
+                          //     restante con prefijo `sku:` y la consumimos.
+                          //     Cubre el caso de drift entre fetches
+                          //     (Marcos 2026-06-30) sin duplicar estado
+                          //     cuando hay N items del mismo SKU.
+                          //
+                          // Items sin sku (`item:idx`) siguen exact-only.
+                          const checkedIndicesSet = new Set<number>();
+                          {
+                            const remaining = new Set(checkedSet);
+                            row.items.forEach((it, idx) => {
+                              const key = itemKeyFor(it, idx);
+                              if (remaining.has(key)) {
+                                checkedIndicesSet.add(idx);
+                                remaining.delete(key);
+                              }
+                            });
+                            row.items.forEach((it, idx) => {
+                              if (checkedIndicesSet.has(idx)) return;
+                              if (!it.sku || it.sku.length === 0) return;
                               const prefix = `${it.sku}:`;
-                              for (const k of checkedSet) if (k.startsWith(prefix)) return true;
-                            }
-                            return false;
-                          };
+                              for (const k of remaining) {
+                                if (k.startsWith(prefix)) {
+                                  checkedIndicesSet.add(idx);
+                                  remaining.delete(k);
+                                  break;
+                                }
+                              }
+                            });
+                          }
+                          const isItemChecked = (_it: typeof row.items[number], idx: number) => checkedIndicesSet.has(idx);
                           const totalItems = row.items.length;
-                          const checkedCount = row.items.reduce(
-                            (c, it, idx) => (isItemChecked(it, idx) ? c + 1 : c),
-                            0,
-                          );
+                          const checkedCount = checkedIndicesSet.size;
                           const allChecked = totalItems > 0 && checkedCount === totalItems;
                           return (
                           <div
