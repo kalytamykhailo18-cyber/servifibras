@@ -70,6 +70,7 @@ e2e/*
 !e2e/test-user-test-domain-guard-e2e.js
 !e2e/test-inbox-order-and-ai-paused-e2e.js
 !e2e/test-armado-duplicate-sku-e2e.js
+!e2e/test-inbox-time-format-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in

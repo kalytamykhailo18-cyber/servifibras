@@ -9,7 +9,7 @@
 // Selección visible con fondo azul suave a la izquierda, mismo look
 // que un app de mensajería.
 
-import { safeFormatDistanceToNow } from "@/lib/date";
+import { safeFormatInboxTime } from "@/lib/date";
 import type { ConversationWithRelations } from "@/types";
 import { useState } from "react";
 import StarIcon from "@mui/icons-material/Star";
@@ -77,7 +77,9 @@ export function ConversationListItem({ conversation, selected, onSelect, onFavor
 
   const gradient = AVATAR_GRADIENTS[(name.charCodeAt(0) || 0) % AVATAR_GRADIENTS.length];
   const channelDot = CHANNEL_DOT[conversation.channel] ?? "bg-slate-400";
-  const timeAgo = conversation.lastMessageAt ? safeFormatDistanceToNow(conversation.lastMessageAt) : "";
+  // Marcos 2026-07-23: hora exacta estilo WhatsApp — HH:MM hoy,
+  // "ayer HH:MM" ayer, día corto (<7d), fecha para más viejo.
+  const timeAgo = conversation.lastMessageAt ? safeFormatInboxTime(conversation.lastMessageAt) : "";
   const needsHuman = !!conversation.needsHumanAttention;
   const isMayorista =
     conversation.contact.type === "MAYORISTA" ||

@@ -23,7 +23,7 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import PhoneIcon from '@mui/icons-material/Phone';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import { safeFormatDistanceToNow } from "@/lib/date";
+import { safeFormatDistanceToNow, safeFormatInboxTime } from "@/lib/date";
 import { formatNumber } from "@/lib/format";
 
 export default function ContactDetailPage() {
@@ -385,7 +385,7 @@ export default function ContactDetailPage() {
                       </div>
                       {conversation.lastMessageAt && (
                         <span className="shrink-0 text-xs text-slate-500">
-                          {safeFormatDistanceToNow(conversation.lastMessageAt)}
+                          {safeFormatInboxTime(conversation.lastMessageAt)}
                         </span>
                       )}
                     </div>
