@@ -46,6 +46,14 @@ export function normaliseCarrier(raw: string | null | undefined): string {
   //   defina el nombre nuevo para envíos de laminados.
   if (/^retiras? en (la )?servifibras/.test(lc)) return 'Retira Caseros';
   if (/^servifibras propio\b/.test(lc)) return 'Servifibras propio';
+  // Marcos 2026-07-23: TN manda "Servifibras" a secas cuando el
+  // comprador elige el método de envío express propio del local.
+  // Esos despachos los hace JyJ, así que se cobran/pagan como JyJ.
+  // Match exacto para no pisar "Servifibras propio" (línea de arriba)
+  // ni "Retiras en Servifibras Caseros" (línea 2 arriba). Confirmado
+  // contra prod: 41 rows con carrier=='Servifibras' exacto al
+  // 07-23; nunca aparece con sufijos o mayúsculas raras.
+  if (/^servifibras$/.test(lc)) return 'JyJ';
   if (/^m2\b|mensaje?r[ií]a m2/.test(lc)) return 'M2';
   if (/^baires\b|mensaje?r[ií]a baires/.test(lc)) return 'Baires';
   if (/^oca\b/.test(lc)) return 'OCA';
