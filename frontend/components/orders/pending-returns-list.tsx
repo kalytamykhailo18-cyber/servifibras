@@ -38,7 +38,8 @@ type Row = {
   id: string;
   orderNumber: string;
   orderType: 'SALE' | 'REPOSICION' | 'DEVOLUCION';
-  returnState: 'PENDING' | 'LOST';
+  // Marcos 2026-07-24: NONE = reposición sólo entrega (no vuelve nada).
+  returnState: 'PENDING' | 'LOST' | 'NONE';
   contact: { id: string; name: string | null };
   carrier: string | null;
   shippingZone: string | null;
@@ -51,6 +52,17 @@ type Row = {
   createdAt: string;
   createdBy: { id: string; name: string } | null;
 };
+
+// Marcos 2026-07-24: para las filas de sólo-entrega la mensajería
+// relevante es la de ida (carrier), no returnCarrier (que no existe).
+function relevantCarrier(r: Row): string | null {
+  if (r.orderType === 'REPOSICION' && r.returnState === 'NONE') return r.carrier;
+  return r.orderType === 'REPOSICION' ? r.returnCarrier : r.carrier;
+}
+function relevantShipping(r: Row): number | null {
+  if (r.orderType === 'REPOSICION' && r.returnState === 'NONE') return r.shippingCost;
+  return r.orderType === 'REPOSICION' ? r.returnShippingCost : r.shippingCost;
+}
 
 function fmtAge(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -129,11 +141,11 @@ export function PendingReturnsList() {
   const grouped = useMemo(() => {
     const map = new Map<string, { rows: Row[]; totalShipping: number; totalProduct: number; lostCount: number; lostValue: number }>();
     for (const r of rows) {
-      const key = (carrierFor(r) ?? '').trim() || 'Sin mensajería';
+      const key = (relevantCarrier(r) ?? '').trim() || 'Sin mensajería';
       if (!map.has(key)) map.set(key, { rows: [], totalShipping: 0, totalProduct: 0, lostCount: 0, lostValue: 0 });
       const g = map.get(key)!;
       g.rows.push(r);
-      g.totalShipping += typeof shippingFor(r) === 'number' ? (shippingFor(r) as number) : 0;
+      g.totalShipping += typeof relevantShipping(r) === 'number' ? (relevantShipping(r) as number) : 0;
       g.totalProduct += typeof r.productCost === 'number' ? r.productCost : 0;
       if (r.returnState === 'LOST') {
         g.lostCount++;
@@ -282,8 +294,27 @@ export function PendingReturnsList() {
                   )}
                 </div>
               </div>
+              {/* Marcos 2026-07-24: split por tipo de reposición dentro
+                  del courier. "Con devolución" (returnState PENDING/LOST)
+                  primero, "Sólo entrega" (returnState NONE) después. */}
+              {(() => {
+                const withReturn = g.rows.filter((r) => r.returnState === 'PENDING' || r.returnState === 'LOST');
+                const deliveryOnly = g.rows.filter((r) => r.returnState === 'NONE');
+                return (
+              <>
+              {withReturn.length > 0 && (
+                <div className="mb-2">
+                  <p
+                    className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700"
+                    data-testid={`pending-returns-subgroup-with-return-${carrier}`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                    Con devolución <span className="font-normal text-rose-600">({withReturn.length})</span>
+                  </p>
+                </div>
+              )}
               <ul className="space-y-2" data-testid={`pending-returns-rows-${carrier}`}>
-                {g.rows.map((r) => {
+                {withReturn.map((r) => {
                   const lost = r.returnState === 'LOST';
                   return (
                   <li
@@ -347,6 +378,45 @@ export function PendingReturnsList() {
                   );
                 })}
               </ul>
+              {deliveryOnly.length > 0 && (
+                <div className={withReturn.length > 0 ? "mt-3" : ""}>
+                  <p
+                    className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700"
+                    data-testid={`pending-returns-subgroup-delivery-only-${carrier}`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                    Sólo entrega <span className="font-normal text-sky-600">({deliveryOnly.length})</span>
+                  </p>
+                  <ul className="space-y-2" data-testid={`pending-returns-delivery-rows-${carrier}`}>
+                    {deliveryOnly.map((r) => (
+                      <li
+                        key={r.id}
+                        data-testid={`pending-returns-delivery-row-${r.orderNumber}`}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-sky-200/70 bg-sky-50/30 p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            #{r.orderNumber} · {r.contact.name ?? "Cliente"}
+                            <span className="ml-2 inline-flex h-4 items-center rounded-full bg-sky-100 px-1.5 text-[10px] font-semibold text-sky-800">
+                              reposición · sólo entrega
+                            </span>
+                          </p>
+                          <p className="truncate text-[11px] text-slate-600">
+                            {r.productLabel ? <><span className="font-medium text-slate-800">{r.productLabel}</span>{' · '}</> : null}
+                            {r.shippingZone ?? 'sin zona'}
+                            {' · log '}<span className="tabular-nums">{fmtArs(relevantShipping(r))}</span>
+                            {' · '}{fmtAge(r.createdAt)}
+                            {r.createdBy?.name ? ` · por ${r.createdBy.name}` : ''}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              </>
+              );
+              })()}
             </section>
           ))}
         </div>

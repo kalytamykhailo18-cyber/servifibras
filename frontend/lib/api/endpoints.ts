@@ -2381,6 +2381,7 @@ export interface LaminadosPricelistResponse {
 
 export interface MlQaRow {
   conversationId: string;
+  contactId: string;
   buyer: { name: string | null; mlUserId: string | null };
   question: { id: string; text: string; at: string };
   reply: { id: string; text: string; at: string; bySender: 'AI' | 'ADMIN' | 'OTHER' } | null;
@@ -2407,10 +2408,32 @@ export interface MlQaCounts {
   scoreLe5: number;
 }
 
+export interface MlPriorQaPair {
+  questionAt: string;
+  questionText: string;
+  replyAt: string | null;
+  replyText: string | null;
+}
+
 export const mercadolibreApi = {
   qaCounts: async (): Promise<MlQaCounts> => {
     const r = await apiClient.get<any>('/admin/mercadolibre/qa/counts');
     return r.data?.data ?? r.data;
+  },
+  /**
+   * Marcos 2026-07-24: preguntas anteriores del mismo comprador en la
+   * misma publicación. Se llama on-demand cuando el operador expande
+   * el bloque "N preguntas anteriores".
+   */
+  priorQaForBuyerOnItem: async (
+    contactId: string,
+    itemId: string,
+    excludeMessageId?: string,
+  ): Promise<MlPriorQaPair[]> => {
+    const qs = new URLSearchParams({ contactId, itemId });
+    if (excludeMessageId) qs.set('excludeMessageId', excludeMessageId);
+    const r = await apiClient.get<any>(`/admin/mercadolibre/qa/prior?${qs.toString()}`);
+    return r.data?.data ?? r.data ?? [];
   },
   /**
    * Marcos 2026-06-18 PM: typeahead "#" del compositor del panel de
@@ -3197,6 +3220,35 @@ export interface DispatchTariff {
   createdAt: string;
   updatedAt: string;
 }
+
+// Marcos 2026-07-24: alias de mensajerías editables por admin.
+export interface CarrierAlias {
+  id: string;
+  rawPattern: string;
+  mappedName: string;
+  active: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const carrierAliasesApi = {
+  list: async (): Promise<CarrierAlias[]> => {
+    const r = await apiClient.get<any>('/admin/carrier-aliases');
+    return r.data?.data ?? r.data ?? [];
+  },
+  create: async (input: { rawPattern: string; mappedName: string; notes?: string | null; active?: boolean }): Promise<CarrierAlias> => {
+    const r = await apiClient.post<any>('/admin/carrier-aliases', input);
+    return r.data?.data ?? r.data;
+  },
+  update: async (id: string, patch: Partial<{ rawPattern: string; mappedName: string; notes: string | null; active: boolean }>): Promise<CarrierAlias> => {
+    const r = await apiClient.put<any>(`/admin/carrier-aliases/${id}`, patch);
+    return r.data?.data ?? r.data;
+  },
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/admin/carrier-aliases/${id}`);
+  },
+};
 
 export const dispatchTariffsApi = {
   list: async (): Promise<DispatchTariff[]> => {

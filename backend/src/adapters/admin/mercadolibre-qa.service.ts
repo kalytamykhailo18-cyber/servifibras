@@ -36,6 +36,10 @@ import { ClaudeService } from '../ai/claude.service';
 
 export interface MlQaRow {
   conversationId: string;
+  // Marcos 2026-07-24: contactId surfaced so the UI can call
+  // /admin/mercadolibre/qa/prior to load the buyer's previous
+  // questions on the same publication.
+  contactId: string;
   buyer: { name: string | null; mlUserId: string | null };
   question: { id: string; text: string; at: string };
   reply: { id: string; text: string; at: string; bySender: 'AI' | 'ADMIN' | 'OTHER' } | null;
@@ -430,7 +434,7 @@ export class MercadolibreQaService {
       take: overfetch,
       include: {
         contact: {
-          select: { name: true, metadata: true },
+          select: { id: true, name: true, metadata: true },
         },
         score: {
           select: { score: true, severeFlag: true, severeReason: true, reviewedAt: true },
@@ -533,6 +537,7 @@ export class MercadolibreQaService {
         const thumbAttr = productAttrs.find?.((a) => a?.id === 'THUMBNAIL' || a?.name === 'Imagen');
         rows.push({
           conversationId: c.id,
+          contactId: c.contact?.id ?? c.contactId,
           buyer: {
             name: c.contact?.name ?? null,
             mlUserId: (c.contact?.metadata as any)?.mercadolibreUserId ?? null,
@@ -654,6 +659,86 @@ export class MercadolibreQaService {
    * he marks rows OK. Each count is a single COUNT query against the
    * Conversation + ConversationScore relation — cheap.
    */
+  /**
+   * Marcos 2026-07-24: preguntas anteriores del mismo comprador sobre
+   * la MISMA publicación de ML. Espejo de lo que muestra la interfaz
+   * de ML. Sirve al operador para tener contexto cuando el comprador
+   * hizo más de una pregunta sobre el mismo artículo.
+   *
+   * Fetch de messages CUSTOMER que:
+   *   - viven en la conversación del contactId dado (channel=ML)
+   *   - metadata.mlItemId matchea el itemId dado (B2)
+   *   - id != excludeMessageId (la pregunta que estamos mirando ahora)
+   *
+   * Para cada una, buscamos el próximo mensaje AI/staff en la misma
+   * conversación con timestamp mayor + metadata.mlQuestionId matcheado
+   * (o el próximo staff msg si no hay match — fallback aceptable).
+   */
+  async listPriorQaForBuyerOnItem(args: {
+    contactId: string;
+    itemId: string;
+    excludeMessageId?: string | null;
+    limit?: number;
+  }): Promise<Array<{ questionAt: string; questionText: string; replyAt: string | null; replyText: string | null }>> {
+    const limit = Math.min(20, Math.max(1, args.limit ?? 10));
+    const conv = await this.prisma.conversation.findFirst({
+      where: { contactId: args.contactId, channel: Channel.MERCADOLIBRE },
+      select: { id: true },
+    });
+    if (!conv) return [];
+    const cipher = getMessageCipher();
+    const questions = await this.prisma.message.findMany({
+      where: {
+        conversationId: conv.id,
+        sender: MessageSender.CUSTOMER,
+        metadata: { path: ['mlItemId'], equals: args.itemId },
+        ...(args.excludeMessageId ? { id: { not: args.excludeMessageId } } : {}),
+      },
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      select: { id: true, content: true, timestamp: true, metadata: true },
+    });
+    if (questions.length === 0) return [];
+    const results: Array<{ questionAt: string; questionText: string; replyAt: string | null; replyText: string | null }> = [];
+    for (const q of questions) {
+      const qMeta = (q.metadata ?? {}) as Record<string, unknown>;
+      const qId = typeof qMeta.mlQuestionId === 'string' ? qMeta.mlQuestionId : null;
+      // Preferí la respuesta con metadata.mlQuestionId matcheado a la
+      // pregunta; sino, el próximo mensaje AI/staff posterior en tiempo.
+      let reply = null as null | { content: string | null; timestamp: Date };
+      if (qId) {
+        reply = await this.prisma.message.findFirst({
+          where: {
+            conversationId: conv.id,
+            timestamp: { gt: q.timestamp },
+            sender: { not: MessageSender.CUSTOMER },
+            metadata: { path: ['mlQuestionId'], equals: qId },
+          },
+          orderBy: { timestamp: 'asc' },
+          select: { content: true, timestamp: true },
+        });
+      }
+      if (!reply) {
+        reply = await this.prisma.message.findFirst({
+          where: {
+            conversationId: conv.id,
+            timestamp: { gt: q.timestamp },
+            sender: { not: MessageSender.CUSTOMER },
+          },
+          orderBy: { timestamp: 'asc' },
+          select: { content: true, timestamp: true },
+        });
+      }
+      results.push({
+        questionAt: q.timestamp.toISOString(),
+        questionText: cipher.decrypt(q.content ?? ''),
+        replyAt: reply ? reply.timestamp.toISOString() : null,
+        replyText: reply ? cipher.decrypt(reply.content ?? '') : null,
+      });
+    }
+    return results;
+  }
+
   async qaFilterCounts(): Promise<{
     all: number;
     flagged: number;

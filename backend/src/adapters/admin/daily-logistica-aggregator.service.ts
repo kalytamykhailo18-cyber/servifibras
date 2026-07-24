@@ -38,7 +38,8 @@ import { OrderStatus, PrismaClient } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 import { LogisticaArmadoService } from './logistica-armado.service';
-import { normaliseCarrier, applyOutsideZoneFallback } from './carrier-normalize.util';
+import { normaliseCarrier, applyOutsideZoneFallback, type CarrierAliasMap } from './carrier-normalize.util';
+import { CarrierAliasService } from './carrier-alias.service';
 import { DispatchTariffService } from './dispatch-tariff.service';
 
 export type DailySection =
@@ -489,9 +490,18 @@ export class DailyLogisticaAggregatorService {
     // del día (~ARS X por chip).
     @Optional()
     private readonly dispatchTariff?: DispatchTariffService,
+    // Marcos 2026-07-24: alias del admin overriden hardcoded rules.
+    @Optional()
+    private readonly carrierAliases?: CarrierAliasService,
   ) {}
 
   async aggregate(date: Date): Promise<AggregatedDay> {
+    // Marcos 2026-07-24: precargar alias del admin (in-memory, cached
+    // 60s). Se pasa a cada normaliseCarrier del cascade.
+    let aliasesForRequest: CarrierAliasMap | undefined;
+    try {
+      aliasesForRequest = this.carrierAliases ? await this.carrierAliases.getMap() : undefined;
+    } catch { aliasesForRequest = undefined; }
     // Marcos 2026-06-29 (perf investigation): instrumentación temporal
     // de cada stage del aggregator. Marcos reportó timeouts de ~30s y
     // pidió cazar la causa raíz en vez de mitigarlo solo con caché.
@@ -1262,7 +1272,7 @@ export class DailyLogisticaAggregatorService {
           else if (r.rowKey.startsWith('prfv:')) raw = 'Servifibras propio';
           else raw = (r as { _carrier?: string | null })._carrier ?? null;
         }
-        let resolved = normaliseCarrier(raw);
+        let resolved = normaliseCarrier(raw, aliasesForRequest);
         resolved = applyOutsideZoneFallback({
           currentCarrier: resolved,
           rawCarrier: raw,
@@ -1302,7 +1312,7 @@ export class DailyLogisticaAggregatorService {
         const tariffs = await this.dispatchTariff.listActive();
         const grouped = new Map<string, number[]>();
         for (const t of tariffs) {
-          const key = normaliseCarrier(t.carrier);
+          const key = normaliseCarrier(t.carrier, aliasesForRequest);
           (grouped.get(key) ?? grouped.set(key, []).get(key))!.push(t.costPerPackage);
         }
         for (const [k, vs] of grouped) {

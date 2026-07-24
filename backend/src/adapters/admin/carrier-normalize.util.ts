@@ -30,10 +30,28 @@
 // arrancan con esos prefijos.
 const SHIPPING_DESCRIPTOR_REGEX = /^(caba|gba\s*\d)\b|^tarifa nacional|despacho a terminal|grat(is|uito)\s*\(|env[ií]o (grat(is|uito)|sin cargo)/;
 
-export function normaliseCarrier(raw: string | null | undefined): string {
+/**
+ * Marcos 2026-07-24: mapa opcional de alias configurables por el admin
+ * desde el módulo Settings > Alias de mensajerías. Cuando llega, se
+ * consulta ANTES de las reglas hardcoded. Key: raw pattern lowercased.
+ * Value: nombre canónico al que el admin quiere que caiga. Skip
+ * inactive rows en el caller (el service ya filtra active=true).
+ */
+export type CarrierAliasMap = ReadonlyMap<string, string>;
+
+export function normaliseCarrier(
+  raw: string | null | undefined,
+  aliases?: CarrierAliasMap,
+): string {
   const v = (raw ?? '').trim();
   if (!v) return 'Sin asignar';
   const lc = v.toLowerCase();
+  // Alias del admin: match exacto (lowercase, trim). Si hay hit,
+  // corto acá y no aplico la cadena histórica.
+  if (aliases && aliases.size > 0) {
+    const aliased = aliases.get(lc);
+    if (aliased && aliased.trim().length > 0) return aliased.trim();
+  }
   if (/^andreani\b|env[ií]o nube/.test(lc)) return 'Andreani';
   if (lc === 'flex_373' || /^jyj\b|^j[\s.\-]?y[\s.\-]?j\b/.test(lc)) return 'JyJ';
   // Marcos 2026-06-30: separar TN pickup (comprador pasa a buscar

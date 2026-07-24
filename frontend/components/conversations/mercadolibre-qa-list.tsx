@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type MlQaRow, type MlQaCounts } from "@/lib/api/endpoints";
 import { safeFormatDistanceToNow } from "@/lib/date";
+import { MlPriorQuestionsPanel } from "@/components/conversations/ml-prior-questions-panel";
 import { toast } from "sonner";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -1133,6 +1134,18 @@ export function MercadolibreQaList() {
                     <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-3">
                       <p className="text-xs font-medium text-amber-800">Aún sin respuesta</p>
                     </div>
+                  )}
+                  {/* Marcos 2026-07-24: preguntas anteriores del mismo
+                      comprador en esta misma publicación. Espejo de la
+                      UI de ML — se despliega on-demand para no cargar
+                      contexto que el operador quizá no necesita. */}
+                  {row.publication.itemId && (
+                    <MlPriorQuestionsPanel
+                      contactId={row.contactId}
+                      itemId={row.publication.itemId}
+                      excludeMessageId={row.question.id}
+                      buyerName={row.buyer.name ?? row.buyer.mlUserId ?? "el comprador"}
+                    />
                   )}
                 </div>
 

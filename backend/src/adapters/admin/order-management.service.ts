@@ -623,7 +623,7 @@ export class OrderManagementService implements IOrderManagementService {
      * solo lo no-cerrado y eso sigue, pero LOST también pertenece al
      * mismo panel con badge distinto.
      */
-    returnState: 'PENDING' | 'LOST';
+    returnState: 'PENDING' | 'LOST' | 'NONE';
     contact: { id: string; name: string | null };
     carrier: string | null;
     shippingZone: string | null;
@@ -652,13 +652,35 @@ export class OrderManagementService implements IOrderManagementService {
     // a cobrar al courier). REPOSICION con devolución entra acá igual
     // que las DEVOLUCION históricas. PENDING aparece primero, LOST
     // después agrupado.
+    //
+    // Marcos 2026-07-24: incluir también REPOSICION "sólo entrega"
+    // (returnState=NONE) para que el panel muestre TODO lo que la
+    // mensajería tiene pendiente hacer — no sólo lo que tiene que
+    // devolver. La UI las divide en dos sub-listas por mensajería.
+    // Ventana de 30 días para no traer reposiciones históricas ya
+    // resueltas por afuera del sistema. status != CANCELLED aplica
+    // en ambos casos.
+    const noneReposicionSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const rows = await this.prisma.order.findMany({
       where: {
-        returnState: { in: ['PENDING', 'LOST'] as any },
-        status: { notIn: ['CANCELLED'] as any },
+        AND: [
+          { status: { notIn: ['CANCELLED'] as any } },
+          {
+            OR: [
+              { returnState: { in: ['PENDING', 'LOST'] as any } },
+              {
+                AND: [
+                  { orderType: 'REPOSICION' as any },
+                  { returnState: 'NONE' as any },
+                  { createdAt: { gte: noneReposicionSince } },
+                ],
+              },
+            ],
+          },
+        ],
       },
       orderBy: [{ returnState: 'asc' }, { createdAt: 'desc' }],
-      take: 200,
+      take: 400,
       select: {
         id: true,
         orderNumber: true,

@@ -7,7 +7,8 @@ import { PrismaClient, Channel, ConversationStatus, MessageSender } from '@prism
 import { UserRole } from '../../domain/entities/auth.entity';
 import { DispatchTariffService, normalizeTariffKey } from './dispatch-tariff.service';
 import { PostalCodeZoneService } from './postal-code-zone.service';
-import { normaliseCarrier, outsideZoneDefaultCarrier, applyOutsideZoneFallback } from './carrier-normalize.util';
+import { normaliseCarrier, outsideZoneDefaultCarrier, applyOutsideZoneFallback, type CarrierAliasMap } from './carrier-normalize.util';
+import { CarrierAliasService } from './carrier-alias.service';
 
 /**
  * Compute the per-role `where` clause for conversation aggregates so a
@@ -43,12 +44,17 @@ export class AnalyticsService implements IAnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
   private readonly prisma: PrismaClient;
 
+  // Marcos 2026-07-24: alias overrides editables por admin. Se resetea
+  // por request. Optional para tests que instancian sin CarrierAliasService.
+  private currentAliases: CarrierAliasMap | undefined = undefined;
+
   constructor(
     private readonly tariffs: DispatchTariffService,
     // Marcos 2026-06-20: lookup CP → zona como último fallback en la
     // cadena de derivación. @Optional para que tests legacy que
     // construyen AnalyticsService sin contenedor sigan funcionando.
     @Optional() private readonly postalZones?: PostalCodeZoneService,
+    @Optional() private readonly carrierAliases?: CarrierAliasService,
   ) {
     this.prisma = new PrismaClient();
     this.logger.log('✅ Analytics service initialized');
@@ -689,8 +695,22 @@ export class AnalyticsService implements IAnalyticsService {
   // el daily-logistica aggregator use la misma regla de negocio
   // sin duplicar. Wrapper instance para no romper call sites
   // existentes que invocan this.normaliseCarrier(...).
+  //
+  // Marcos 2026-07-24: consulta el mapa de alias del admin ANTES de
+  // las reglas hardcoded. `currentAliases` se hidrata al principio de
+  // cada request de dispatch-stats (loadAliases()).
   private normaliseCarrier(raw: string | null | undefined): string {
-    return normaliseCarrier(raw);
+    return normaliseCarrier(raw, this.currentAliases);
+  }
+
+  private async loadAliases(): Promise<void> {
+    if (!this.carrierAliases) { this.currentAliases = undefined; return; }
+    try {
+      this.currentAliases = await this.carrierAliases.getMap();
+    } catch (err: any) {
+      this.logger.warn(`carrier alias load failed: ${err?.message ?? err}`);
+      this.currentAliases = undefined;
+    }
   }
 
   /**
@@ -756,6 +776,9 @@ export class AnalyticsService implements IAnalyticsService {
     if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) {
       return { fromIso: args.fromIso, toIso: args.toIso, total: 0, totalShippingCost: 0, totalEstimatedCost: null, rowsWithoutTariff: 0, byCarrier: [] };
     }
+    // Marcos 2026-07-24: precargar alias del admin ANTES del cascade
+    // de derivación. `this.normaliseCarrier` los consulta.
+    await this.loadAliases();
     // Marcos 2026-07-09: antes esta query solo miraba manuallyDispatchedAt
     // (el "Marcar como despachadas" manual desde el panel). El flujo real
     // es: el operador tilda LISTO cuando la mensajería retira el paquete

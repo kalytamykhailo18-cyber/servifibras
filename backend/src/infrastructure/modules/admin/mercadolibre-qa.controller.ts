@@ -59,6 +59,35 @@ export class MercadolibreQaController {
     return { success: true, data: await this.svc.qaFilterCounts() };
   }
 
+  /**
+   * Marcos 2026-07-24: al lado de una pregunta pendiente, mostrar las
+   * preguntas anteriores del mismo comprador sobre la misma publicación.
+   * Espejo de lo que hace la propia interfaz de ML.
+   *
+   * GET /admin/mercadolibre/qa/prior?contactId=xxx&itemId=MLA...&excludeMessageId=xxx&limit=10
+   * Devuelve pares (pregunta cliente + respuesta agente) más viejos que
+   * la pregunta actual, sobre la MISMA publicación, del MISMO comprador.
+   */
+  @Get('qa/prior')
+  async prior(
+    @Query('contactId') contactId?: string,
+    @Query('itemId') itemId?: string,
+    @Query('excludeMessageId') excludeMessageId?: string,
+    @Query('limit') limit?: string,
+  ): Promise<{ success: true; data: Array<{ questionAt: string; questionText: string; replyAt: string | null; replyText: string | null }> }> {
+    if (!contactId || !itemId) {
+      throw new BadRequestException('contactId y itemId son requeridos');
+    }
+    const limitNum = Math.min(20, Math.max(1, limit != null ? Number(limit) : 10));
+    const data = await this.svc.listPriorQaForBuyerOnItem({
+      contactId,
+      itemId,
+      excludeMessageId: excludeMessageId ?? null,
+      limit: Number.isFinite(limitNum) ? limitNum : 10,
+    });
+    return { success: true, data };
+  }
+
   @Get('qa')
   async list(
     @Query('limit') limit?: string,

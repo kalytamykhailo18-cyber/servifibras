@@ -59,6 +59,7 @@ model User {
   publicationFaqs    PublicationFaq[]
   competitorWatches  MlCompetitorWatch[]
   dispatchTariffs    DispatchTariff[] @relation("DispatchTariffCreatedBy")
+  carrierAliases     CarrierAlias[]   @relation("CarrierAliasCreatedBy")
   // Marcos 2026-06-18: per-user team-performance analytics.
   ordersCreated      Order[]            @relation("OrderCreatedBy")
   ordersReturned     Order[]            @relation("OrderReturnedBy")
@@ -1558,4 +1559,34 @@ model DispatchTariff {
   @@index([carrier])
   @@index([active])
   @@map("dispatch_tariffs")
+}
+
+/// Marcos 2026-07-24: alias que el admin edita solo, mapea el string
+/// crudo que llega de TN/ML a un nombre corto de mensajería usado en
+/// toda la UI. Se aplica ANTES del normalizeCarrier hardcoded — si hay
+/// alias match, corto ahí. Si no, sigue la cadena histórica.
+///
+/// Ejemplo real: "Servifibras" (raw TN) → alias "JyJ" (el operador
+/// sabe que ese envío lo hace JyJ). Antes había que meterlo en código;
+/// ahora el admin edita desde Settings sin toque de deploy.
+model CarrierAlias {
+  id            String   @id @default(uuid())
+  /// Raw carrier text as it lands from TN/ML (case-insensitive match).
+  /// Ejemplo: "Servifibras", "Envio Nube", "FLEX_373".
+  rawPattern    String
+  /// Nombre canónico al que se mapea. Debe matchear un bucket de
+  /// carrier existente (JyJ, Andreani, Baires, etc.) o uno nuevo si el
+  /// admin quiere una división propia. La UI muestra los buckets
+  /// existentes como sugerencia.
+  mappedName    String
+  notes         String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String?
+  createdBy     User?    @relation("CarrierAliasCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([rawPattern], name: "raw_unique")
+  @@index([active])
+  @@map("carrier_aliases")
 }

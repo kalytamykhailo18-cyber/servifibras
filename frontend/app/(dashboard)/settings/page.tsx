@@ -15,6 +15,7 @@ import { WhatsappQrCard } from "@/components/settings/whatsapp-qr-card";
 import { LeadDetectionForm } from "@/components/settings/lead-detection-form";
 import { LogisticaForm } from "@/components/settings/logistica-form";
 import { DispatchTariffsForm } from "@/components/settings/dispatch-tariffs-form";
+import { CarrierAliasesForm } from "@/components/settings/carrier-aliases-form";
 import { ZoneCarrierRecommendationsCard } from "@/components/settings/zone-carrier-recommendations-card";
 import { OperationalResponsiblesForm } from "@/components/settings/operational-responsibles-form";
 import { QuickRepliesForm } from "@/components/settings/quick-replies-form";
@@ -162,6 +163,7 @@ export default function SettingsPage() {
 
         <TabsContent value="logistica" className="space-y-4">
           <LogisticaForm />
+          <CarrierAliasesForm />
           <DispatchTariffsForm />
           <ZoneCarrierRecommendationsCard />
           <OperationalResponsiblesForm />
