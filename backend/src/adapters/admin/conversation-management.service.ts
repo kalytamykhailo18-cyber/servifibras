@@ -170,8 +170,18 @@ export class ConversationManagementService implements IConversationManagementSer
       // Ahora las que todavía esperan respuesta (needsHumanAttention
       // = true) quedan arriba de las que el equipo ya respondió.
       // W1 del documento del 10-07 fue explícito en este orden.
+      // Marcos 2026-07-24: la orderBy sacaba `needsHumanAttention:desc`
+      // como primer criterio, lo que hacía que el fetch inicial (500
+      // rows) trajera TODAS las pendientes primero — 328 al momento —
+      // y las 172 rows non-pendientes que llegaban eran las más
+      // recientes DENTRO de non-pending, no las más recientes en
+      // absoluto. Todas se llenaba visualmente igual que No leídas.
+      // Regla nueva: orderBy puro por lastMessageAt DESC (recency-only)
+      // como cualquier app de chat. Todas mezcla naturalmente pendientes
+      // + resueltas por recencia. Cuando el caller pasa
+      // needsHumanAttention=true (tab No leídas), el where.filter ya
+      // acota — no necesitamos priorizar el bucket en el orderBy.
       const orderShape = [
-        { needsHumanAttention: 'desc' as const },
         { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } },
         { updatedAt: 'desc' as const },
       ];
@@ -209,26 +219,24 @@ export class ConversationManagementService implements IConversationManagementSer
         // Staff (ADMIN/BRENDA/FRANCO/ALDO) or AI reply → answered.
         return false;
       };
-      // Marcos 2026-07-22 (screenshot inbox 09:46 AR): la sort
-      // "oldest-first dentro de pendientes" que había interpretado
-      // como SLA queue el 07-21 tapó completamente el inbox — 214
-      // rows pendientes de 7-30 días + 19 de 30d+ (contactos sin
-      // nombre, mensajes vacíos, huérfanos) flotaban al tope y la
-      // actividad de HOY (11 rows <24h) quedaba en la página 6+.
-      // Marcos: "no aparecen conversaciones, solo antiguas". Vuelvo
-      // al criterio simple estilo WhatsApp: newest-first across all,
-      // pending sigue teniendo prioridad de bucket para que No leídas
-      // muestre algo útil, pero DENTRO de cada bucket recientes
-      // primero. Los zombies se hunden a la cola del inbox donde
-      // están si Marcos scrollea, pero no dominan la vista.
+      // Marcos 2026-07-24: pending-first bucket + página de 40 hacía
+      // que Todas se llenara con las 40 primeras pendientes y quedara
+      // visualmente igual a No leídas ("no hay diferencias entre
+      // todas y no leidas, todo figura igual"). Cambio: cuando el
+      // filtro NO pide sólo needsHumanAttention (osea la vista Todas),
+      // ordenamos puro por lastMessageAt DESC — como WhatsApp — y
+      // Todas muestra mezcla real de pendientes + resueltas por
+      // recencia. Cuando el filtro sí pide needsHumanAttention=true
+      // (No leídas), mantenemos el orden por recencia dentro de esa
+      // slice ya filtrada. Ambas vistas siempre newest-first.
       rawFetched.sort((a: any, b: any) => {
-        const aPend = isPendingReply(a) ? 1 : 0;
-        const bPend = isPendingReply(b) ? 1 : 0;
-        if (aPend !== bPend) return bPend - aPend;
         const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : -1;
         const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : -1;
         return tB - tA;
       });
+      // isPendingReply queda disponible por si el frontend quiere
+      // pintar el chip visual (accent rose) — no afecta orden.
+      void isPendingReply;
       let conversations = rawFetched.slice(0, limit);
 
       // Post-decrypt scan to recover ciphertext-row search matches that
