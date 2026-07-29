@@ -75,6 +75,7 @@ e2e/*
 !e2e/test-aggregator-sandbox-filter-e2e.js
 !e2e/test-inbox-todas-vs-noleidas-e2e.js
 !e2e/test-carrier-alias-module-e2e.js
+!e2e/test-health-critical-aggregation-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in

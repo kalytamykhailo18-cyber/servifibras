@@ -2,12 +2,22 @@
  * ADAPTERS LAYER - Health Service
  *
  * Aggregates per-component health checks into a single shape that's friendly
- * to uptime monitors. All checks run in parallel; the overall status is the
- * worst of any single component:
+ * to uptime monitors. All checks run in parallel; the overall status uses
+ * a traffic-criticality split:
  *
  *   ok            — every required component reports ok or unconfigured
- *   degraded      — at least one component is degraded; service still usable
- *   down          — at least one required component is down; do not route traffic
+ *   degraded      — at least one component is degraded, OR a non-critical
+ *                   component is down (e.g. WhatsApp session dropped). The
+ *                   platform is still fully routable — login, CRM, ML flows
+ *                   keep working.
+ *   down          — at least one CRITICAL component is down; the load
+ *                   balancer must stop routing traffic here.
+ *
+ * The critical component set (default: only `database`) is env-tunable via
+ * HEALTH_CRITICAL_COMPONENTS (comma-separated). Auxiliary integrations
+ * (WhatsApp/Baileys, dólar blue, backup breadcrumb) surface their own `down`
+ * state per-component so the frontend banner still lights up, but they no
+ * longer take the whole platform offline behind Caddy.
  *
  * Per-component states:
  *   ok            — passing
@@ -218,9 +228,26 @@ export class HealthService {
   }
 
   private aggregate(components: Record<string, ComponentReport>): HealthStatus {
-    const states = Object.values(components).map((c) => c.status);
-    if (states.includes('down')) return 'down';
-    if (states.includes('degraded')) return 'degraded';
-    return 'ok';
+    const critical = this.criticalSet();
+    let anyDown = false;
+    let anyDegraded = false;
+    for (const [name, comp] of Object.entries(components)) {
+      if (comp.status === 'down') {
+        if (critical.has(name)) return 'down';
+        anyDown = true; // non-critical down → treated as degraded overall
+      } else if (comp.status === 'degraded') {
+        anyDegraded = true;
+      }
+    }
+    return anyDown || anyDegraded ? 'degraded' : 'ok';
+  }
+
+  private criticalSet(): Set<string> {
+    const raw = process.env.HEALTH_CRITICAL_COMPONENTS;
+    const list = (raw && raw.trim().length > 0 ? raw : 'database')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    return new Set(list);
   }
 }
