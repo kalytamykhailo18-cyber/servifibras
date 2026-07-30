@@ -28,7 +28,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pdfkit": "^0.17.6",
     "@types/qrcode": "^1.5.6",
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.15.2",
     "bcrypt": "^6.0.0",
     "googleapis": "^173.0.0",

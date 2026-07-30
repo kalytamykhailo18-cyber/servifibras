@@ -61,6 +61,15 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
   private connectedAt: Date | null = null;
   private startedAt: Date | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  // Marcos 2026-07-30: Baileys se quedó 30+ horas en `starting` sin emitir
+  // ni QR ni connection.update — la única forma de reactivar era un
+  // deploy manual. Este watchdog audita cada N segundos: si llevamos más
+  // de `WHATSAPP_QR_STARTING_TIMEOUT_MS` en un estado transitorio
+  // (starting / connecting / waiting_qr) sin resolver, forzamos un hard
+  // reset y re-start(). Sin esto, cualquier fallo silencioso del socket
+  // vuelve a producir la misma parálisis.
+  private watchdogTimer: NodeJS.Timeout | null = null;
+  private transientSince: number | null = null;
 
   constructor(
     // Optional para que arranques de scripts / E2E que no levantan el
@@ -95,6 +104,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('WHATSAPP_QR_ENABLED=false — service idle');
       return;
     }
+    this.startWatchdog();
     await this.start();
   }
 
@@ -102,6 +112,10 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
     }
     if (this.sock) {
       try {
@@ -113,6 +127,66 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private get startingTimeoutMs(): number {
+    const raw = Number(process.env.WHATSAPP_QR_STARTING_TIMEOUT_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+  }
+
+  private get watchdogIntervalMs(): number {
+    const raw = Number(process.env.WHATSAPP_QR_WATCHDOG_INTERVAL_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 30_000;
+  }
+
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(() => this.watchdogTick(), this.watchdogIntervalMs);
+    // Un `unref` para que el timer no bloquee el process exit durante el
+    // shutdown de tests / graceful stop.
+    if (typeof this.watchdogTimer.unref === 'function') this.watchdogTimer.unref();
+  }
+
+  private isTransient(): boolean {
+    return this.status === 'starting' || this.status === 'connecting' || this.status === 'waiting_qr';
+  }
+
+  private watchdogTick(): void {
+    if (!this.enabled) return;
+    if (!this.isTransient()) {
+      this.transientSince = null;
+      return;
+    }
+    const now = Date.now();
+    if (this.transientSince == null) {
+      this.transientSince = now;
+      return;
+    }
+    const stuckMs = now - this.transientSince;
+    if (stuckMs < this.startingTimeoutMs) return;
+    this.logger.warn(
+      `Watchdog: WhatsApp stuck in "${this.status}" for ${Math.round(stuckMs / 1000)}s — forcing hard reset`,
+    );
+    this.transientSince = null;
+    this.hardResetAndRestart().catch((e) =>
+      this.logger.error(`Watchdog hard reset failed: ${e?.message ?? e}`),
+    );
+  }
+
+  private async hardResetAndRestart(): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.sock) {
+      try { this.sock.end(undefined); } catch { /* best-effort */ }
+      this.sock = null;
+    }
+    this.status = 'disconnected';
+    // Pequeño respiro para no gastar rate-limit del server WA con
+    // reconexiones back-to-back.
+    await new Promise((r) => setTimeout(r, 1_000));
+    await this.start();
+  }
+
   /**
    * Boot the socket — reads existing creds from sessionDir if present,
    * otherwise emits a QR to scan. Idempotent: no-op if already
@@ -122,7 +196,11 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     if (!this.enabled) {
       return { ok: false, status: 'disabled', reason: 'WHATSAPP_QR_ENABLED=false' };
     }
-    if (this.sock && (this.status === 'connecting' || this.status === 'connected' || this.status === 'waiting_qr')) {
+    // Marcos 2026-07-30: `starting` estaba fuera de este check, así que
+    // dos llamados a start() cuando un socket ya se estaba booteando
+    // creaban un socket huérfano cuyos handlers seguían activos —
+    // exacto camino que dejó Baileys en un limbo silencioso 30h el 07-29.
+    if (this.sock && (this.status === 'starting' || this.status === 'connecting' || this.status === 'connected' || this.status === 'waiting_qr')) {
       return { ok: true, status: this.status };
     }
     try {
