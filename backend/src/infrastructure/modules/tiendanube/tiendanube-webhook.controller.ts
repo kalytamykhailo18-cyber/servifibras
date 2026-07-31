@@ -7,8 +7,10 @@
  * straight into our local catalog so the agent sees fresh prices
  * without waiting for the daily cron.
  *
- * Signature header: `x-linkedstore-hmac-sha256` — base64-encoded
- * HMAC-SHA256 of the raw request body using the app's client secret.
+ * Signature header: `x-linkedstore-hmac-sha256` — HMAC-SHA256 of the
+ * raw request body using the app's client secret. TN sends the digest
+ * hex-encoded in practice; we also accept base64 in case a store /
+ * region uses the other encoding (or TN switches back).
  * Production: secret present → required. Dev: secret blank → warning,
  * accept anyway so the integration can be tested without HMAC.
  */
@@ -98,12 +100,21 @@ export class TiendaNubeWebhookController {
 
   private verifyHmac(rawBody: Buffer | undefined, secret: string, sig?: string): boolean {
     if (!sig || !rawBody) return false;
-    const computed = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('base64');
+    // Marcos 2026-07-30: TN venía firmando en HEX pero el header top-of-file
+    // decía base64 — 17.799 warnings/día por eso; el log de mismatch mostraba
+    // que `rcvd` matcheaba exactamente `computed-hex`. Aceptamos ambos formatos
+    // por si TN cambia de vuelta y para no quedar frágiles ante nuevos stores
+    // en otras regiones que puedan usar el otro encoding.
+    const mac = crypto.createHmac('sha256', secret).update(rawBody);
+    const computedHex = mac.digest('hex');
+    const computedB64 = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+    return this.tsEq(sig, computedHex) || this.tsEq(sig, computedB64);
+  }
+
+  private tsEq(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
     try {
-      return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(computed));
+      return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
     } catch {
       return false;
     }

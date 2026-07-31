@@ -77,6 +77,7 @@ e2e/*
 !e2e/test-carrier-alias-module-e2e.js
 !e2e/test-health-critical-aggregation-e2e.js
 !e2e/test-whatsapp-qr-watchdog-e2e.js
+!e2e/test-tiendanube-webhook-hmac-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
