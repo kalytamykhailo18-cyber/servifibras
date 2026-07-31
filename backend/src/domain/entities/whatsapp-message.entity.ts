@@ -40,6 +40,17 @@ export class WhatsAppIncomingMessage {
     // que findOrCreateContact matchee contactos viejos que se guardaron
     // con el LID como phone y los migre al phone real.
     public readonly fallbackLookup: string | null = null,
+    // Marcos 2026-07-31: en el inbox todas las filas mostraban "54" como
+    // avatar porque el name del contacto se creaba con el phone crudo
+    // y nunca se actualizaba. Baileys manda `pushName` (el "Mi nombre"
+    // que el cliente tiene seteado en su WhatsApp) en cada mensaje;
+    // guardarlo cuando el contacto es nuevo o su nombre sigue siendo
+    // el phone placeholder mejora el identificador en un solo mensaje.
+    public readonly pushName: string | null = null,
+    // Foto de perfil de WhatsApp — best-effort. Baileys expone la URL
+    // via sock.profilePictureUrl(jid); si el cliente la tiene privada
+    // o Baileys rate-limita, viene null y caemos a las iniciales.
+    public readonly avatarUrl: string | null = null,
   ) {}
 
   isTextMessage(): boolean {

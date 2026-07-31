@@ -314,6 +314,32 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     return this.lastQrDataUrl;
   }
 
+  // Marcos 2026-07-31: cache de fotos de perfil por JID. Baileys puede
+  // rate-limitar si le pedimos profilePictureUrl en cada mensaje del
+  // mismo contacto; con TTL de 24h la refetcheamos ocasionalmente para
+  // capturar cambios sin castigar al server WA.
+  private profilePicCache = new Map<string, { url: string | null; at: number }>();
+  private get profilePicTtlMs(): number {
+    const raw = Number(process.env.WHATSAPP_QR_PROFILE_PIC_TTL_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 86_400_000;
+  }
+
+  async fetchProfilePictureUrl(jid: string): Promise<string | null> {
+    if (!this.sock || this.status !== 'connected') return null;
+    const cached = this.profilePicCache.get(jid);
+    if (cached && Date.now() - cached.at < this.profilePicTtlMs) return cached.url;
+    try {
+      const url = await this.sock.profilePictureUrl(jid, 'image');
+      this.profilePicCache.set(jid, { url: url ?? null, at: Date.now() });
+      return url ?? null;
+    } catch {
+      // Sin foto pública, cliente con privacidad restringida, o rate
+      // limit — cacheamos null para no reintentar en el próximo mensaje.
+      this.profilePicCache.set(jid, { url: null, at: Date.now() });
+      return null;
+    }
+  }
+
   private toJid(to: string): string {
     if (to.includes('@')) return to;
     return `${to.replace(/\D/g, '')}@s.whatsapp.net`;
@@ -548,6 +574,9 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Phone-side outbound to ${from} (jid=${remoteJid})${mediaTag}: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
         if (!this.conversationHandler) continue;
         const ts = Number(msg.messageTimestamp);
+        // fromMe=true: pushName es del propio equipo, no del cliente.
+        // La foto del contacto sí sirve — es del OTRO extremo.
+        const avatarUrlOut = await this.fetchProfilePictureUrl(remoteJid);
         await this.conversationHandler.recordPhoneSideOutbound({
           to: from,
           text: text.trim(),
@@ -555,6 +584,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           waMessageId: msg.key.id ?? `qr-${Date.now()}`,
           timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
           fallbackLookup,
+          avatarUrl: avatarUrlOut,
           attachment: media?.attachment ?? null,
         });
         continue;
@@ -573,6 +603,8 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       // el pipeline del agente.
       if (media) {
         const ts = Number(msg.messageTimestamp);
+        const pushNameMedia = (msg as any)?.pushName ?? null;
+        const avatarUrlMedia = await this.fetchProfilePictureUrl(remoteJid);
         await this.conversationHandler.recordWhatsAppMediaInbound({
           from,
           jid: remoteJid,
@@ -580,6 +612,8 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           waMessageId: msg.key.id ?? `qr-${Date.now()}`,
           timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
           fallbackLookup,
+          pushName: pushNameMedia,
+          avatarUrl: avatarUrlMedia,
           attachment: media.attachment,
         });
         continue;
@@ -592,6 +626,11 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       try {
         // Traducción al shape canónico que ya consume el handler.
         const ts = Number(msg.messageTimestamp);
+        // Marcos 2026-07-31: pushName (el "Mi nombre" del cliente en su
+        // WhatsApp) y foto de perfil — reemplaza el placeholder "54"
+        // del avatar por algo distinguible ni bien entra el primer msg.
+        const pushName = (msg as any)?.pushName ?? null;
+        const avatarUrl = await this.fetchProfilePictureUrl(remoteJid);
         const incoming = new WhatsAppIncomingMessage(
           msg.key.id ?? `qr-${Date.now()}`,
           from,
@@ -602,6 +641,8 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           null,
           remoteJid,
           fallbackLookup,
+          pushName,
+          avatarUrl,
         );
         const result = await this.conversationHandler.handleWhatsAppMessage(incoming);
         // Marcos 2026-07-13 (A3): modo revisión. Cuando el switch

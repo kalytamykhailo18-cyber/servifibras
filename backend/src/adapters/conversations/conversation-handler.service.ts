@@ -553,7 +553,13 @@ export class ConversationHandlerService implements IConversationHandler {
       // outbound to the same scheme (@lid vs @s.whatsapp.net).
       // Marcos 2026-07-06: fallbackLookup permite migrar contactos
       // legacy que quedaron guardados con LID digits como phone.
-      const contact = await this.findOrCreateContact(message.from, message.jid, message.fallbackLookup);
+      const contact = await this.findOrCreateContact(
+        message.from,
+        message.jid,
+        message.fallbackLookup,
+        message.pushName,
+        message.avatarUrl,
+      );
 
       // Find or create conversation
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
@@ -1647,6 +1653,13 @@ export class ConversationHandlerService implements IConversationHandler {
     phoneNumber: string,
     waJid?: string | null,
     fallbackLookup?: string | null,
+    // Marcos 2026-07-31: pushName y avatarUrl viajan desde Baileys hasta
+    // acá para reemplazar el placeholder "54" del avatar por el nombre
+    // real y foto del cliente. Sólo pisan si el name actual sigue siendo
+    // el phone (placeholder) o el fallbackLookup — respetan renombres
+    // manuales del operador.
+    pushName?: string | null,
+    avatarUrl?: string | null,
   ) {
     let contact = await this.prisma.contact.findUnique({
       where: { phone: phoneNumber },
@@ -1690,12 +1703,14 @@ export class ConversationHandlerService implements IConversationHandler {
 
     if (!contact) {
       this.logger.log(`Creating new contact: ${phoneNumber} (waJid=${waJid ?? 'n/a'})`);
+      const initialName = pushName && pushName.trim().length > 0 ? pushName.trim() : phoneNumber;
       contact = await this.prisma.contact.create({
         data: {
           phone: phoneNumber,
-          name: phoneNumber, // Will be updated later with real name
+          name: initialName,
           type: ContactType.MINORISTA, // Default, can be updated based on conversation
           channel: Channel.WHATSAPP,
+          avatarUrl: avatarUrl ?? null,
           // Marcos 2026-07-03: stash el JID completo (`<num>@<scheme>`) para
           // que WhatsAppService.sendMessage rutee de vuelta con el mismo
           // esquema. Los contactos LID no tienen phone real y sólo se
@@ -1703,17 +1718,33 @@ export class ConversationHandlerService implements IConversationHandler {
           metadata: waJid ? { waJid } : undefined,
         },
       });
-    } else if (waJid) {
-      // Refresh el waJid si cambió (contactos migran entre @s.whatsapp.net
-      // y @lid). No pisamos el resto de metadata.
+    } else {
+      // Marcos 2026-07-31: refrescamos name / avatarUrl / waJid en un
+      // solo update para evitar N round-trips. Sólo pisamos name cuando
+      // el actual es un placeholder (phone crudo o fallbackLookup) —
+      // nunca sobre un rename manual del operador.
       const existingMeta =
         contact.metadata && typeof contact.metadata === 'object' && !Array.isArray(contact.metadata)
           ? (contact.metadata as Record<string, string | number | boolean | null>)
           : {};
-      if (existingMeta.waJid !== waJid) {
-        await this.prisma.contact.update({
+      const patch: Record<string, unknown> = {};
+      const nameIsPlaceholder =
+        !contact.name ||
+        contact.name === contact.phone ||
+        (!!fallbackLookup && contact.name === fallbackLookup);
+      if (pushName && pushName.trim().length > 0 && nameIsPlaceholder) {
+        patch.name = pushName.trim();
+      }
+      if (avatarUrl && contact.avatarUrl !== avatarUrl) {
+        patch.avatarUrl = avatarUrl;
+      }
+      if (waJid && existingMeta.waJid !== waJid) {
+        patch.metadata = { ...existingMeta, waJid };
+      }
+      if (Object.keys(patch).length > 0) {
+        contact = await this.prisma.contact.update({
           where: { id: contact.id },
-          data: { metadata: { ...existingMeta, waJid } },
+          data: patch,
         });
       }
     }
@@ -1999,6 +2030,11 @@ export class ConversationHandlerService implements IConversationHandler {
     waMessageId: string;
     timestamp: Date;
     fallbackLookup?: string | null;  // LID digits legacy (para migrar contactos viejos)
+    // Marcos 2026-07-31: pushName + avatarUrl del OTRO extremo (no del
+    // que responde desde el celular) para que la fila del inbox tenga
+    // identificador aunque el hilo se haya iniciado desde ese lado.
+    pushName?: string | null;
+    avatarUrl?: string | null;
     attachment?: {
       url: string;
       name: string;
@@ -2017,7 +2053,13 @@ export class ConversationHandlerService implements IConversationHandler {
       });
       if (existing) return;
 
-      const contact = await this.findOrCreateContact(args.to, args.jid, args.fallbackLookup ?? null);
+      const contact = await this.findOrCreateContact(
+        args.to,
+        args.jid,
+        args.fallbackLookup ?? null,
+        args.pushName ?? null,
+        args.avatarUrl ?? null,
+      );
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
       // Marcos 2026-07-06: si el mensaje del celular es una foto /
       // audio / video / documento, lo pasamos como attachment. El
@@ -2075,6 +2117,8 @@ export class ConversationHandlerService implements IConversationHandler {
     waMessageId: string;
     timestamp: Date;
     fallbackLookup?: string | null;
+    pushName?: string | null;
+    avatarUrl?: string | null;
     attachment: {
       url: string;
       name: string;
@@ -2092,7 +2136,13 @@ export class ConversationHandlerService implements IConversationHandler {
       });
       if (existing) return;
 
-      const contact = await this.findOrCreateContact(args.from, args.jid, args.fallbackLookup ?? null);
+      const contact = await this.findOrCreateContact(
+        args.from,
+        args.jid,
+        args.fallbackLookup ?? null,
+        args.pushName ?? null,
+        args.avatarUrl ?? null,
+      );
       const conversation = await this.findOrCreateConversation(contact.id, Channel.WHATSAPP);
       await this.saveMessage(
         conversation.id,
