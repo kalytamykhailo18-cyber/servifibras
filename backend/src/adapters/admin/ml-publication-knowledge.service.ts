@@ -517,7 +517,11 @@ export class MlPublicationKnowledgeService {
    * Threshold de readiness: la publicación necesita >= N Q&A curadas
    * (default 3; configurable via ML_CONSTRAINED_MIN_CURATED). Si tiene
    * menos, devolvemos null inmediatamente para que el caller use el
-   * pipeline regular.
+   * pipeline regular. Marcos 2026-07-31: cuando el top row del recall
+   * léxico ya matchea la pregunta actual, bajamos el umbral a
+   * ML_CONSTRAINED_MIN_CURATED_WHEN_MATCH (default 1) — así una Q&A
+   * curada directamente pertinente ya alcanza para responder bien en la
+   * primera consulta, en lugar de esperar a acumular 3 por publicación.
    */
   async tryConstrainedReply(args: {
     itemId: string;
@@ -580,6 +584,7 @@ export class MlPublicationKnowledgeService {
       questionText: string;
       answerText: string | null;
       curatedAnswer: string | null;
+      has_match: boolean;
     }>>(
       // Primer criterio: MATCH sí/no. Toda fila cuyo vector matchea al
       // menos un término del buyerQuestion viene antes que cualquier
@@ -594,7 +599,16 @@ export class MlPublicationKnowledgeService {
       // a tsquery — así basta con que UNA palabra clave se comparta
       // (stemming del castellano ya viene aplicado) para que el row sea
       // candidato. Precedencia por # de matches queda a cargo de ts_rank.
-      `SELECT "questionText", "answerText", "curatedAnswer"
+      //
+      // Marcos 2026-07-31: exponemos `has_match` como columna (mismo
+      // predicado que el primer ORDER BY) para que el JS pueda bajar el
+      // umbral de curated-rows cuando el top row matchea de verdad —
+      // ver `effectiveMin` abajo. Sin esto, publicaciones nuevas con 1
+      // sola Q&A directamente pertinente igual caían al pipeline
+      // genérico y demoraban 3-4 preguntas en "aprender".
+      `SELECT "questionText", "answerText", "curatedAnswer",
+         (to_tsvector('spanish', coalesce("questionText", ''))
+           @@ replace(plainto_tsquery('spanish', $2)::text, ' & ', ' | ')::tsquery) AS has_match
        FROM ml_publication_knowledge
        WHERE "itemId" = $1
          AND (
@@ -617,11 +631,24 @@ export class MlPublicationKnowledgeService {
       const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED);
       return Number.isFinite(raw) && raw > 0 ? raw : 3;
     })();
-    if (curated.length < minRequired) {
+    const minRequiredWhenMatch = (() => {
+      const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED_WHEN_MATCH);
+      return Number.isFinite(raw) && raw > 0 ? raw : 1;
+    })();
+    // Marcos 2026-07-31: si el top row ya matchea léxicamente la
+    // pregunta actual, alcanza con `minRequiredWhenMatch` (default 1)
+    // curadas para usar modo cerrado — no esperamos a acumular 3 Q&A
+    // por publicación. Cuando no hay match, mantenemos el umbral
+    // clásico de 3 para evitar que 1 Q&A no relacionada dispare
+    // respuestas incorrectas. minRequiredWhenMatch nunca sube por
+    // encima de minRequired.
+    const topHasMatch = curated.length > 0 && curated[0]?.has_match === true;
+    const effectiveMin = topHasMatch ? Math.min(minRequiredWhenMatch, minRequired) : minRequired;
+    if (curated.length < effectiveMin) {
       return {
         reply: null,
         usedConstrained: false,
-        reason: `curated=${curated.length} < min=${minRequired}`,
+        reason: `curated=${curated.length} < min=${effectiveMin}${topHasMatch ? ' (topHasMatch)' : ''}`,
       };
     }
     // Marcos 2026-06-24: per-publication override del modo cerrado.
