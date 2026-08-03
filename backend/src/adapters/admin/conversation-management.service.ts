@@ -172,87 +172,95 @@ export class ConversationManagementService implements IConversationManagementSer
           select: { messages: true },
         },
       };
-      // Marcos 2026-07-08: ordenar por actividad real del chat, no por
-      // updatedAt. updatedAt se bumpea con cualquier UPDATE (flags,
-      // aiPaused toggle, needsHumanAttention flip, replays de Baileys
-      // tras un reconnect); lastMessageAt sólo se mueve cuando entra o
-      // sale un mensaje de verdad.
+      // Marcos 2026-08-03 (WhatsApp 11:04 AR): "actualmente está
+      // posicionando arriba los más nuevos. Pero tenemos que aplicar
+      // la lógica de que posiciona arriba los más urgentes de atención
+      // (mayoristas, cliente recurrente, y conversaciones que lleven
+      // más tiempo esperando)". Volvemos a ordering compuesto por
+      // urgencia — pero de manera correcta esta vez:
       //
-      // Marcos 2026-07-13: agregado needsHumanAttention DESC como
-      // primer criterio. Antes, si el equipo respondía desde el
-      // celular, la respuesta era el nuevo lastMessage y la
-      // conversación flotaba al tope aunque ya estuviera atendida.
-      // Ahora las que todavía esperan respuesta (needsHumanAttention
-      // = true) quedan arriba de las que el equipo ya respondió.
-      // W1 del documento del 10-07 fue explícito en este orden.
-      // Marcos 2026-07-24: la orderBy sacaba `needsHumanAttention:desc`
-      // como primer criterio, lo que hacía que el fetch inicial (500
-      // rows) trajera TODAS las pendientes primero — 328 al momento —
-      // y las 172 rows non-pendientes que llegaban eran las más
-      // recientes DENTRO de non-pending, no las más recientes en
-      // absoluto. Todas se llenaba visualmente igual que No leídas.
-      // Regla nueva: orderBy puro por lastMessageAt DESC (recency-only)
-      // como cualquier app de chat. Todas mezcla naturalmente pendientes
-      // + resueltas por recencia. Cuando el caller pasa
-      // needsHumanAttention=true (tab No leídas), el where.filter ya
-      // acota — no necesitamos priorizar el bucket en el orderBy.
-      const orderShape = [
-        { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } },
-        { updatedAt: 'desc' as const },
-      ];
+      //   1) TODOS los pendientes (needsHumanAttention=true) van
+      //      arriba, sin importar recency.
+      //   2) Dentro del bloque pendiente: MAYORISTA primero, luego
+      //      cliente recurrente (funnelStage FRECUENTE|COMPRADOR),
+      //      luego el resto. En cada tie, el que lleva más tiempo
+      //      esperando (lastMessageAt ASC) va primero.
+      //   3) No-pendientes ordenados por recencia (lastMessageAt
+      //      DESC) — comportamiento clásico de app de chat.
+      //
+      // Implementación: dos fetches en paralelo. Un fetch único con
+      // orderBy pending-first + limit 500 dejaba fuera a los
+      // pendientes MÁS VIEJOS — que son justo los "que llevan más
+      // tiempo esperando" que Marcos quiere ver arriba.
+      //
+      // Historia:
+      //   * 07-13 W1: pending-first + prioridad mayorista.
+      //   * 07-24: revertido a recency pura porque con ~328 pending
+      //     el top-40 de "Todas" quedaba visualmente igual a
+      //     "No leídas" ("no hay diferencias, todo figura igual").
+      //   * 08-03 (este): Marcos ahora sí pide pending-first, pero
+      //     con ordering fino de urgencia dentro del bloque. "Todas"
+      //     vs "No leídas" siguen diferenciándose: "No leídas" filtra
+      //     en el WHERE al bucket pending; "Todas" mezcla pending
+      //     (arriba) + no-pending (abajo, siempre visible aunque
+      //     haya muchos pending gracias al split-fetch).
+      const RECURRING_STAGES = new Set(['FRECUENTE', 'COMPRADOR']);
+      const urgencyCmp = (a: any, b: any): number => {
+        const aMay = a.contact?.customerType === 'MAYORISTA' ? 1 : 0;
+        const bMay = b.contact?.customerType === 'MAYORISTA' ? 1 : 0;
+        if (aMay !== bMay) return bMay - aMay;
+        const aRec = RECURRING_STAGES.has(a.contact?.funnelStage ?? '') ? 1 : 0;
+        const bRec = RECURRING_STAGES.has(b.contact?.funnelStage ?? '') ? 1 : 0;
+        if (aRec !== bRec) return bRec - aRec;
+        // Longest waiting first: oldest lastMessageAt goes to top.
+        const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : Infinity;
+        const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : Infinity;
+        return tA - tB;
+      };
 
-      // Marcos 2026-07-13: removida la capa que "prependía" mayoristas
-      // al tope. La condición de mayorista queda como badge amarillo
-      // visual (no de orden).
-      //
-      // Marcos 2026-07-14: el orden por needsHumanAttention DESC no
-      // alcanza — el flag puede quedar stale (ver
-      // reference_ml_stale_escalations: 319 flags viejos nunca
-      // cleareados). El signal REAL de "pendiente de respuesta
-      // nuestra" es "el último mensaje del hilo lo mandó el cliente".
-      // Ahora fetch 2x y reordenamos in-app por ese criterio.
-      const fetchLimit = Math.min(500, limit * 3);
-      let [rawFetched, total] = await Promise.all([
-        this.prisma.conversation.findMany({
-          where,
-          include: includeShape,
-          orderBy: orderShape,
-          take: fetchLimit,
-          skip: offset,
-        }),
+      const onlyPending = filter.needsHumanAttention === true;
+      const onlyNonPending = filter.needsHumanAttention === false;
+      const pendingPoolCap = num('CONVERSATION_URGENCY_POOL_CAP', 1000);
+
+      // eslint-disable-next-line prefer-const
+      let [pendingPool, total] = await Promise.all([
+        onlyNonPending
+          ? Promise.resolve([] as any[])
+          : this.prisma.conversation.findMany({
+              where: { ...where, needsHumanAttention: true },
+              include: includeShape,
+              // Traemos hasta pendingPoolCap. Ordenamos por
+              // lastMessageAt ASC para que si el pool se satura,
+              // preserve a los más viejos (los que Marcos quiere
+              // arriba). El re-sort en JS aplica el ordering
+              // compuesto de urgencia dentro del pool.
+              orderBy: [{ lastMessageAt: { sort: 'asc' as const, nulls: 'last' as const } }],
+              take: pendingPoolCap,
+            }),
         this.prisma.conversation.count({ where }),
       ]);
-      const isPendingReply = (conv: any): boolean => {
-        const lastMsg = conv.messages?.[0];
-        if (!lastMsg) return false;
-        // Waiting for staff when the last message is from the customer
-        // (CUSTOMER sender) OR when the last message is an AI reply
-        // that ended in a handoff-request phrase (needsHumanAttention
-        // was flipped true elsewhere — trust the flag ONLY when the
-        // last message isn't from staff).
-        if (lastMsg.sender === 'CUSTOMER') return true;
-        // Staff (ADMIN/BRENDA/FRANCO/ALDO) or AI reply → answered.
-        return false;
-      };
-      // Marcos 2026-07-24: pending-first bucket + página de 40 hacía
-      // que Todas se llenara con las 40 primeras pendientes y quedara
-      // visualmente igual a No leídas ("no hay diferencias entre
-      // todas y no leidas, todo figura igual"). Cambio: cuando el
-      // filtro NO pide sólo needsHumanAttention (osea la vista Todas),
-      // ordenamos puro por lastMessageAt DESC — como WhatsApp — y
-      // Todas muestra mezcla real de pendientes + resueltas por
-      // recencia. Cuando el filtro sí pide needsHumanAttention=true
-      // (No leídas), mantenemos el orden por recencia dentro de esa
-      // slice ya filtrada. Ambas vistas siempre newest-first.
-      rawFetched.sort((a: any, b: any) => {
-        const tA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : -1;
-        const tB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : -1;
-        return tB - tA;
-      });
-      // isPendingReply queda disponible por si el frontend quiere
-      // pintar el chip visual (accent rose) — no afecta orden.
-      void isPendingReply;
-      let conversations = rawFetched.slice(0, limit);
+      const sortedPending = (pendingPool as any[]).slice().sort(urgencyCmp);
+      const pendingSlice = sortedPending.slice(offset, offset + limit);
+      let conversations: any[] = pendingSlice;
+
+      if (!onlyPending && conversations.length < limit) {
+        const remaining = limit - conversations.length;
+        // Si offset cae dentro del pool pendiente, la slice de arriba
+        // ya lo sirvió. Si lo supera, saltamos al non-pending
+        // correspondiente.
+        const nonPendingSkip = Math.max(0, offset - sortedPending.length);
+        const nonPending = await this.prisma.conversation.findMany({
+          where: { ...where, needsHumanAttention: false },
+          include: includeShape,
+          orderBy: [
+            { lastMessageAt: { sort: 'desc' as const, nulls: 'last' as const } },
+            { updatedAt: 'desc' as const },
+          ],
+          take: remaining,
+          skip: nonPendingSkip,
+        });
+        conversations = [...conversations, ...nonPending];
+      }
 
       // Post-decrypt scan to recover ciphertext-row search matches that
       // the DB query couldn't see. Only runs when (a) encryption is
