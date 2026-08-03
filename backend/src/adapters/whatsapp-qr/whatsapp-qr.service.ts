@@ -492,8 +492,39 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async onMessagesUpsert(m: { messages: WAMessage[]; type: string }): Promise<void> {
-    if (m.type !== 'notify') return; // Skip history syncs.
+    // Marcos 2026-08-03 (WhatsApp 14:23 AR): "una vez que respondo en
+    // whatsapp web los que no me aparecen en el crm, luego de responder
+    // si me aparecen". Root cause: 4 conversaciones en los últimos 3
+    // días arrancaron con un ADMIN phone-side como PRIMER mensaje —
+    // el inbound original del cliente se había perdido. Baileys entrega
+    // los mensajes que ocurrieron durante un disconnect como
+    // `type: 'append'` (history sync). Con la semana de outages que
+    // tuvimos (rc13 → rc14 + reconexiones del watchdog cada tanto),
+    // varios inbounds cayeron en esa ventana y quedaron fuera. La
+    // respuesta phone-side de Marcos, en cambio, llega como `notify`
+    // fresh y ahí sí crea la conversación — de ahí el patrón que él
+    // ve.
+    //
+    // Fix: procesar también 'append', pero SÓLO para mensajes de las
+    // últimas WHATSAPP_QR_APPEND_MAX_AGE_MS (default 24h). El dedup
+    // por waMessageId (ya presente en recordPhoneSideOutbound y en el
+    // save via handleWhatsAppMessage) evita duplicados si Baileys
+    // re-emite. Descartamos 'prepend'/'replace' — 'prepend' es la
+    // carga inicial de historia enterísima (miles de mensajes viejos
+    // que ya guardamos o que no necesitamos), 'replace' es edits que
+    // no manejamos hoy.
+    if (m.type !== 'notify' && m.type !== 'append') return;
+    const maxAppendAgeMs = (() => {
+      const raw = Number(process.env.WHATSAPP_QR_APPEND_MAX_AGE_MS);
+      return Number.isFinite(raw) && raw > 0 ? raw : 24 * 60 * 60 * 1000;
+    })();
+    const now = Date.now();
     for (const msg of m.messages) {
+      if (m.type === 'append') {
+        const ts = Number(msg.messageTimestamp);
+        const ageMs = Number.isFinite(ts) && ts > 0 ? now - ts * 1000 : Infinity;
+        if (ageMs > maxAppendAgeMs) continue;
+      }
       if (!msg.message) continue;
       const remoteJid = msg.key.remoteJid ?? '';
       // Marcos 2026-07-03: WhatsApp roll-out of Linked Identity (LID) —

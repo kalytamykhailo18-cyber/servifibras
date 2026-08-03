@@ -549,6 +549,22 @@ export class ConversationHandlerService implements IConversationHandler {
         };
       }
 
+      // Marcos 2026-08-03: dedup por waMessageId. Ahora que también
+      // procesamos type='append' (history sync post-reconnect) para no
+      // perder inbounds durante disconnects, un mismo mensaje podría
+      // llegar dos veces (una vez como notify real-time + otra en el
+      // append sync si el timing coincide). Sin este check
+      // insertaríamos el customer message duplicado.
+      if (message.messageId) {
+        const existing = await this.prisma.message.findFirst({
+          where: { metadata: { path: ['waMessageId'], equals: message.messageId } },
+          select: { id: true },
+        });
+        if (existing) {
+          return { success: true, response: null, error: null };
+        }
+      }
+
       // Find or create contact — pass the full JID so we can route
       // outbound to the same scheme (@lid vs @s.whatsapp.net).
       // Marcos 2026-07-06: fallbackLookup permite migrar contactos
@@ -575,12 +591,16 @@ export class ConversationHandlerService implements IConversationHandler {
         rawHistory: recentMessages,
       });
 
-      // Save customer message to database
+      // Save customer message to database. Marcos 2026-08-03: stampear
+      // el waMessageId como metadata habilita el dedup del bloque de
+      // arriba y también deja el mensaje asociable a su origen Baileys
+      // para trace / support.
       await this.saveMessage(
         conversation.id,
         MessageSender.CUSTOMER,
         message.text,
         false, // isFromAI
+        message.messageId ? { waMessageId: message.messageId, source: 'wa-inbound' } : undefined,
       );
 
       // Marcos 2026-07-20: si el cliente cierra con "👍 / gracias / ok /

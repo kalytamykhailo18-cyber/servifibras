@@ -82,6 +82,7 @@ e2e/*
 !e2e/test-ml-constrained-threshold-when-match-e2e.js
 !e2e/test-encargado-full-scope-conversations-e2e.js
 !e2e/test-inbox-urgency-ordering-e2e.js
+!e2e/test-whatsapp-history-sync-recovery-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
