@@ -24,6 +24,20 @@ import {
 } from '../../domain/entities/social-message.entity';
 import { getMessageCipher } from '../security/message-cipher';
 
+/**
+ * Marcos 2026-08-03 (WhatsApp 8:16 AR): "yanina ve todas las
+ * conversaciones de whatsapp, brenda y franco no". Yanina es ADMIN;
+ * Brenda y Franco son ENCARGADO. El scoping trataba ENCARGADO como
+ * VENTAS/LOGISTICA — sólo veían sus asignadas — cuando en realidad
+ * ENCARGADO es rol de encargado/ops manager y necesita ver todo,
+ * igual que ADMIN. Otros controllers (orders, logística) ya tratan a
+ * ENCARGADO como elevated. Centralizamos acá para que no vuelva a
+ * quedar afuera.
+ */
+function isFullScopeRole(role: UserRole): boolean {
+  return role === UserRole.ADMIN || role === UserRole.ENCARGADO;
+}
+
 /** Read a non-negative integer from .env with a fallback. */
 function num(envKey: string, fallback: number): number {
   const v = process.env[envKey];
@@ -81,14 +95,15 @@ export class ConversationManagementService implements IConversationManagementSer
         where.favorite = true;
       }
 
-      // Role-based scoping. Admins see everything; everyone else sees only
-      // their own slice.
-      //   ATENCION (Brenda) — assigned to her OR unassigned (first-line queue)
+      // Role-based scoping. Admins + Encargados ven todo; el resto ve
+      // sólo su slice.
+      //   ADMIN / ENCARGADO — sees everything (via isFullScopeRole)
+      //   ATENCION — assigned to her OR unassigned (first-line queue)
       //   VENTAS / LOGISTICA — only conversations assigned to them
       // We compose role-scope and search as separate AND'd OR groups so a
       // search query doesn't accidentally widen Brenda's view past her queue.
       const ands: any[] = [];
-      if (filter.scope && filter.scope.role !== UserRole.ADMIN) {
+      if (filter.scope && !isFullScopeRole(filter.scope.role)) {
         const me = filter.scope.userId;
         if (filter.scope.role === UserRole.ATENCION) {
           ands.push({ OR: [{ assignedTo: me }, { assignedTo: null }] });
@@ -267,7 +282,7 @@ export class ConversationManagementService implements IConversationManagementSer
         if (filter.channel)          scanWhere.channel = filter.channel;
         if (filter.status)           scanWhere.status = filter.status;
         if (filter.assignedToUserId) scanWhere.assignedTo = filter.assignedToUserId;
-        if (filter.scope && filter.scope.role !== UserRole.ADMIN) {
+        if (filter.scope && !isFullScopeRole(filter.scope.role)) {
           if (filter.scope.role === UserRole.ATENCION) {
             scanWhere.OR = [{ assignedTo: filter.scope.userId }, { assignedTo: null }];
           } else {
@@ -437,10 +452,10 @@ export class ConversationManagementService implements IConversationManagementSer
       // Per-record scope check. List-level scoping already filters what the
       // user sees in their inbox; we mirror it here so a deep-link to a
       // conversation outside that scope returns 404 instead of leaking.
-      //   ADMIN — sees all
+      //   ADMIN / ENCARGADO — sees all
       //   ATENCION — own + unassigned (Brenda's first-line queue)
       //   VENTAS / LOGISTICA — own only
-      if (scope && scope.role !== UserRole.ADMIN) {
+      if (scope && !isFullScopeRole(scope.role)) {
         const ownsRecord = conversation.assignedTo === scope.userId;
         const unassigned = conversation.assignedTo === null;
         const allowed =
