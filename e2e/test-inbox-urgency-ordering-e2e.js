@@ -56,7 +56,7 @@ async function main() {
   // Sin aislar, el pool de pending saturaba el page-size y las 2 test
   // no-pending nunca entraban al slice — falso negativo.
   const isolateUser = await prisma.user.create({
-    data: { email: `urg-test-${suffix}@t.io`, username: `urg${suffix}`, name: 'UrgTest', role: 'VENTAS', password: 'x', active: true },
+    data: { email: `urg-test-${suffix}@t.io`, username: `urg${suffix}`, name: 'UrgTest', role: 'VENTAS', password: 'x', active: false },
   });
   const created = {};
   for (const r of seedRows) {

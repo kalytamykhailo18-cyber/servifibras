@@ -401,10 +401,14 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
   // ========================================================================
   // Backend list-service scoping already 404s if the conversation isn't
   // visible to the viewer. What this layer covers is the *visible-but-not-
-  // owned* case: ATENCION viewing an unassigned conversation, or ADMIN
-  // viewing someone else's. ADMIN keeps full access; everyone else needs
-  // ownership before status / IA / transfer / composer light up.
-  const isAdmin = user?.role === UserRole.ADMIN;
+  // owned* case: ATENCION viewing an unassigned conversation, or ADMIN /
+  // ENCARGADO viewing someone else's. Marcos 2026-08-03: ENCARGADO
+  // (Brenda + Franco) es rol elevated en Servifibras — igual que ADMIN
+  // para efectos de listado y acciones. Antes veían las convs de otros
+  // pero el composer y las acciones (status, IA, transfer, cerrar)
+  // quedaban bloqueadas con "Tomala para responder" — mismo criterio
+  // que aplicamos en el backend con isFullScopeRole().
+  const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.ENCARGADO;
   // Backend returns the assignee on `assignedTo` as `{ id, name } | null`
   // (the relation is overloaded onto that key — the TS type's `assigned`
   // field is never populated at runtime). Treat assignedTo as the truth.

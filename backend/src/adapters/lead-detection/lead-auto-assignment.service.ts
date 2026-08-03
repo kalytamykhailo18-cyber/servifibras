@@ -136,8 +136,17 @@ export class LeadAutoAssignmentService implements ILeadAutoAssignmentService {
    * swap for round-robin later).
    */
   private async pickVentasUser(): Promise<{ id: string; email: string } | null> {
+    // Marcos 2026-08-03: guard contra E2E test users — ver el mismo
+    // patrón en HumanHandoffService.firstUserOfRole para el contexto.
+    // Users reales de Servifibras están en @servifibras.com; test
+    // users viven en @t.io. Los excluimos del round-robin para que
+    // un cleanup fallido de tests no pueda volver a bricar prod.
     const u = await this.prisma.user.findFirst({
-      where: { role: UserRole.VENTAS, active: true },
+      where: {
+        role: UserRole.VENTAS,
+        active: true,
+        NOT: { email: { endsWith: '@t.io' } },
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true, email: true },
     });

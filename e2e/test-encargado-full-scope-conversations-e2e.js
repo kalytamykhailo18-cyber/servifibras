@@ -32,19 +32,32 @@ async function main() {
   const suffix = String(process.pid);
   const now = new Date();
 
-  const usrAdmin = await prisma.user.create({ data: { email: `test-admin-${suffix}@t.io`, username: `admin${suffix}`, name: 'TestAdmin', role: 'ADMIN', password: 'x', active: true } });
-  const usrEnc = await prisma.user.create({ data: { email: `test-enc-${suffix}@t.io`, username: `enc${suffix}`, name: 'TestEncargado', role: 'ENCARGADO', password: 'x', active: true } });
-  const usrAten = await prisma.user.create({ data: { email: `test-aten-${suffix}@t.io`, username: `aten${suffix}`, name: 'TestAtencion', role: 'ATENCION', password: 'x', active: true } });
-  const usrVen = await prisma.user.create({ data: { email: `test-ven-${suffix}@t.io`, username: `ven${suffix}`, name: 'TestVentas', role: 'VENTAS', password: 'x', active: true } });
+  const usrAdmin = await prisma.user.create({ data: { email: `test-admin-${suffix}@t.io`, username: `admin${suffix}`, name: 'TestAdmin', role: 'ADMIN', password: 'x', active: false } });
+  const usrEnc = await prisma.user.create({ data: { email: `test-enc-${suffix}@t.io`, username: `enc${suffix}`, name: 'TestEncargado', role: 'ENCARGADO', password: 'x', active: false } });
+  const usrAten = await prisma.user.create({ data: { email: `test-aten-${suffix}@t.io`, username: `aten${suffix}`, name: 'TestAtencion', role: 'ATENCION', password: 'x', active: false } });
+  const usrVen = await prisma.user.create({ data: { email: `test-ven-${suffix}@t.io`, username: `ven${suffix}`, name: 'TestVentas', role: 'VENTAS', password: 'x', active: false } });
 
-  // 3 conversations: one assigned to Atencion, one assigned to Ventas, one unassigned
-  const contactAten = await prisma.contact.create({ data: { phone: `9994${suffix}A`, name: 'CustA', channel: 'WHATSAPP' } });
-  const contactVen = await prisma.contact.create({ data: { phone: `9994${suffix}V`, name: 'CustV', channel: 'WHATSAPP' } });
-  const contactUn = await prisma.contact.create({ data: { phone: `9994${suffix}U`, name: 'CustU', channel: 'WHATSAPP' } });
+  // 3 conversations: one assigned to Atencion, one assigned to Ventas,
+  // one unassigned. customerType MAYORISTA + lastMessageAt=1 year ago
+  // los ubica arriba del pool pending (urgency ordering agosto-03), así
+  // no quedan afuera del top-500 cuando prod tiene ~600 pending.
+  const veryOld = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  void veryOld;
+  const contactAten = await prisma.contact.create({ data: { phone: `9994${suffix}A`, name: 'CustA', channel: 'WHATSAPP', customerType: 'MAYORISTA' } });
+  const contactVen = await prisma.contact.create({ data: { phone: `9994${suffix}V`, name: 'CustV', channel: 'WHATSAPP', customerType: 'MAYORISTA' } });
+  const contactUn = await prisma.contact.create({ data: { phone: `9994${suffix}U`, name: 'CustU', channel: 'WHATSAPP', customerType: 'MAYORISTA' } });
 
-  const convAten = await prisma.conversation.create({ data: { contactId: contactAten.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: usrAten.id, lastMessageAt: now } });
-  const convVen = await prisma.conversation.create({ data: { contactId: contactVen.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: usrVen.id, lastMessageAt: now } });
-  const convUn = await prisma.conversation.create({ data: { contactId: contactUn.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: null, lastMessageAt: now } });
+  // needsHumanAttention: true — el listConversations ordena pending
+  // primero (fix urgency 08-03) y satura el page-size con el pool
+  // pending de prod. Sin marcar pending, mis test convs quedan fuera
+  // de la primera página aunque tengan lastMessageAt=ahora.
+  // lastMessageAt hace 1 año: dentro del bucket MAYORISTA-pending, el
+  // que espera más tiempo va arriba (longest wait). 1 año garantiza
+  // sortear en top-3 del pool.
+  const ancient = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const convAten = await prisma.conversation.create({ data: { contactId: contactAten.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: usrAten.id, lastMessageAt: ancient, needsHumanAttention: true } });
+  const convVen = await prisma.conversation.create({ data: { contactId: contactVen.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: usrVen.id, lastMessageAt: ancient, needsHumanAttention: true } });
+  const convUn = await prisma.conversation.create({ data: { contactId: contactUn.id, channel: 'WHATSAPP', status: 'ACTIVE', assignedTo: null, lastMessageAt: ancient, needsHumanAttention: true } });
   const seededIds = new Set([convAten.id, convVen.id, convUn.id]);
 
   let pass = 0, fail = 0;

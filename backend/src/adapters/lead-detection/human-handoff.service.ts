@@ -455,8 +455,22 @@ export class HumanHandoffService implements IHumanHandoffService {
   }
 
   private firstUserOfRole(role: UserRole) {
+    // Marcos 2026-08-03 (incidente 12h): E2E tests dejaron ATENCION
+    // users con email `test-*@t.io`; el round-robin de handoff los
+    // eligió como primer active ATENCION y ~143 conversaciones reales
+    // de prod terminaron asignadas a esos users fantasma. Marcos las
+    // veía como "Esta conversación está asignada a otro usuario" sin
+    // poder tomarlas ni responder. Guard: excluir emails que matchean
+    // el patrón de tests (`test-%@t.io`). Cualquier user real usa un
+    // dominio propio de Servifibras (@servifibras.com), así que este
+    // filtro no toca prod. Nunca dependas SÓLO de active=true: los
+    // tests podrían dejar users activos si el cleanup falla.
     return this.prisma.user.findFirst({
-      where: { role, active: true },
+      where: {
+        role,
+        active: true,
+        NOT: { email: { endsWith: '@t.io' } },
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true, email: true },
     });
