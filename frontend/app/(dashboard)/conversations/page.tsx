@@ -144,13 +144,23 @@ export default function ConversationsPage() {
   }, [filters, activeTab]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Marcos 2026-08-03 (video 8:36 AR): estando en "No leídos", después
+  // de unos segundos la lista mostraba "1-40 de 4279" (todo) aunque
+  // la tab visual seguía en No leídos y el URL seguía en ?view=unread.
+  // Root cause: este useCallback tenía deps [filters]; cuando el
+  // usuario cambia de tab, `filters` no cambia y por lo tanto onTick
+  // conservaba la referencia vieja de fetchConversations, cuya
+  // closure leía activeTab="all" del render previo al switch. El poll
+  // de 15s reejecutaba esa versión vieja y sobreescribía la lista con
+  // "todos". Fix: incluir activeTab en las deps para que onTick
+  // capture la fetchConversations fresca cada vez que se cambia de tab.
   const onTick = useCallback(() => {
     if (refreshTimer.current) return;
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
       fetchConversations(1, true);
     }, 600);
-  }, [filters]);
+  }, [filters, activeTab]);
   useRealtimeEvent("metrics:tick", onTick);
   useRealtimeEvent("conversation:needs_human", onTick);
   useRealtimeEvent("conversation:transferred", onTick);
