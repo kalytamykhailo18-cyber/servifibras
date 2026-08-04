@@ -84,12 +84,22 @@ function AgentChips({
 }) {
   const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }> | null>(null);
   useEffect(() => {
-    const acceptedRoles = new Set<string>([role as string, UserRole.ENCARGADO as string]);
+    // Marcos 2026-08-04 (WhatsApp 14:21 AR): "tenemos que poder
+    // segmentar cada puesto, porque actualmente pone todos como
+    // logística independientemente del rol de cada agente". El
+    // filtro venía aceptando role + ENCARGADO — así Brenda + Franco
+    // (ENCARGADO) aparecían en TODOS los widgets (Atención, Ventas,
+    // Logística), como si atendieran los tres puestos. Ahora
+    // filtramos por el rol EXACTO del widget: Atención muestra
+    // ATENCION, Ventas muestra VENTAS, Logística muestra LOGISTICA.
+    // Si el equipo necesita que un ENCARGADO aparezca en un widget
+    // específico, se le cambia el rol a ese (ENCARGADO mantiene el
+    // acceso elevado a través del RolesGuard igual).
     api.users
       .list({ activeOnly: true })
       .then((rows) => setUsers(
         (rows ?? [])
-          .filter((u: any) => acceptedRoles.has(u.role))
+          .filter((u: any) => u.role === role)
           .map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
       ))
       .catch(() => setUsers([]));
