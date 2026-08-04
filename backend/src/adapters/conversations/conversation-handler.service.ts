@@ -2350,11 +2350,30 @@ export class ConversationHandlerService implements IConversationHandler {
     }).catch((e) => {
       this.logger.warn(`Could not bump lastMessage/At on ${conversationId}: ${e?.message ?? e}`);
     });
-    // Live quality rescore after every AI reply — keeps the right-rail
-    // score panel current as the agent works through the thread. The
-    // scorer service has its own time-based debounce so back-to-back
-    // AI messages don't trigger N Claude calls.
-    if (isFromAI) {
+    // Marcos 2026-08-04 (WhatsApp 17:19 AR): "no es módulo nuevo. Ya
+    // lo tuvimos armado y no avanzó… recuerdas que estaba a la derecha
+    // de la conversación en la fase de pruebas?" — el panel de calidad
+    // + la analítica per-operator EXISTE (ConversationScorePanel en el
+    // detail, QualityPersonalCard + QualityTeamOverlay en analytics),
+    // pero los scores dejaron de generarse el 2026-07-06 porque el
+    // trigger sólo disparaba en `isFromAI=true`. En prod las
+    // respuestas hoy son casi enteramente manuales (staff desde el
+    // CRM o desde el celular), así que el scorer nunca corría.
+    //
+    // Fix: disparar rescore sobre TODO mensaje del equipo — AI,
+    // manual desde el CRM (sender=ADMIN sin isFromAI) y phone-side
+    // outbound (metadata.source='phone'). El debounce interno del
+    // scorer (QUALITY_SCORING_LIVE_DEBOUNCE_MS default 60s) evita
+    // ráfagas de Claude calls cuando el equipo escribe rápido. El
+    // scorer atribuye el score al último authorId staff, así la
+    // analítica per-operador refleja quién respondió.
+    const isStaffMessage =
+      isFromAI ||
+      sender === MessageSender.ADMIN ||
+      sender === MessageSender.BRENDA ||
+      sender === MessageSender.FRANCO ||
+      sender === MessageSender.ALDO;
+    if (isStaffMessage) {
       this.scorer?.scheduleLiveRescore(conversationId);
     }
   }
