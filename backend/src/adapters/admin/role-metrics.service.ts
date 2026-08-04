@@ -23,6 +23,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, LeadStatus, MessageSender, OrderStatus, UserRole } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
+import { businessHoursMsBetween, businessHoursMinutesBetween } from './business-hours.util';
 import {
   quoteFollowupMinutes,
   quoteFollowupMs,
@@ -215,7 +216,16 @@ export class RoleMetricsService {
         : c.messages.find((m) => STAFF.includes(m.sender));
       if (!firstCust || !firstStaff) continue;
       if (firstStaff.timestamp.getTime() <= firstCust.timestamp.getTime()) continue;
-      latencies.push(firstStaff.timestamp.getTime() - firstCust.timestamp.getTime());
+      // Marcos 2026-08-04 (WhatsApp 14:21 AR): "el promedio de
+      // respuesta tiene que ser en horario de 9 a 13 y de 14 a 17
+      // horas que es el horario de atención". Antes el diff era
+      // wall-clock, así que una consulta del viernes tarde se
+      // contaba con las horas de siesta + noche + fin de semana y
+      // arrojaba latencias astronómicas (60h+ en el widget). Ahora
+      // sólo cuenta la intersección con las ventanas de atención
+      // (default AR Lun-Vie 9-13, 14-17). Ver
+      // business-hours.util.ts para env knobs.
+      latencies.push(businessHoursMsBetween(firstCust.timestamp, firstStaff.timestamp));
     }
     const avgFirstResponseSeconds = latencies.length
       ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000)
@@ -246,7 +256,13 @@ export class RoleMetricsService {
         channel: c.channel,
         lastMessage: getMessageCipher().decrypt(c.lastMessage ?? ''),
         escalatedAt: c.escalatedAt?.toISOString() ?? null,
-        waitingMinutes: c.escalatedAt ? Math.round((now - c.escalatedAt.getTime()) / 60000) : 0,
+        // Business-hours only — mismo criterio que el latency de arriba.
+        // Antes Ariel mostraba "1632m" (~27h wall-clock) porque contaba
+        // toda la noche y el fin de semana. Ahora refleja horas reales
+        // de espera durante el horario de atención.
+        waitingMinutes: c.escalatedAt
+          ? businessHoursMinutesBetween(c.escalatedAt, new Date(now))
+          : 0,
       })),
     };
   }

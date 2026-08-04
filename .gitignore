@@ -86,6 +86,7 @@ e2e/*
 !e2e/test-crm-outbound-echo-dedup-e2e.js
 !e2e/test-ml-cuenta2-single-signature-e2e.js
 !e2e/test-inbox-search-phone-normalize-e2e.js
+!e2e/test-business-hours-latency-e2e.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
