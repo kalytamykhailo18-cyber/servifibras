@@ -132,14 +132,25 @@ export class ConversationManagementService implements IConversationManagementSer
         // lastMessage y messages.content. Ahora el número entra por
         // phone directo (y por name para los casos donde el número
         // quedó grabado como nombre — WhatsApp inbound sin perfil).
-        ands.push({
-          OR: [
-            { contact: { name: { contains: q, mode: 'insensitive' } } },
-            { contact: { phone: { contains: q } } },
-            { lastMessage: { contains: q, mode: 'insensitive' } },
-            { messages: { some: { content: { contains: q, mode: 'insensitive' } } } },
-          ],
-        });
+        //
+        // Marcos 2026-08-04: sumado un segundo predicate sobre phone
+        // usando el query normalizado (sólo dígitos). Cuando el
+        // operador pega el número desde WhatsApp Web sale
+        // "+54 9 11 6636-4558", con espacios y guiones — el
+        // `contains` original no matcheaba "5491166364558". Si `q`
+        // contiene al menos 4 dígitos, agregamos el OR con la
+        // versión digits-only.
+        const digitsOnly = q.replace(/\D/g, '');
+        const orClauses: any[] = [
+          { contact: { name: { contains: q, mode: 'insensitive' } } },
+          { contact: { phone: { contains: q } } },
+          { lastMessage: { contains: q, mode: 'insensitive' } },
+          { messages: { some: { content: { contains: q, mode: 'insensitive' } } } },
+        ];
+        if (digitsOnly.length >= 4 && digitsOnly !== q) {
+          orClauses.push({ contact: { phone: { contains: digitsOnly } } });
+        }
+        ands.push({ OR: orClauses });
       }
       if (ands.length > 0) {
         where.AND = ands;

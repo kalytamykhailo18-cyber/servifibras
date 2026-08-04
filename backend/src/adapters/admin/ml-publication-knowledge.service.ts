@@ -530,6 +530,17 @@ export class MlPublicationKnowledgeService {
     /** Listing ya fetched por el caller — evita doble round trip a ML. */
     listing?: any;
     /**
+     * Marcos 2026-08-04 (WhatsApp 10:54 AR): "cuando son preguntas de
+     * cuenta 2, saluda dos veces" — screenshot con doble firma
+     * "Saludos! Tamara de TiendaServifibras." + "Un saludo, Lucas de
+     * Servifibras." en la misma respuesta. Root cause: el recall
+     * léxico traía Q&A de AMBAS cuentas para el mismo itemId, cada
+     * una con su firma histórica. El AI las combinaba. Filtrar por
+     * accountKey del inbound aísla la cuenta correcta y elimina la
+     * doble firma.
+     */
+    accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | null;
+    /**
      * Marcos 2026-06-25 (sandbox "probar respuesta"): bypass del kill
      * switch ML_CONSTRAINED_REPLY_ENABLED. Permite probar el modo
      * cerrado desde el panel de curación aunque esté off en prod.
@@ -611,6 +622,7 @@ export class MlPublicationKnowledgeService {
            @@ replace(plainto_tsquery('spanish', $2)::text, ' & ', ' | ')::tsquery) AS has_match
        FROM ml_publication_knowledge
        WHERE "itemId" = $1
+         AND ($3::text IS NULL OR "accountKey" = $3)
          AND (
            "curationStatus" IN ('kept', 'edited')
            OR ("curationStatus" = 'pending' AND "answerText" IS NOT NULL)
@@ -626,6 +638,7 @@ export class MlPublicationKnowledgeService {
        LIMIT 50`,
       args.itemId,
       args.buyerQuestion ?? '',
+      args.accountKey ?? null,
     );
     const minRequired = (() => {
       const raw = Number(process.env.ML_CONSTRAINED_MIN_CURATED);

@@ -156,6 +156,7 @@ export class ConversationHandlerService implements IConversationHandler {
     buyerQuestion: string;
     buyerNickname?: string | null;
     listing?: any;
+    accountKey?: 'mercadolibre' | 'mercadolibre_cuenta2' | null;
   }): Promise<{ reply: string; autoSendAllowed: boolean; selfEvalScore: number } | null> {
     if (!this.mlKnowledge) return null;
     try {
@@ -1305,6 +1306,11 @@ export class ConversationHandlerService implements IConversationHandler {
               buyerQuestion: message.text,
               buyerNickname: message.from || null,
               listing: mlListing,
+              // Marcos 2026-08-04: cuenta 2 firmaba doble ("Tamara" +
+              // "Lucas") porque el recall traía Q&A de ambas cuentas
+              // para el mismo itemId. Pasar accountKey al recall
+              // aísla la cuenta correcta.
+              accountKey: (message.mlAccountKey as 'mercadolibre' | 'mercadolibre_cuenta2' | null) ?? null,
             })
           : null;
       const constrainedCanned = constrainedResult?.reply ?? null;
