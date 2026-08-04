@@ -843,7 +843,11 @@ export class ConversationManagementService implements IConversationManagementSer
       // channel where outbound media is wired today; FB/IG/ML/TiendaNube
       // need their own send paths and are no-ops for now (the message is
       // saved either way so the operator's UI stays consistent).
-      void this.deliverAttachmentToChannel(args).catch((err) =>
+      // Marcos 2026-08-04: pasamos msg.id para que el delivery, cuando
+      // haya éxito por Baileys, pueda stampear waMessageId en la fila
+      // (mismo mecanismo que sendManualMessage). Sin esto, el echo del
+      // outbound crea un contacto duplicado con phone=LID digits.
+      void this.deliverAttachmentToChannel({ ...args, messageRowId: msg.id }).catch((err) =>
         this.logger.error(`Channel delivery failed for ${msg.id}: ${err?.message ?? err}`),
       );
 
@@ -882,6 +886,7 @@ export class ConversationManagementService implements IConversationManagementSer
     attachmentMime: string;
     contentType: ContentType;
     caption: string;
+    messageRowId?: string;
   }): Promise<void> {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: args.conversationId },
@@ -920,6 +925,14 @@ export class ConversationManagementService implements IConversationManagementSer
       });
       if (!result.success) {
         this.logger.warn(`WhatsApp media send returned failure: ${result.error}`);
+      } else if (result.messageId && args.messageRowId) {
+        // Ver comentario en sendManualMessage — mismo mecanismo para
+        // que el echo Baileys del media outbound no cree un contacto
+        // LID duplicado.
+        await this.prisma.message.update({
+          where: { id: args.messageRowId },
+          data: { metadata: { waMessageId: result.messageId, source: 'crm-outbound' } },
+        }).catch((e) => this.logger.warn(`Stamp waMessageId (media) failed: ${e?.message ?? e}`));
       }
       return;
     }
@@ -1049,6 +1062,19 @@ export class ConversationManagementService implements IConversationManagementSer
             );
             if (!r.success) {
               this.logger.warn(`WhatsApp manual send failed for ${conversationId}: ${r.error}`);
+            } else if (r.messageId) {
+              // Marcos 2026-08-04: stampear el waMessageId de Baileys
+              // en la fila recién creada. Cuando Baileys eventualmente
+              // dispare messages.upsert con fromMe=true para NUESTRO
+              // propio outbound (echo del envío CRM), recordPhoneSide
+              // Outbound busca por waMessageId — si lo encuentra hace
+              // no-op y evita crear un contacto duplicado con phone=LID
+              // digits (que era lo que Marcos veía como Luján + row
+              // "268117662019706" el 08-04).
+              await this.prisma.message.update({
+                where: { id: created.id },
+                data: { metadata: { waMessageId: r.messageId, source: 'crm-outbound' } },
+              }).catch((e) => this.logger.warn(`Stamp waMessageId failed: ${e?.message ?? e}`));
             }
           } else if (conv.channel === Channel.TIENDANUBE_WEBCHAT) {
             const r = await this.webchat.sendMessage(

@@ -201,9 +201,6 @@ export class WhatsAppService implements IWhatsAppService {
    * generates customer mistrust.
    */
   async sendMedia(args: SendMediaArgs): Promise<WhatsAppSendResult> {
-    if (!this.isConfigured) {
-      return WhatsAppSendResult.failure('WhatsApp not configured');
-    }
     if (!args.to || !args.filePath || !args.mime) {
       return WhatsAppSendResult.failure('Invalid media args');
     }
@@ -213,6 +210,33 @@ export class WhatsAppService implements IWhatsAppService {
     } catch (err: any) {
       this.logger.error(`Cannot read media file ${args.filePath}: ${err.message}`);
       return WhatsAppSendResult.failure('Media file unreadable');
+    }
+
+    // Marcos 2026-08-04 (WhatsApp 09:19 AR): audios no salían — este
+    // path iba SIEMPRE a Meta Cloud, que no está configurado en prod
+    // (no tenemos WHATSAPP_ACCESS_TOKEN). Ahora preferimos Baileys
+    // cuando está enganchado, mismo criterio que sendMessage/text.
+    // Baileys hace la conversión de audio/webm (MediaRecorder del
+    // browser) a OGG Opus voice-note internamente.
+    if (this.qr && this.qr.getStatus().status === 'connected') {
+      const target = await this.resolveWhatsAppJid(args.to);
+      const r = await this.qr.sendMedia({
+        to: target,
+        buffer,
+        mime: args.mime,
+        filename: args.filename,
+        caption: args.caption,
+        contentType: args.contentType as any,
+      });
+      if (r.success) {
+        this.logger.log(`✅ WhatsApp (Baileys) media sent to ${target}: ${r.messageId ?? '(no id)'}`);
+        return WhatsAppSendResult.success(r.messageId ?? `qr-${Date.now()}`);
+      }
+      this.logger.warn(`Baileys media send to ${target} failed: ${r.error}; falling back to Meta Cloud`);
+    }
+
+    if (!this.isConfigured) {
+      return WhatsAppSendResult.failure('WhatsApp not configured');
     }
 
     const metaType = mediaTypeFromContentType(args.contentType);

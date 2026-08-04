@@ -285,6 +285,64 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Marcos 2026-08-04 (WhatsApp 09:19 AR): "los audios no se están
+   * enviando". Root cause: WhatsAppService.sendMedia iba siempre a Meta
+   * Cloud API, que no está configurado en prod — el env
+   * WHATSAPP_ACCESS_TOKEN está vacío, así que sendMedia devolvía
+   * "WhatsApp not configured" en silencio y el audio jamás cruzaba.
+   * Ahora sendMedia también prueba Baileys primero (mismo criterio
+   * que sendMessage/text). Baileys soporta audio/video/image/document
+   * y hace la conversión interna cuando el mime del cliente no
+   * matchea lo que WhatsApp acepta (ej. audio/webm del MediaRecorder
+   * del browser → OGG Opus voice-note en el celular del cliente).
+   */
+  async sendMedia(args: {
+    to: string;
+    buffer: Buffer;
+    mime: string;
+    filename?: string;
+    caption?: string;
+    contentType: 'IMAGE' | 'VIDEO' | 'VOICE' | 'AUDIO' | 'DOCUMENT';
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.sock || this.status !== 'connected') {
+      return { success: false, error: `not connected (status=${this.status})` };
+    }
+    const jid = this.toJid(args.to);
+    try {
+      let payload: any;
+      switch (args.contentType) {
+        case 'VOICE':
+          payload = { audio: args.buffer, mimetype: args.mime, ptt: true };
+          break;
+        case 'AUDIO':
+          payload = { audio: args.buffer, mimetype: args.mime, ptt: false };
+          break;
+        case 'IMAGE':
+          payload = { image: args.buffer, mimetype: args.mime, caption: args.caption };
+          break;
+        case 'VIDEO':
+          payload = { video: args.buffer, mimetype: args.mime, caption: args.caption };
+          break;
+        case 'DOCUMENT':
+          payload = {
+            document: args.buffer,
+            mimetype: args.mime,
+            fileName: args.filename ?? 'archivo',
+            caption: args.caption,
+          };
+          break;
+        default:
+          return { success: false, error: `Unsupported contentType ${args.contentType}` };
+      }
+      const res = await this.sock.sendMessage(jid, payload);
+      return { success: true, messageId: res?.key?.id ?? undefined };
+    } catch (err: any) {
+      this.logger.error(`sendMedia to ${jid} failed: ${err?.message ?? err}`);
+      return { success: false, error: err?.message ?? String(err) };
+    }
+  }
+
   getStatus(): {
     enabled: boolean;
     autoReply: boolean;
