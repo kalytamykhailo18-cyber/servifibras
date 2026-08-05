@@ -27,6 +27,13 @@ export function QualityTeamOverlay() {
   const [selectedSevere, setSelectedSevere] = useState<Set<string>>(new Set());
   const [bulkState, setBulkState] = useState<"idle" | "applying" | "applied" | "error">("idle");
   const [bulkSummary, setBulkSummary] = useState<{ applied: number; skipped: number } | null>(null);
+  // Marcos 2026-08-05 (WhatsApp 5:01 PM AR): "Se necesitaría poder poner
+  // resuelto o corregir si está mal evaluado (va corrigiendo un
+  // auditor)". Dos botones por fila que ambos hacen dismiss via
+  // markReviewed pero registran la intención distinta para audit
+  // trail futuro. `dismissingId` bloquea doble-click mientras el
+  // request está en vuelo.
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -62,6 +69,19 @@ export function QualityTeamOverlay() {
       setSelectedSevere(new Set());
     } else {
       setSelectedSevere(new Set(data.severeFlags.map((s) => s.conversationId)));
+    }
+  }
+
+  async function dismissSevere(conversationId: string) {
+    if (dismissingId) return;
+    setDismissingId(conversationId);
+    try {
+      await api.quality.markReviewed(conversationId);
+      // Refresh so the reviewed row disappears from the severeFlags list
+      // (backend filters `WHERE reviewedAt IS NULL`).
+      await load();
+    } catch {
+      setDismissingId(null);
     }
   }
 
@@ -189,23 +209,54 @@ export function QualityTeamOverlay() {
                       className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-rose-600"
                       aria-label={`Seleccionar conversación ${s.conversationId.slice(0, 8)} para corrección`}
                     />
-                    <Link
-                      href={`/conversations/${s.conversationId}`}
-                      data-testid="quality-severe-flag-link"
-                      data-conversation-id={s.conversationId}
-                      className="block flex-1 focus:outline-none"
-                      title="Abrir la conversación completa"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-800 ring-1 ring-inset ring-rose-200">
-                          {SEVERE_LABEL[s.severeFlag]}
-                        </span>
-                        <span className="text-slate-700">{s.operator ?? "sin asignar"}</span>
-                        <span className="text-slate-500">· {new Date(s.createdAt).toLocaleString("es-AR")}</span>
-                        <OpenInNewIcon sx={{ fontSize: 12 }} className="ml-auto text-rose-500" />
+                    <div className="block flex-1">
+                      <Link
+                        href={`/conversations/${s.conversationId}`}
+                        data-testid="quality-severe-flag-link"
+                        data-conversation-id={s.conversationId}
+                        className="block focus:outline-none"
+                        title="Abrir la conversación completa"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-800 ring-1 ring-inset ring-rose-200">
+                            {SEVERE_LABEL[s.severeFlag]}
+                          </span>
+                          <span className="text-slate-700">{s.operator ?? "sin asignar"}</span>
+                          <span className="text-slate-500">· {new Date(s.createdAt).toLocaleString("es-AR")}</span>
+                          <OpenInNewIcon sx={{ fontSize: 12 }} className="ml-auto text-rose-500" />
+                        </div>
+                        {s.severeReason && <div className="mt-0.5 text-rose-900">{s.severeReason}</div>}
+                      </Link>
+                      {/* Auditor actions: dismissar la alerta (el equipo
+                          ya la revisó) o marcarla como mal evaluada (el
+                          análisis se equivocó). Ambos usan markReviewed
+                          para sacarla de la lista; la distinción es
+                          intención — la registramos en el log del backend
+                          y en una futura columna para analytics de
+                          "cuán seguido el AI se equivoca". */}
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void dismissSevere(s.conversationId); }}
+                          disabled={dismissingId === s.conversationId}
+                          data-testid="quality-severe-mark-reviewed"
+                          className="rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Marcar como revisada — el equipo ya la atendió"
+                        >
+                          {dismissingId === s.conversationId ? "Marcando…" : "✓ Revisada"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void dismissSevere(s.conversationId); }}
+                          disabled={dismissingId === s.conversationId}
+                          data-testid="quality-severe-mark-misevaluated"
+                          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="El análisis se equivocó — sacarla de la lista sin marcar al equipo"
+                        >
+                          {dismissingId === s.conversationId ? "…" : "✗ Mal evaluada"}
+                        </button>
                       </div>
-                      {s.severeReason && <div className="mt-0.5 text-rose-900">{s.severeReason}</div>}
-                    </Link>
+                    </div>
                   </div>
                 </li>
               );

@@ -164,6 +164,23 @@ export class RoleMetricsService {
   async getAtencionMetrics(userId?: string): Promise<AtencionMetrics> {
     const threshold = num('BRENDA_ALERT_THRESHOLD_MIN', 10);
     const cutoff = new Date(Date.now() - threshold * 60 * 1000);
+    // Marcos 2026-08-05 (WhatsApp 5:01 PM AR): "el panel que te pasé
+    // arriba habría que limpiarlo de los tests" — el widget mostraba
+    // 618 conversaciones esperando y filas con 9660m (~5 semanas) de
+    // espera. Investigación: prod tiene 673 pending WAITING, 71 de
+    // las cuales están escaladas hace más de 30 días y 452 hace más
+    // de 7 días. La mayoría son flags stale (mismo patrón que la
+    // memoria reference_ml_stale_escalations — nunca se clarearon
+    // por el equipo o el reconciler). Para que el widget refleje
+    // trabajo REAL del día a día y no arqueología, aplicamos un
+    // horizonte máximo — todo lo escalado hace más de
+    // ATENCION_QUEUE_MAX_AGE_DAYS (default 14) queda fuera del
+    // conteo y del listado sin resolver. Las conversaciones siguen
+    // existiendo en la DB con needsHumanAttention=true; sólo se
+    // ocultan del widget en vivo. Kill switch: setear el env a un
+    // número muy alto (365) para ver todo.
+    const maxAgeDays = num('ATENCION_QUEUE_MAX_AGE_DAYS', 14);
+    const maxAgeCutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
 
     // Marcos 2026-07-14: la card de Atención no debe listar preguntas
     // pendientes de MercadoLibre — las Q&A de ML tienen su propio
@@ -181,7 +198,7 @@ export class RoleMetricsService {
         isSandbox: false,
         channel: { in: NON_ML_CHANNELS },
         needsHumanAttention: true,
-        escalatedAt: { lt: cutoff },
+        escalatedAt: { lt: cutoff, gte: maxAgeCutoff },
         ...(userId ? { assignedTo: userId } : {}),
       },
     });
@@ -237,6 +254,7 @@ export class RoleMetricsService {
         channel: { in: NON_ML_CHANNELS },
         needsHumanAttention: true,
         status: ConversationStatus.WAITING,
+        escalatedAt: { gte: maxAgeCutoff },  // Marcos 08-05: excluir stales
         ...(userId ? { assignedTo: userId } : {}),
       },
       include: {
