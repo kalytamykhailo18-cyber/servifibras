@@ -2420,16 +2420,56 @@ export class ConversationHandlerService implements IConversationHandler {
   }
 
   private buildAIContext(recentMessages: any[]): AIConversation {
+    // Marcos 2026-08-07 (WhatsApp 09:59 AR): "no sigue el hilo, no
+    // retiene lo que el cliente dijo dos mensajes antes". Root cause:
+    // este método tag-eaba TODO msg no-AI como `user`. Con
+    // WHATSAPP_QR_AUTO_REPLY apagado en la práctica (97.8% de las
+    // conversaciones de WA tienen aiPaused=true), la mayoría de los
+    // hilos están dominados por respuestas MANUALES del equipo
+    // (sender=ADMIN/BRENDA/FRANCO/ALDO, isFromAI=false). Claude
+    // recibía esos mensajes con role=user y creía que el cliente
+    // decía cada línea del hilo — incluyendo las respuestas del
+    // propio equipo. De ahí la incoherencia. Fix: tag por LADO de la
+    // conversación (cliente vs equipo/AI), no por origen técnico.
+    //   - sender=CUSTOMER               → 'user'
+    //   - isFromAI                       → 'assistant'
+    //   - sender ∈ {ADMIN,BRENDA,FRANCO,ALDO} → 'assistant' (equipo)
+    //
+    // Segundo pase: mergeamos consecutivos del mismo rol para
+    // preservar la alternancia que Anthropic prefiere (multiple
+    // consecutive same-role acepta pero puede degradar la calidad).
+    // Mensajes vacíos (media sin caption) se skip — no aportan texto
+    // al contexto y sólo diluyen la ventana.
     const cipher = getMessageCipher();
-    const aiMessages: AIMessage[] = recentMessages.map((msg) => {
-      const role = msg.isFromAI ? 'assistant' : 'user';
-      // History is stored encrypted on the row; decrypt before handing
-      // the text to Claude. Cipher returns plaintext as-is for legacy
-      // rows that pre-date encryption.
-      return new AIMessage(role, cipher.decrypt(msg.content));
-    });
+    const STAFF_SENDERS = new Set<MessageSender>([
+      MessageSender.ADMIN,
+      MessageSender.BRENDA,
+      MessageSender.FRANCO,
+      MessageSender.ALDO,
+    ]);
 
-    return new AIConversation(aiMessages);
+    const raw: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    for (const msg of recentMessages) {
+      const content = cipher.decrypt(msg.content ?? '').trim();
+      if (content.length === 0) continue;
+      let role: 'user' | 'assistant';
+      if (msg.isFromAI) role = 'assistant';
+      else if (STAFF_SENDERS.has(msg.sender as MessageSender)) role = 'assistant';
+      else role = 'user'; // CUSTOMER (o cualquier sender externo desconocido)
+      raw.push({ role, content });
+    }
+
+    const merged: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    for (const m of raw) {
+      const last = merged[merged.length - 1];
+      if (last && last.role === m.role) {
+        last.content = `${last.content}\n\n${m.content}`;
+      } else {
+        merged.push({ role: m.role, content: m.content });
+      }
+    }
+
+    return new AIConversation(merged.map((m) => new AIMessage(m.role, m.content)));
   }
 
   async onModuleDestroy() {
