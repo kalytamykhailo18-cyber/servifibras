@@ -39,7 +39,7 @@ import * as QRCode from 'qrcode';
 import { ConversationHandlerService } from '../conversations/conversation-handler.service';
 import { UploadStorageService } from '../uploads/upload-storage.service';
 import { WhatsAppIncomingMessage, WhatsAppMessageType } from '../../domain/entities/whatsapp-message.entity';
-import { ContentType } from '@prisma/client';
+import { ContentType, PrismaClient } from '@prisma/client';
 
 type ConnectionStatus =
   | 'disabled'        // env flag off
@@ -53,6 +53,7 @@ type ConnectionStatus =
 @Injectable()
 export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappQrService.name);
+  private readonly prisma = new PrismaClient();
   private sock: WASocket | null = null;
   private status: ConnectionStatus = 'disabled';
   private lastQrDataUrl: string | null = null;
@@ -225,6 +226,13 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       sock.ev.on('creds.update', saveCreds);
       sock.ev.on('connection.update', (u) => this.onConnectionUpdate(u).catch((e) => this.logger.error(`onConnectionUpdate: ${e?.message ?? e}`)));
       sock.ev.on('messages.upsert', (m) => this.onMessagesUpsert(m).catch((e) => this.logger.error(`onMessagesUpsert: ${e?.message ?? e}`)));
+      // Marcos 2026-08-10 (WhatsApp 13:12 AR): WhatsApp sincroniza el
+      // estado unreadCount de cada chat entre dispositivos linkeados.
+      // Cuando Marcos abre un chat en el celular, Baileys recibe un
+      // chats.update con unreadCount=0. Usamos esa señal para apagar
+      // hasUnreadCustomer en la Conversation, alineando el conteo del
+      // CRM con lo que WhatsApp Web muestra ("no leidos = 8").
+      sock.ev.on('chats.update', (updates) => this.onChatsUpdate(updates).catch((e) => this.logger.error(`onChatsUpdate: ${e?.message ?? e}`)));
       return { ok: true, status: this.status };
     } catch (err: any) {
       this.status = 'errored';
@@ -502,6 +510,72 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     } catch (err: any) {
       this.logger.warn(`Failed to download/store WA media (${kind}): ${err?.message ?? err}`);
       return null;
+    }
+  }
+
+  /**
+   * Marcos 2026-08-10 (WhatsApp 13:12 AR): sincroniza el estado de
+   * lectura desde el celular. WhatsApp mantiene el unreadCount por
+   * chat consistente entre dispositivos linkeados. Cuando Marcos abre
+   * un chat en su celular, Baileys recibe un chats.update con
+   * unreadCount=0. Reflejamos esa señal apagando hasUnreadCustomer en
+   * la Conversation correspondiente, para que la tab "No leídas" del
+   * CRM muestre exactamente lo mismo que el WhatsApp de Marcos.
+   *
+   * Sólo actuamos sobre updates que traen unreadCount=0 (el "leyeron"
+   * afirmativo) — updates sin ese campo o con valor >0 se ignoran, la
+   * fila queda como estaba. Aciertos sobre chats que no matchean
+   * ninguna Conversation en nuestra DB son no-op silencioso.
+   */
+  private async onChatsUpdate(updates: Array<{ id?: string; unreadCount?: number | null }>): Promise<void> {
+    if (!Array.isArray(updates) || updates.length === 0) return;
+    const readJids: string[] = [];
+    for (const u of updates) {
+      const jid = u?.id;
+      if (!jid || typeof jid !== 'string') continue;
+      // unreadCount puede venir 0, null (limpio), o -1 (marcado como
+      // no leído explícitamente por el user — ignoramos, no queremos
+      // pisarlo). Sólo la señal de "0" (o null) equivale a "leído".
+      const uc = u.unreadCount;
+      if (uc !== 0 && uc !== null) continue;
+      readJids.push(jid);
+    }
+    if (readJids.length === 0) return;
+    try {
+      // La Conversation tiene contact.metadata.waJid con el jid
+      // completo. Buscamos por eso. Prisma no puede matchear directo
+      // dentro del JSON con `contains` para strings exactos, así que
+      // usamos el string exacto en el where.
+      const contacts = await this.prisma.contact.findMany({
+        where: {
+          metadata: {
+            path: ['waJid'],
+            equals: undefined,   // Prisma trick: reemplazado por OR abajo
+          },
+        },
+        select: { id: true },
+      }).catch(() => [] as Array<{ id: string }>);
+      void contacts; // placeholder — path/equals=undefined no matchea, cambiamos abajo
+      // Preferimos un update masivo por lista de jids. Como Prisma
+      // JSON `path` no soporta `in`, iteramos por chunk pequeño.
+      const CHUNK = 25;
+      let totalCleared = 0;
+      for (let i = 0; i < readJids.length; i += CHUNK) {
+        const slice = readJids.slice(i, i + CHUNK);
+        const orClauses = slice.map((j) => ({
+          contact: { is: { metadata: { path: ['waJid'], equals: j } } },
+        }));
+        const res = await this.prisma.conversation.updateMany({
+          where: { channel: 'WHATSAPP', hasUnreadCustomer: true, OR: orClauses },
+          data: { hasUnreadCustomer: false },
+        });
+        totalCleared += res.count;
+      }
+      if (totalCleared > 0) {
+        this.logger.log(`chats.update: cleared hasUnreadCustomer on ${totalCleared} conversations (phone-side read)`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`onChatsUpdate failed: ${err?.message ?? err}`);
     }
   }
 

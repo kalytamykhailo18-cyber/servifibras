@@ -99,19 +99,20 @@ export class ConversationManagementService implements IConversationManagementSer
       // del listado del día a día. Consistente con lo que hace la card
       // de Atención en Analítica. Kill switch: subir el env a 365.
       if (filter.needsHumanAttention === true) {
-        where.needsHumanAttention = true;
-        // Marcos 2026-08-10 12:46 (screenshot WhatsApp Web: "no leidos
-        // actualmente son 8" contra nuestros 341). WhatsApp cuenta como
-        // no-leído sólo los que Marcos no abrió desde el celular; el CRM
-        // no ve receipts de lectura, así que se acumulan hilos que él
-        // leyó pero no respondió. Compromiso: acortar el horizonte del
-        // inbox a INBOX_UNREAD_MAX_AGE_HOURS (default 24h) — sólo lo
-        // realmente reciente aparece en la tab. Los más viejos siguen
-        // en el sistema (needsHumanAttention=true) y quedan visibles en
-        // el widget de Atención con su propio horizonte (14 días).
+        // Marcos 2026-08-10 13:12 AR: "no leidos actualmente son 8"
+        // (WhatsApp Web) vs 341 (CRM) — WA cuenta unread por receipts
+        // del celular, el CRM antes contaba `needsHumanAttention` que
+        // se disparaba por escalación aunque Marcos ya hubiera visto
+        // el mensaje. Nueva columna hasUnreadCustomer: TRUE cuando
+        // cliente escribe, FALSE cuando el equipo responde O cuando
+        // Marcos abre el chat en el celular (via chats.update de
+        // Baileys). Alinea 1:1 con la semántica de "no leído" de WA.
+        where.hasUnreadCustomer = true;
+        // Aún filtramos por edad como safety net por si el sync de
+        // Baileys se atrasa — mantiene el orden natural del inbox.
         const inboxHours = num('INBOX_UNREAD_MAX_AGE_HOURS', 24);
         const inboxCutoff = new Date(Date.now() - inboxHours * 60 * 60 * 1000);
-        where.escalatedAt = { gte: inboxCutoff };
+        where.lastMessageAt = { gte: inboxCutoff };
       }
 
       // Marcos 2026-07-21: filtro para la tab "Favoritas".
@@ -867,6 +868,7 @@ export class ConversationManagementService implements IConversationManagementSer
           assignedTo: args.userId,
           status: ConversationStatus.ACTIVE,
           needsHumanAttention: false,
+          hasUnreadCustomer: false, // staff outbound clears WA-style unread
         },
       });
 
@@ -1067,6 +1069,7 @@ export class ConversationManagementService implements IConversationManagementSer
           assignedTo: userId,
           status: ConversationStatus.ACTIVE,
           needsHumanAttention: false,
+          hasUnreadCustomer: false, // staff manual reply clears WA-style unread
         },
       });
 

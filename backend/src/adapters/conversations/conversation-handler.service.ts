@@ -2341,11 +2341,20 @@ export class ConversationHandlerService implements IConversationHandler {
       : attachment
         ? this.previewForAttachment(attachment.contentType)
         : '';
+    // Marcos 2026-08-10 (WhatsApp 13:12 AR): hasUnreadCustomer flag —
+    // TRUE cuando el cliente escribe, FALSE cuando el equipo o la IA
+    // responde. Semántica alineada con WhatsApp: un hilo deja de estar
+    // "no leído" ni bien el lado del negocio actuó. El listener de
+    // chats.update de Baileys también apaga este flag cuando Marcos
+    // abre el chat en el celular (aunque no responda), completando el
+    // mirror del receipts de WhatsApp Web/mobile.
+    const senderIsCustomer = sender === MessageSender.CUSTOMER;
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {
         lastMessageAt: now,
         lastMessage: getMessageCipher().encrypt(preview),
+        hasUnreadCustomer: senderIsCustomer,
       },
     }).catch((e) => {
       this.logger.warn(`Could not bump lastMessage/At on ${conversationId}: ${e?.message ?? e}`);

@@ -166,6 +166,15 @@ model Conversation {
   lastMessage           String?
   lastMessageAt         DateTime?
   isUnread              Boolean            @default(true)
+  // Marcos 2026-08-10 (WhatsApp 12:46-13:12 AR): la tab "No leídas" del
+  // inbox mostraba 341 mientras el WhatsApp de Marcos mostraba 8. WA
+  // cuenta unread por receipts del celular (una vez que Marcos abre el
+  // chat, aunque no responda, deja de estar unread). Este flag mapea
+  // 1:1 esa semántica: TRUE cuando el cliente escribió y ni el equipo
+  // envió respuesta ni Marcos abrió el chat en su celular (Baileys
+  // reporta unreadCount=0 vía chats.update sync). Filtrar por esto en
+  // "No leídas" alinea el conteo con WhatsApp Web.
+  hasUnreadCustomer     Boolean            @default(false)
   // True when the AI/customer signalled the conversation needs a human and
   // no human has replied yet. Cleared the moment any staff member sends a
   // reply through the panel.
