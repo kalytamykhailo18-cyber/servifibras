@@ -89,6 +89,23 @@ export default function ConversationsPage() {
     return () => { cancelled = true; clearInterval(h); };
   }, [mlTabAllowed]);
 
+  // Marcos 2026-08-10 (WhatsApp 13:55 AR): "podemos incorporar arriba
+  // que marque los no leídos totales en pequeño, como hace whatsapp?
+  // así chequeamos que coincida". Contador global independiente del
+  // tab activo — page=1 limit=1 sólo para leer `response.total`.
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const refreshUnreadCount = useCallback(async () => {
+    try {
+      const r = await api.conversations.getAll({ page: 1, limit: 1, needsHumanAttention: true });
+      setUnreadCount(Number(r?.total || 0));
+    } catch { /* non-fatal */ }
+  }, []);
+  useEffect(() => {
+    void refreshUnreadCount();
+    const h = setInterval(() => { void refreshUnreadCount(); }, 30_000);
+    return () => clearInterval(h);
+  }, [refreshUnreadCount]);
+
   const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +199,9 @@ export default function ConversationsPage() {
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
       fetchConversations(1, true);
+      void refreshUnreadCount();
     }, 600);
-  }, [filters, activeTab]);
+  }, [filters, activeTab, refreshUnreadCount]);
   useRealtimeEvent("metrics:tick", onTick);
   useRealtimeEvent("conversation:needs_human", onTick);
   useRealtimeEvent("conversation:transferred", onTick);
@@ -268,6 +286,7 @@ export default function ConversationsPage() {
           switchTab={switchTab}
           mlTabAllowed={mlTabAllowed}
           mlPendingCount={mlPendingCount}
+          unreadCount={unreadCount}
           showFilters={showFilters}
           setShowFilters={setShowFilters}
           searchValue={searchInput}
@@ -287,6 +306,7 @@ export default function ConversationsPage() {
         switchTab={switchTab}
         mlTabAllowed={mlTabAllowed}
         mlPendingCount={mlPendingCount}
+        unreadCount={unreadCount}
         showFilters={showFilters}
         setShowFilters={setShowFilters}
         searchValue={searchInput}
@@ -403,13 +423,14 @@ interface CompactHeaderProps {
   switchTab: (t: ConversationsTab) => void;
   mlTabAllowed: boolean;
   mlPendingCount: number;
+  unreadCount: number;
   showFilters: boolean;
   setShowFilters: (v: boolean) => void;
   searchValue: string;
   onSearchChange: (v: string) => void;
 }
 function CompactHeader({
-  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount,
+  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount, unreadCount,
   showFilters, setShowFilters, searchValue, onSearchChange,
 }: CompactHeaderProps) {
   return (
@@ -438,6 +459,11 @@ function CompactHeader({
           >
             <MarkChatUnreadIcon sx={{ fontSize: 15 }} />
             No leídas
+            {unreadCount > 0 && (
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold tabular-nums text-white">
+                {unreadCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
