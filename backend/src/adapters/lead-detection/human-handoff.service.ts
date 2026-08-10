@@ -322,10 +322,19 @@ export class HumanHandoffService implements IHumanHandoffService {
       where: {
         needsHumanAttention: true,
         contact: { is: { isSandbox: false } },
-        // Marcos 2026-07-22: el reconciler comparte pipeline con el
-        // hot-path; si aiPaused=true no cerramos porque el farewell
-        // del agente violaría el kill-switch del operador.
-        aiPaused: false,
+        // Marcos 2026-08-10 (WhatsApp 12:15 AR, screenshot con hilos
+        // "gracias/ok/listo" acumulados en No leídas): el filtro
+        // `aiPaused: false` del 07-22 estaba pensado para no disparar
+        // farewells del agente en conversaciones donde el operador
+        // pausó explícitamente. En la práctica: (a) 97.8% de las
+        // conversaciones de WhatsApp tienen aiPaused=true (el equipo
+        // atiende manual y pausa la IA por defecto), (b) este
+        // reconciler NO envía ningún mensaje — sólo cambia
+        // needsHumanAttention y status en DB. La guarda estaba
+        // bloqueando el auto-cierre en 396/396 pending candidates.
+        // Sacamos la guarda: aunque aiPaused=true, marcar la
+        // conversación como cerrada no viola el kill switch (no hay
+        // salida al cliente).
       },
       select: {
         id: true,
@@ -337,7 +346,16 @@ export class HumanHandoffService implements IHumanHandoffService {
         },
       },
     });
-    const toClose: Array<{ id: string; channel: string }> = [];
+    // Fast-filter first (cheap, in-memory) so we only spend Claude
+    // tokens on rows that already passed the deterministic check.
+    // Marcos 2026-08-10: antes esta cola se procesaba 100% sequential
+    // — 400 candidates * ~1s cada Claude call = 6.6 min, mataba el
+    // shell y no committeaba nada. Ahora: (a) cap por run
+    // (HANDOFF_RECONCILE_ACK_MAX_PER_RUN, default 100) para que un
+    // cron tick termine en tiempo razonable; (b) Claude en batches
+    // paralelos de 10 con Promise.all — 100 candidates en ~10s.
+    type PreVerified = { id: string; channel: string; lastPlain: string; contextTurns: any[] };
+    const preVerified: PreVerified[] = [];
     for (const c of candidates) {
       const msgs = c.messages;
       if (msgs.length === 0) continue;
@@ -345,16 +363,11 @@ export class HumanHandoffService implements IHumanHandoffService {
       if (last.sender !== MessageSender.CUSTOMER) continue;
       const lastPlain = cipher.decrypt(last.content ?? '');
       if (!isAcknowledgment(lastPlain)) continue;
-      // Guarda barata: turno previo del staff no debe ser pregunta abierta.
       const prev = msgs[1];
       if (prev) {
         const prevPlain = cipher.decrypt(prev.content ?? '');
         if (looksLikeUnresolvedFromStaff(prevPlain)) continue;
       }
-      // Marcos 2026-07-21: second-opinion con Claude — mismo criterio
-      // que el hot path. Si Claude dice OPEN o no responde, dejamos
-      // la conversación sin tocar. Costo bajo (< 200 tokens por check
-      // y sólo se dispara sobre rows que ya pasaron el fast-filter).
       const contextTurns = msgs
         .slice(0, 6)
         .reverse()
@@ -366,9 +379,30 @@ export class HumanHandoffService implements IHumanHandoffService {
               : 'staff') as 'customer' | 'ai' | 'staff',
           text: cipher.decrypt(m.content ?? ''),
         }));
-      const verdict = await claudeConfirmAckCloses(this.claudeService, lastPlain, contextTurns);
-      if (verdict !== true) continue;
-      toClose.push({ id: c.id, channel: c.channel });
+      preVerified.push({ id: c.id, channel: c.channel, lastPlain, contextTurns });
+    }
+    const maxPerRun = (() => {
+      const raw = Number(process.env.HANDOFF_RECONCILE_ACK_MAX_PER_RUN);
+      return Number.isFinite(raw) && raw > 0 ? raw : 100;
+    })();
+    const batch = preVerified.slice(0, maxPerRun);
+
+    // Second-opinion con Claude en paralelo por chunks. Costo total
+    // acotado (Haiku, <200 tokens por check) y bounded a maxPerRun.
+    const toClose: Array<{ id: string; channel: string }> = [];
+    const CHUNK_SIZE = 10;
+    for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+      const chunk = batch.slice(i, i + CHUNK_SIZE);
+      const verdicts = await Promise.all(
+        chunk.map((c) =>
+          claudeConfirmAckCloses(this.claudeService, c.lastPlain, c.contextTurns).catch(() => null),
+        ),
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        if (verdicts[j] === true) {
+          toClose.push({ id: chunk[j].id, channel: chunk[j].channel });
+        }
+      }
     }
     const byChannel: Record<string, number> = {};
     for (const t of toClose) byChannel[t.channel] = (byChannel[t.channel] ?? 0) + 1;
