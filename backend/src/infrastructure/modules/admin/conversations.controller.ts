@@ -295,6 +295,21 @@ export class ConversationsController {
    *
    * POST /admin/conversations/:id/favorite   body: { favorite: boolean }
    */
+  /**
+   * Marcos 2026-08-10 (WhatsApp 13:58 AR): "una vez abierto el mensaje,
+   * sigue apareciendo como no leído, por más que lo hagamos desde el
+   * CRM". El frontend llama a este endpoint al abrir el detalle de una
+   * conversación con hasUnreadCustomer=true. No auditamos (ruido).
+   * POST /admin/conversations/:id/mark-read
+   */
+  @Post(':id/mark-read')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
+  async markConversationRead(@Param('id') id: string) {
+    const result = await this.conversationManagement.markAsRead(id);
+    if (!result) return { success: false, error: 'Conversación no encontrada' };
+    return { success: true, data: result };
+  }
+
   @Post(':id/favorite')
   @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
   async setFavorite(

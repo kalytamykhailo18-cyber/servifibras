@@ -1266,6 +1266,21 @@ export class ConversationManagementService implements IConversationManagementSer
     }
   }
 
+  async markAsRead(conversationId: string): Promise<{ hasUnreadCustomer: boolean } | null> {
+    try {
+      const updated = await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { hasUnreadCustomer: false } as any,
+        select: { hasUnreadCustomer: true } as any,
+      });
+      return { hasUnreadCustomer: (updated as any).hasUnreadCustomer };
+    } catch (err: any) {
+      if (err?.code === 'P2025') return null;
+      this.logger.error(`markAsRead failed for ${conversationId}: ${err?.message ?? err}`);
+      throw err;
+    }
+  }
+
   async onModuleDestroy() {
     await this.prisma.$disconnect();
   }

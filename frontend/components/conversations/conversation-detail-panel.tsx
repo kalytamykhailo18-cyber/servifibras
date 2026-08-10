@@ -126,6 +126,16 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
     loadConversation();
   }, [conversationId]);
 
+  // Marcos 2026-08-10 (WhatsApp 13:58 AR): "una vez abierto el mensaje,
+  // sigue apareciendo como no leído, por más que lo hagamos desde el
+  // CRM". Al abrir el detalle disparamos mark-read (best-effort). Sirve
+  // como la contraparte simétrica del chats.update de Baileys —
+  // cualquier lectura, sea desde el CRM o desde el celular, baja el flag.
+  useEffect(() => {
+    if (!conversationId) return;
+    void api.conversations.markAsRead(conversationId);
+  }, [conversationId]);
+
   // Marcos 2026-07-14: si el cliente sigue mandando mensajes mientras el
   // operador tiene la conversación abierta, la pantalla ANTES no se
   // enteraba (sólo refrescaba en acciones del operador). Ahora hace un

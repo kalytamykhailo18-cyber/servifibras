@@ -336,6 +336,17 @@ export const conversationsApi = {
   },
 
   /**
+   * POST /admin/conversations/:id/mark-read
+   * Marcos 2026-08-10 (WhatsApp 13:58 AR): abrir el detalle en el CRM
+   * limpia hasUnreadCustomer. Silencioso — no throw, no toast.
+   */
+  markAsRead: async (id: string): Promise<void> => {
+    try {
+      await apiClient.post(`/admin/conversations/${id}/mark-read`, {});
+    } catch { /* non-fatal — el flag va a caer eventualmente por otro camino */ }
+  },
+
+  /**
    * PUT /admin/conversations/:id/status
    * Update conversation status (ACTIVE, CLOSED, WAITING)
    */
