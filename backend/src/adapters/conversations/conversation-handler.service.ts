@@ -2341,21 +2341,29 @@ export class ConversationHandlerService implements IConversationHandler {
       : attachment
         ? this.previewForAttachment(attachment.contentType)
         : '';
-    // Marcos 2026-08-10 (WhatsApp 13:12 AR): hasUnreadCustomer flag —
-    // TRUE cuando el cliente escribe, FALSE cuando el equipo o la IA
-    // responde. Semántica alineada con WhatsApp: un hilo deja de estar
-    // "no leído" ni bien el lado del negocio actuó. El listener de
-    // chats.update de Baileys también apaga este flag cuando Marcos
-    // abre el chat en el celular (aunque no responda), completando el
-    // mirror del receipts de WhatsApp Web/mobile.
+    // Marcos 2026-08-10 (WhatsApp 14:57 AR): la primera versión escribía
+    // `hasUnreadCustomer: senderIsCustomer`, o sea la respuesta automática
+    // de la IA que llega segundos después del inbound apagaba el flag
+    // antes de que Marcos siquiera lo viera → los chats "no entraban"
+    // en No leídas. Semántica correcta símil WhatsApp: el flag lo prende
+    // SÓLO el cliente al escribir; lo apaga una acción de lectura real:
+    // (a) reply manual desde el CRM (sendManualMessage/Attachment),
+    // (b) apertura del detalle en el CRM (mark-read endpoint),
+    // (c) `chats.update` de Baileys cuando Marcos lee desde el celular.
+    // Un auto-reply de IA nunca cuenta como "leído por un humano".
     const senderIsCustomer = sender === MessageSender.CUSTOMER;
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: {
-        lastMessageAt: now,
-        lastMessage: getMessageCipher().encrypt(preview),
-        hasUnreadCustomer: senderIsCustomer,
-      },
+      data: senderIsCustomer
+        ? {
+            lastMessageAt: now,
+            lastMessage: getMessageCipher().encrypt(preview),
+            hasUnreadCustomer: true,
+          }
+        : {
+            lastMessageAt: now,
+            lastMessage: getMessageCipher().encrypt(preview),
+          },
     }).catch((e) => {
       this.logger.warn(`Could not bump lastMessage/At on ${conversationId}: ${e?.message ?? e}`);
     });
