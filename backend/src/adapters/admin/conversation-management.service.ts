@@ -100,9 +100,18 @@ export class ConversationManagementService implements IConversationManagementSer
       // de Atención en Analítica. Kill switch: subir el env a 365.
       if (filter.needsHumanAttention === true) {
         where.needsHumanAttention = true;
-        const maxAgeDays = num('ATENCION_QUEUE_MAX_AGE_DAYS', 14);
-        const maxAgeCutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
-        where.escalatedAt = { gte: maxAgeCutoff };
+        // Marcos 2026-08-10 12:46 (screenshot WhatsApp Web: "no leidos
+        // actualmente son 8" contra nuestros 341). WhatsApp cuenta como
+        // no-leído sólo los que Marcos no abrió desde el celular; el CRM
+        // no ve receipts de lectura, así que se acumulan hilos que él
+        // leyó pero no respondió. Compromiso: acortar el horizonte del
+        // inbox a INBOX_UNREAD_MAX_AGE_HOURS (default 24h) — sólo lo
+        // realmente reciente aparece en la tab. Los más viejos siguen
+        // en el sistema (needsHumanAttention=true) y quedan visibles en
+        // el widget de Atención con su propio horizonte (14 días).
+        const inboxHours = num('INBOX_UNREAD_MAX_AGE_HOURS', 24);
+        const inboxCutoff = new Date(Date.now() - inboxHours * 60 * 60 * 1000);
+        where.escalatedAt = { gte: inboxCutoff };
       }
 
       // Marcos 2026-07-21: filtro para la tab "Favoritas".
