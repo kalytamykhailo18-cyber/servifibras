@@ -86,8 +86,23 @@ export class ConversationManagementService implements IConversationManagementSer
       // Marcos 2026-07-21: filtro para la tab "No leídos" del inbox
       // (símil WhatsApp). Cuando llega true, sólo devolvemos las que
       // realmente esperan respuesta del staff.
+      //
+      // Marcos 2026-08-10 (WhatsApp 11:27 AR): "no leidas sigue sin
+      // funcionar" — a pesar del reconciler, seguía viendo 678 rows
+      // colgadas, 154 de más de 30 días, casi todas contactos con
+      // LID como nombre (orphans de la migración pre-pushName). Nadie
+      // va a contestar mensajes de julio 5 semanas tarde. Aplicamos
+      // el mismo horizonte de edad que ya usa el widget de Atención
+      // (ATENCION_QUEUE_MAX_AGE_DAYS, default 14): pending escalado
+      // hace más de N días no aparece en la vista "No leídas". La row
+      // sigue en la DB con needsHumanAttention=true; sólo se oculta
+      // del listado del día a día. Consistente con lo que hace la card
+      // de Atención en Analítica. Kill switch: subir el env a 365.
       if (filter.needsHumanAttention === true) {
         where.needsHumanAttention = true;
+        const maxAgeDays = num('ATENCION_QUEUE_MAX_AGE_DAYS', 14);
+        const maxAgeCutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+        where.escalatedAt = { gte: maxAgeCutoff };
       }
 
       // Marcos 2026-07-21: filtro para la tab "Favoritas".
