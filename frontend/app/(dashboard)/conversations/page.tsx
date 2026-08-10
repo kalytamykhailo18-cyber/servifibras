@@ -114,9 +114,19 @@ export default function ConversationsPage() {
     return () => clearTimeout(h);
   }, [searchInput]);
 
-  const fetchConversations = async (page: number = 1, silent: boolean = false) => {
+  // Marcos 2026-08-10 (WhatsApp 10:17 AR): "el listado necesitamos que
+  // se pueda scrollear hacia abajo (como en whatsapp) y no que haya que
+  // pasar de página". Cambiamos paginación por infinite scroll: la
+  // fetch en modo `append=true` concatena en vez de reemplazar; un
+  // sentinel al final del listado dispara la próxima página cuando
+  // entra en viewport. Poll silencioso y refetch por filtros/tab
+  // resetean al modo replace (append=false).
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const fetchConversations = async (page: number = 1, silent: boolean = false, append: boolean = false) => {
     try {
-      if (!silent) setIsLoading(true);
+      if (append) setIsLoadingMore(true);
+      else if (!silent) setIsLoading(true);
       setError(null);
       const params: GetConversationsParams = { page, limit: PAGE_SIZE };
       if (filters.status && filters.status !== "ALL") params.status = filters.status;
@@ -128,14 +138,27 @@ export default function ConversationsPage() {
       // Tab "Favoritas" → filter server-side por favorite=true.
       if (activeTab === "favorites") params.favorite = true;
       const response = await api.conversations.getAll(params);
-      setConversations(response.conversations);
+      if (append) {
+        // Dedup by id — evita rows duplicadas si el poll silencioso
+        // fetcheó la página 1 mientras el scroll pedía la página 2 con
+        // el mismo cursor.
+        setConversations((prev) => {
+          const seen = new Set(prev.map((c) => c.id));
+          const fresh = response.conversations.filter((c) => !seen.has(c.id));
+          return [...prev, ...fresh];
+        });
+      } else {
+        setConversations(response.conversations);
+      }
       setTotalCount(response.total);
       setCurrentPage(response.page);
       setTotalPages(response.totalPages);
+      setHasMore(response.page < response.totalPages);
     } catch (err: any) {
       if (!silent) setError(err.message || "Error al cargar conversaciones");
     } finally {
-      if (!silent) setIsLoading(false);
+      if (append) setIsLoadingMore(false);
+      else if (!silent) setIsLoading(false);
     }
   };
 
@@ -202,8 +225,24 @@ export default function ConversationsPage() {
     setFilters(newFilters);
     setCurrentPage(1);
   };
-  const handleRefresh = () => fetchConversations(currentPage);
+  const handleRefresh = () => fetchConversations(1);
   const handlePageChange = (page: number) => fetchConversations(page);
+
+  // Infinite-scroll sentinel: cuando el div al final del listado entra
+  // en viewport, pide la próxima página y la concatena. Debounce
+  // implícito porque hasMore = false hasta que la fetch responde.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || isLoadingMore) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && hasMore && !isLoadingMore) {
+        void fetchConversations(currentPage + 1, false, true);
+      }
+    }, { rootMargin: '200px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, isLoadingMore, currentPage, filters, activeTab]);
 
   // Selection behavior: click a row.
   //   Desktop (md+): update `?id=` and render detail on the right.
@@ -315,17 +354,17 @@ export default function ConversationsPage() {
               ))
             )}
           </div>
-          {totalPages > 1 && (
-            <div className="border-t border-slate-100 p-1">
-              <Pagination
-                position="bottom"
-                page={currentPage}
-                totalPages={totalPages}
-                totalItems={totalCount}
-                pageSize={PAGE_SIZE}
-                onPageChange={handlePageChange}
-                disabled={isLoading}
-              />
+          {/* Infinite-scroll sentinel + footer. Muestra un contador
+              suave arriba del sentinel y un spinner mientras carga la
+              próxima página. Cuando no hay más, muestra el total. */}
+          <div ref={sentinelRef} className="h-1" />
+          {conversations.length > 0 && (
+            <div className="shrink-0 border-t border-slate-100 py-2 text-center text-[11px] text-slate-500">
+              {isLoadingMore
+                ? "Cargando más…"
+                : hasMore
+                  ? `${conversations.length} de ${totalCount}`
+                  : `${totalCount} conversaciones`}
             </div>
           )}
         </div>

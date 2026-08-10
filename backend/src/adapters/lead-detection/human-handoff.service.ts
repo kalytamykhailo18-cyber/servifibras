@@ -208,6 +208,33 @@ export class HumanHandoffService implements IHumanHandoffService {
       });
       if (staffMsg) {
         stale.push({ id: c.id, channel: c.channel });
+        continue;
+      }
+      // Marcos 2026-08-10 (WhatsApp 10:16 AR): "hay posibilidad de que
+      // desaparezcan de no leidas si ya se respondieron desde whatsapp,
+      // porque noto que muchas son ese caso". El pass de arriba miraba
+      // "cualquier mensaje de staff DESPUÉS del escalado". Faltaba el
+      // caso donde el ÚLTIMO mensaje del hilo es del lado del negocio
+      // (staff o AI): si el hilo termina con nuestro lado, no hay nada
+      // que atender — quedó respondido. Este segundo check lo captura.
+      // Cubre las 6 rows que sobrevivían al pass original (5 con AI
+      // como último y 1 con FRANCO viejo cuya fila de staff había
+      // quedado fuera del rango del primer query por timestamp raro).
+      const lastMsg = await this.prisma.message.findFirst({
+        where: { conversationId: c.id },
+        orderBy: { timestamp: 'desc' },
+        select: { sender: true, isFromAI: true },
+      });
+      if (lastMsg) {
+        const isBusinessSide =
+          lastMsg.isFromAI ||
+          lastMsg.sender === MessageSender.ADMIN ||
+          lastMsg.sender === MessageSender.BRENDA ||
+          lastMsg.sender === MessageSender.FRANCO ||
+          lastMsg.sender === MessageSender.ALDO;
+        if (isBusinessSide) {
+          stale.push({ id: c.id, channel: c.channel });
+        }
       }
     }
     const byChannel: Record<string, number> = {};
