@@ -347,6 +347,18 @@ export const conversationsApi = {
   },
 
   /**
+   * POST /admin/conversations/mark-all-read
+   * Bulk clear hasUnreadCustomer en todas las WHATSAPP marcadas.
+   */
+  markAllRead: async (): Promise<{ cleared: number }> => {
+    const response = await apiClient.post<{ success: boolean; data?: { cleared: number } }>(
+      `/admin/conversations/mark-all-read`,
+      {}
+    );
+    return response.data?.data ?? { cleared: 0 };
+  },
+
+  /**
    * PUT /admin/conversations/:id/status
    * Update conversation status (ACTIVE, CLOSED, WAITING)
    */

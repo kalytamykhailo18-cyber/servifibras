@@ -27,7 +27,18 @@ import SearchIcon from '@mui/icons-material/Search';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import MarkChatUnreadIcon from '@mui/icons-material/MarkChatUnread';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
 import StarIcon from '@mui/icons-material/Star';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type ConversationsTab = "all" | "unread" | "favorites" | "mercadolibre";
 
@@ -100,6 +111,22 @@ export default function ConversationsPage() {
       setUnreadCount(Number(r?.total || 0));
     } catch { /* non-fatal */ }
   }, []);
+  // Marcos 2026-08-11 (video 7:19 AR): botón para bulk-clear del backlog
+  // heredado. Confirm dialog custom (per feedback_custom_confirm_modals).
+  const [confirmMarkAllOpen, setConfirmMarkAllOpen] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+  const doMarkAllRead = useCallback(async () => {
+    setMarkingAll(true);
+    try {
+      await api.conversations.markAllRead();
+      await refreshUnreadCount();
+      fetchConversations(1, true);
+      setConfirmMarkAllOpen(false);
+    } finally {
+      setMarkingAll(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshUnreadCount]);
   useEffect(() => {
     void refreshUnreadCount();
     const h = setInterval(() => { void refreshUnreadCount(); }, 30_000);
@@ -287,6 +314,7 @@ export default function ConversationsPage() {
           mlTabAllowed={mlTabAllowed}
           mlPendingCount={mlPendingCount}
           unreadCount={unreadCount}
+          onMarkAllRead={() => setConfirmMarkAllOpen(true)}
           showFilters={showFilters}
           setShowFilters={setShowFilters}
           searchValue={searchInput}
@@ -307,6 +335,7 @@ export default function ConversationsPage() {
         mlTabAllowed={mlTabAllowed}
         mlPendingCount={mlPendingCount}
         unreadCount={unreadCount}
+        onMarkAllRead={() => setConfirmMarkAllOpen(true)}
         showFilters={showFilters}
         setShowFilters={setShowFilters}
         searchValue={searchInput}
@@ -412,6 +441,23 @@ export default function ConversationsPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog open={confirmMarkAllOpen} onOpenChange={setConfirmMarkAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar todas como leídas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vas a limpiar {unreadCount} conversaciones del contador de No leídas. De acá en adelante sólo van a volver a aparecer cuando llegue un mensaje nuevo del cliente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={markingAll}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={doMarkAllRead} disabled={markingAll}>
+              {markingAll ? "Marcando…" : "Marcar todas como leídas"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -424,13 +470,14 @@ interface CompactHeaderProps {
   mlTabAllowed: boolean;
   mlPendingCount: number;
   unreadCount: number;
+  onMarkAllRead: () => void;
   showFilters: boolean;
   setShowFilters: (v: boolean) => void;
   searchValue: string;
   onSearchChange: (v: string) => void;
 }
 function CompactHeader({
-  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount, unreadCount,
+  onRefresh, isLoading, activeTab, switchTab, mlTabAllowed, mlPendingCount, unreadCount, onMarkAllRead,
   showFilters, setShowFilters, searchValue, onSearchChange,
 }: CompactHeaderProps) {
   return (
@@ -465,6 +512,17 @@ function CompactHeader({
               </span>
             )}
           </button>
+          {activeTab === "unread" && unreadCount > 0 && (
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              title="Marcar todas las conversaciones como leídas"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[10px] font-medium text-rose-700 hover:border-rose-300 hover:bg-rose-100"
+            >
+              <DoneAllIcon sx={{ fontSize: 12 }} />
+              Marcar todas como leídas
+            </button>
+          )}
           <button
             type="button"
             onClick={() => switchTab("favorites")}

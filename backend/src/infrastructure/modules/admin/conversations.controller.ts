@@ -310,6 +310,28 @@ export class ConversationsController {
     return { success: true, data: result };
   }
 
+  /**
+   * Marcos 2026-08-11 (video 7:19 AR): botón "marcar todas como leídas"
+   * en el tab No leídas. Bulk clear del flag hasUnreadCustomer en las
+   * conversaciones WHATSAPP. Solo admin/encargado.
+   * POST /admin/conversations/mark-all-read
+   */
+  @Post('mark-all-read')
+  @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
+  async markAllRead(@Request() req: any) {
+    const result = await this.conversationManagement.markAllWhatsappRead();
+    const ctx = this.auditCtx(req);
+    await this.audit.log({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: 'conversation.mark_all_read',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { cleared: result.cleared },
+    });
+    return { success: true, data: result };
+  }
+
   @Post(':id/favorite')
   @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA)
   async setFavorite(

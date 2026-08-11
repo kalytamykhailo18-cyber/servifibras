@@ -1281,6 +1281,24 @@ export class ConversationManagementService implements IConversationManagementSer
     }
   }
 
+  /**
+   * Marcos 2026-08-11 (video 7:19 AR mostrando 154 stuck): Baileys no
+   * re-emite messaging-history.set en reconexiones de sesión
+   * establecida, así que el catchup automático no cubre chats leídos
+   * en el celular antes del deploy. Botón de "Marcar todas como leídas"
+   * — bulk clear del flag en las WHATSAPP con hasUnreadCustomer=true.
+   * De ahí en adelante, cada nuevo inbound o read del celular vuelve
+   * a caminar el flujo normal.
+   */
+  async markAllWhatsappRead(): Promise<{ cleared: number }> {
+    const res = await this.prisma.conversation.updateMany({
+      where: { channel: Channel.WHATSAPP, hasUnreadCustomer: true },
+      data: { hasUnreadCustomer: false },
+    });
+    this.logger.log(`markAllWhatsappRead: cleared ${res.count} conversations`);
+    return { cleared: res.count };
+  }
+
   async onModuleDestroy() {
     await this.prisma.$disconnect();
   }
