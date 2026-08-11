@@ -233,6 +233,17 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
       // hasUnreadCustomer en la Conversation, alineando el conteo del
       // CRM con lo que WhatsApp Web muestra ("no leidos = 8").
       sock.ev.on('chats.update', (updates) => this.onChatsUpdate(updates).catch((e) => this.logger.error(`onChatsUpdate: ${e?.message ?? e}`)));
+      // Marcos 2026-08-11 (video 7:19 AR mostrando 154 stuck): el sync
+      // de arriba sólo captura reads FORWARD desde el deploy — chats que
+      // Marcos ya había leído antes en el celular quedaron marcados en
+      // el CRM para siempre. Al conectar Baileys emite messaging-history.set
+      // con TODO el chat store del teléfono, cada uno con su unreadCount
+      // real. Reconciliamos en bulk: chats con unreadCount=0/null → apagar
+      // flag; con unreadCount>0 → prenderlo (cubre chats donde el cliente
+      // escribió mientras el CRM estaba desconectado). chats.upsert cubre
+      // chats nuevos que aparecen post-connection.
+      sock.ev.on('messaging-history.set', (h: any) => this.reconcileFromChatList(h?.chats ?? [], 'messaging-history.set').catch((e) => this.logger.error(`messaging-history.set reconcile: ${e?.message ?? e}`)));
+      sock.ev.on('chats.upsert', (chats: any[]) => this.reconcileFromChatList(chats ?? [], 'chats.upsert').catch((e) => this.logger.error(`chats.upsert reconcile: ${e?.message ?? e}`)));
       return { ok: true, status: this.status };
     } catch (err: any) {
       this.status = 'errored';
@@ -527,6 +538,67 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
    * fila queda como estaba. Aciertos sobre chats que no matchean
    * ninguna Conversation en nuestra DB son no-op silencioso.
    */
+  /**
+   * Bidirectional reconciler: dado un lote de Chat[] (o ChatUpdate[])
+   * del store de Baileys, alinea `hasUnreadCustomer` en la DB con lo
+   * que reporta el teléfono. Se apagan los chats con unreadCount 0/null,
+   * se prenden los que traen >0. Comparte la lógica de chunking con
+   * onChatsUpdate — reutilizada por messaging-history.set (bulk backfill
+   * en connection open) y chats.upsert (chats nuevos post-connection).
+   * unreadCount=-1 (marcado no-leído manualmente por el user) se ignora
+   * — no queremos pisarlo desde el CRM.
+   */
+  private async reconcileFromChatList(
+    chats: Array<{ id?: string | null; unreadCount?: number | null }>,
+    origin: string,
+  ): Promise<void> {
+    if (!Array.isArray(chats) || chats.length === 0) return;
+    const readJids: string[] = [];
+    const unreadJids: string[] = [];
+    for (const c of chats) {
+      const jid = c?.id;
+      if (!jid || typeof jid !== 'string') continue;
+      const uc = c.unreadCount;
+      if (uc === 0 || uc === null || uc === undefined) readJids.push(jid);
+      else if (typeof uc === 'number' && uc > 0) unreadJids.push(jid);
+    }
+    if (readJids.length === 0 && unreadJids.length === 0) return;
+    try {
+      const CHUNK = 25;
+      let cleared = 0;
+      let flagged = 0;
+      for (let i = 0; i < readJids.length; i += CHUNK) {
+        const slice = readJids.slice(i, i + CHUNK);
+        const orClauses = slice.map((j) => ({
+          contact: { is: { metadata: { path: ['waJid'], equals: j } } },
+        }));
+        const res = await this.prisma.conversation.updateMany({
+          where: { channel: 'WHATSAPP', hasUnreadCustomer: true, OR: orClauses },
+          data: { hasUnreadCustomer: false },
+        });
+        cleared += res.count;
+      }
+      for (let i = 0; i < unreadJids.length; i += CHUNK) {
+        const slice = unreadJids.slice(i, i + CHUNK);
+        const orClauses = slice.map((j) => ({
+          contact: { is: { metadata: { path: ['waJid'], equals: j } } },
+        }));
+        const res = await this.prisma.conversation.updateMany({
+          where: { channel: 'WHATSAPP', hasUnreadCustomer: false, OR: orClauses },
+          data: { hasUnreadCustomer: true },
+        });
+        flagged += res.count;
+      }
+      if (cleared > 0 || flagged > 0) {
+        this.logger.log(
+          `${origin} reconcile: cleared=${cleared} flagged=${flagged} (from ${chats.length} chats)`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`reconcileFromChatList (${origin}) failed: ${err?.message ?? err}`);
+    }
+  }
+
   private async onChatsUpdate(updates: Array<{ id?: string; unreadCount?: number | null }>): Promise<void> {
     if (!Array.isArray(updates) || updates.length === 0) return;
     const readJids: string[] = [];
