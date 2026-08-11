@@ -52,13 +52,38 @@ const RANGES: Array<{ id: Range; label: string }> = [
 
 const SOURCE_VISUALS: Record<
   Payload["sources"][number]["source"],
-  { tint: string; icon: any; iconColor: string }
+  { tint: string; icon: any; iconColor: string; barFill: string; barLabel: string }
 > = {
-  ML_CUENTA_1: { tint: "from-yellow-50 to-yellow-100 border-yellow-200", icon: StorefrontIcon, iconColor: "text-yellow-700" },
-  ML_CUENTA_2: { tint: "from-amber-50 to-amber-100 border-amber-200", icon: StorefrontIcon, iconColor: "text-amber-700" },
-  TIENDANUBE:  { tint: "from-sky-50 to-sky-100 border-sky-200",         icon: ShoppingBagIcon, iconColor: "text-sky-700" },
-  MANUAL:      { tint: "from-emerald-50 to-emerald-100 border-emerald-200", icon: WhatsAppIcon, iconColor: "text-emerald-700" },
+  ML_CUENTA_1: { tint: "from-yellow-50 to-yellow-100 border-yellow-200", icon: StorefrontIcon, iconColor: "text-yellow-700", barFill: "#eab308", barLabel: "ML C1" },
+  ML_CUENTA_2: { tint: "from-amber-50 to-amber-100 border-amber-200", icon: StorefrontIcon, iconColor: "text-amber-700", barFill: "#d97706", barLabel: "ML C2" },
+  TIENDANUBE:  { tint: "from-sky-50 to-sky-100 border-sky-200",         icon: ShoppingBagIcon, iconColor: "text-sky-700", barFill: "#0ea5e9", barLabel: "TN" },
+  MANUAL:      { tint: "from-emerald-50 to-emerald-100 border-emerald-200", icon: WhatsAppIcon, iconColor: "text-emerald-700", barFill: "#10b981", barLabel: "Manual" },
 };
+
+const SOURCE_STACK_ORDER: Payload["sources"][number]["source"][] = [
+  "ML_CUENTA_1",
+  "ML_CUENTA_2",
+  "TIENDANUBE",
+  "MANUAL",
+];
+
+function fmtDayLabel(iso: string): string {
+  const [, mm, dd] = iso.split("-");
+  return `${dd}/${mm}`;
+}
+
+function fmtDayTooltip(iso: string, sources: Record<Payload["sources"][number]["source"], number>): string {
+  const total = SOURCE_STACK_ORDER.reduce((s, k) => s + (sources[k] || 0), 0);
+  const lines = [
+    `${iso}`,
+    `Total: ARS ${total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`,
+  ];
+  for (const k of SOURCE_STACK_ORDER) {
+    const v = sources[k] || 0;
+    if (v > 0) lines.push(`${SOURCE_VISUALS[k].barLabel}: ${v.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`);
+  }
+  return lines.join("\n");
+}
 
 function fmtMoney(amount: number, currency: string): string {
   return `${currency} ${amount.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
@@ -333,6 +358,16 @@ export function VentasUnificadasCard() {
             source={detailSource}
           />
 
+          {/* Bloque B item 4 — Marcos 2026-06-06: la card ya devolvía
+              el bucket diario del backend pero nunca se renderizaba;
+              agregado 2026-08-11 como stacked bars por día. En "hoy"
+              es un solo barrote (mostramos igual para consistencia).
+              Colores del SVG mapean 1:1 con los del stack por fuente,
+              hover en cada barra abre tooltip nativo con el desglose. */}
+          {range !== "today" && data.daily.length > 0 && (
+            <TrendChart daily={data.daily} range={range} />
+          )}
+
           {data.notes.length > 0 && (
             <ul className="mt-3 space-y-1">
               {data.notes.map((n, i) => (
@@ -344,6 +379,103 @@ export function VentasUnificadasCard() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+interface TrendChartProps {
+  daily: Payload["daily"];
+  range: Range;
+}
+
+function TrendChart({ daily, range }: TrendChartProps) {
+  const totalsPerDay = daily.map((d) =>
+    SOURCE_STACK_ORDER.reduce((s, k) => s + (d.sources[k] || 0), 0),
+  );
+  const maxTotal = Math.max(1, ...totalsPerDay);
+  const barCount = daily.length;
+  const gap = 4;
+  const chartH = 90;
+  const axisH = 14;
+  const svgH = chartH + axisH;
+  const labelEvery = range === "month" ? Math.max(1, Math.ceil(barCount / 8)) : 1;
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3" data-testid="ventas-daily-trend">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Ventas por día
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {SOURCE_STACK_ORDER.map((s) => (
+            <span key={s} className="inline-flex items-center gap-1 text-[10px] text-slate-600">
+              <span
+                aria-hidden
+                className="inline-block h-2 w-2 rounded-sm"
+                style={{ background: SOURCE_VISUALS[s].barFill }}
+              />
+              {SOURCE_VISUALS[s].barLabel}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <svg
+          role="img"
+          aria-label="Ventas por día apiladas por fuente"
+          width="100%"
+          height={svgH}
+          viewBox={`0 0 ${Math.max(barCount * 20, 200)} ${svgH}`}
+          preserveAspectRatio="none"
+          className="min-w-full"
+        >
+          {daily.map((d, i) => {
+            const totalW = Math.max(barCount * 20, 200);
+            const barW = Math.max(1, (totalW - gap * (barCount + 1)) / barCount);
+            const x = gap + i * (barW + gap);
+            const dayTotal = totalsPerDay[i];
+            const scale = chartH / maxTotal;
+            let yCursor = chartH;
+            const segments = SOURCE_STACK_ORDER.map((src) => {
+              const v = d.sources[src] || 0;
+              if (v <= 0) return null;
+              const h = v * scale;
+              yCursor -= h;
+              return (
+                <rect
+                  key={src}
+                  x={x}
+                  y={yCursor}
+                  width={barW}
+                  height={h}
+                  fill={SOURCE_VISUALS[src].barFill}
+                />
+              );
+            });
+            return (
+              <g key={d.date} data-testid={`ventas-daily-bar-${d.date}`}>
+                <title>{fmtDayTooltip(d.date, d.sources)}</title>
+                {/* baseline stub so days without ventas still render as a hairline */}
+                {dayTotal === 0 && (
+                  <rect x={x} y={chartH - 1} width={barW} height={1} fill="#cbd5e1" />
+                )}
+                {segments}
+                {(i % labelEvery === 0 || i === barCount - 1) && (
+                  <text
+                    x={x + barW / 2}
+                    y={svgH - 2}
+                    textAnchor="middle"
+                    fontSize="9"
+                    fill="#64748b"
+                  >
+                    {fmtDayLabel(d.date)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }
