@@ -469,13 +469,32 @@ export class ConversationManagementService implements IConversationManagementSer
     scope?: { userId: string; role: UserRole },
   ): Promise<ConversationDetails | null> {
     try {
+      // Marcos 2026-08-11 (WhatsApp 9:07 AR video): "no cargan las
+      // conversaciones o tardan muchísimo al hacer click". Root cause:
+      // el detalle traía TODOS los mensajes de la conversación (los
+      // 3 top: 483/438/428 en prod) y el frontend re-fetchea cada 2 s,
+      // así que en hilos largos el poll bombeaba 500KB+ decrypted cada
+      // vez. Cap por env — DETAIL_MESSAGES_LIMIT default 200 — trae
+      // los últimos N; el operador ve la cola de la conversación (que
+      // es la que le importa para responder) y podemos sumar
+      // "cargar mas antiguos" cuando haga falta. `_count` sigue
+      // devolviendo el total real para que la UI muestre el número
+      // completo aunque cortemos la lista.
+      const detailLimit = ((): number => {
+        const n = Number(process.env.DETAIL_MESSAGES_LIMIT);
+        return Number.isFinite(n) && n > 0 ? n : 200;
+      })();
       const conversation = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
         include: {
           contact: true,
           assigned: true,
           messages: {
-            orderBy: { timestamp: 'asc' },
+            // Traemos los últimos N por timestamp desc y después
+            // reversamos, así el orden final sigue siendo asc (viejo→nuevo)
+            // como espera la UI.
+            orderBy: { timestamp: 'desc' },
+            take: detailLimit,
             include: {
               // Per-user attribution: who actually clicked Send. Null
               // for CUSTOMER + AI messages — those identify themselves
@@ -488,6 +507,9 @@ export class ConversationManagementService implements IConversationManagementSer
           },
         },
       });
+      if (conversation) {
+        conversation.messages.reverse();
+      }
 
       if (!conversation) {
         return null;
