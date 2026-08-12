@@ -157,6 +157,11 @@ export function MercadolibreQaList() {
   // cerrado. El submit tocará la API y refrescará.
   const [resolvingClaim, setResolvingClaim] = useState<OpenClaim | null>(null);
   const [resolvingBusy, setResolvingBusy] = useState<boolean>(false);
+  // Marcos 2026-08-12: Descartar borrador (por-fila) antes borraba
+  // sin preguntar — click accidental = draft perdido. Ahora pasa por
+  // AlertDialog custom para simetría con Reclamos / bulk-discard.
+  const [discardingDraft, setDiscardingDraft] = useState<PendingDraft | null>(null);
+  const [discardingBusy, setDiscardingBusy] = useState<boolean>(false);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | 'regen' | 'improve' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
@@ -895,7 +900,7 @@ export function MercadolibreQaList() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void discardDraft(d)}
+                      onClick={() => setDiscardingDraft(d)}
                       disabled={!!busy}
                       data-testid="ml-draft-discard"
                       className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
@@ -1260,6 +1265,43 @@ export function MercadolibreQaList() {
           seedQuestion={faqDialogRow.question.text}
         />
       )}
+
+      <AlertDialog
+        open={discardingDraft !== null}
+        onOpenChange={(v) => {
+          if (!v && !discardingBusy) setDiscardingDraft(null);
+        }}
+      >
+        <AlertDialogContent data-testid="ml-draft-discard-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar borrador</AlertDialogTitle>
+            <AlertDialogDescription>
+              {discardingDraft
+                ? `Vas a descartar el borrador ${discardingDraft.kind === 'message' ? 'del mensaje' : 'de la pregunta'} de ${(discardingDraft.contactName || 'este cliente')}. No se puede deshacer.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={discardingBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={discardingBusy}
+              data-testid="ml-draft-discard-confirm"
+              onClick={async () => {
+                if (!discardingDraft) return;
+                setDiscardingBusy(true);
+                try {
+                  await discardDraft(discardingDraft);
+                  setDiscardingDraft(null);
+                } finally {
+                  setDiscardingBusy(false);
+                }
+              }}
+            >
+              {discardingBusy ? 'Descartando…' : 'Descartar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={resolvingClaim !== null}
