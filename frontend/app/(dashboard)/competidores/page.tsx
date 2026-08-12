@@ -24,6 +24,16 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import AddIcon from "@mui/icons-material/Add";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ROLES = [UserRole.ADMIN, UserRole.VENTAS];
 
@@ -53,6 +63,12 @@ export default function CompetidoresPage() {
   const [newLabel, setNewLabel] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  // Marcos 2026-08-12: eliminar competidor pasa por AlertDialog custom
+  // — antes usaba window.confirm() (viola feedback_custom_confirm_modals
+  // y no se puede seleccionar/copiar el mensaje). El estado guarda el
+  // watch que el operador está por eliminar; null = cerrado.
+  const [removingWatch, setRemovingWatch] = useState<CompetitorWatch | null>(null);
+  const [removingBusy, setRemovingBusy] = useState<boolean>(false);
 
   const load = async (opts?: { force?: boolean }) => {
     if (opts?.force) setRefreshing(true);
@@ -121,21 +137,24 @@ export default function CompetidoresPage() {
     }
   };
 
-  const onRemove = async (w: CompetitorWatch) => {
+  const doRemove = async (w: CompetitorWatch) => {
     const id = competitorRowId(w);
     if (!id) return;
-    if (!window.confirm(`¿Sacar este competidor (${w.itemId}) del seguimiento?`)) return;
+    setRemovingBusy(true);
     setBusy((prev) => ({ ...prev, [id]: true }));
     try {
       await api.competitors.remove(id);
       toast.success("Competidor eliminado");
       await load();
+      setRemovingWatch(null);
     } catch (err: any) {
       toast.error(err?.response?.data?.error || err?.message || "No se pudo eliminar");
     } finally {
       setBusy((prev) => ({ ...prev, [id]: false }));
+      setRemovingBusy(false);
     }
   };
+  const onRemove = (w: CompetitorWatch) => setRemovingWatch(w);
 
   if (!isAllowed) return null;
 
@@ -314,6 +333,34 @@ export default function CompetidoresPage() {
           ))}
         </ul>
       )}
+
+      <AlertDialog
+        open={removingWatch !== null}
+        onOpenChange={(v) => {
+          if (!v && !removingBusy) setRemovingWatch(null);
+        }}
+      >
+        <AlertDialogContent data-testid="competidores-remove-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sacar competidor del seguimiento</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removingWatch
+                ? `Vas a dejar de seguir ${removingWatch.title || removingWatch.label || removingWatch.itemId} (${removingWatch.itemId}). No se pierde histórico; podés volver a agregarlo cuando quieras.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removingBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removingBusy}
+              data-testid="competidores-remove-confirm"
+              onClick={() => { if (removingWatch) void doRemove(removingWatch); }}
+            >
+              {removingBusy ? 'Sacando…' : 'Sacar del seguimiento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
