@@ -150,6 +150,13 @@ export function MercadolibreQaList() {
   // quién tiene el próximo turno. Default 'seller' (nosotros) —
   // prioridad máxima.
   const [claimsBucket, setClaimsBucket] = useState<'seller' | 'buyer' | 'ml'>('seller');
+  // Marcos 2026-08-12: Reclamos "Resuelto" antes usaba window.confirm(),
+  // que viola la política de UX (feedback_custom_confirm_modals) —
+  // toda confirmación destructiva pasa por AlertDialog estilado. El
+  // estado guarda el claim que el operador está resolviendo; null =
+  // cerrado. El submit tocará la API y refrescará.
+  const [resolvingClaim, setResolvingClaim] = useState<OpenClaim | null>(null);
+  const [resolvingBusy, setResolvingBusy] = useState<boolean>(false);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [draftBusy, setDraftBusy] = useState<Record<string, 'send' | 'discard' | 'regen' | 'improve' | null>>({});
   // Marcos 2026-06-12: track which messageIds have a pending
@@ -608,16 +615,7 @@ export function MercadolibreQaList() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={async () => {
-                          if (!window.confirm('¿Marcar este reclamo como resuelto? Se saca del panel.')) return;
-                          try {
-                            await api.mercadolibre.resolveClaim(c.conversationId);
-                            toast.success('Reclamo marcado como resuelto');
-                            await loadDrafts();
-                          } catch (err: any) {
-                            toast.error(err?.response?.data?.error || 'No se pudo marcar');
-                          }
-                        }}
+                        onClick={() => setResolvingClaim(c)}
                         data-testid={`ml-pending-claim-resolve-${c.messageId}`}
                         className="rounded-lg border border-rose-300 bg-white px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
                       >
@@ -1262,6 +1260,47 @@ export function MercadolibreQaList() {
           seedQuestion={faqDialogRow.question.text}
         />
       )}
+
+      <AlertDialog
+        open={resolvingClaim !== null}
+        onOpenChange={(v) => {
+          if (!v && !resolvingBusy) setResolvingClaim(null);
+        }}
+      >
+        <AlertDialogContent data-testid="ml-pending-claim-resolve-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar reclamo como resuelto</AlertDialogTitle>
+            <AlertDialogDescription>
+              {resolvingClaim
+                ? `Se saca del panel el reclamo de ${resolvingClaim.contactName || 'este comprador'}${resolvingClaim.mlResourceId ? ` (#${resolvingClaim.mlResourceId.split('/').pop()})` : ''}. Si vuelven a llegar actualizaciones desde Mercado Libre, se re-abre solo.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resolvingBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resolvingBusy}
+              data-testid="ml-pending-claim-resolve-confirm"
+              onClick={async () => {
+                if (!resolvingClaim) return;
+                setResolvingBusy(true);
+                try {
+                  await api.mercadolibre.resolveClaim(resolvingClaim.conversationId);
+                  toast.success('Reclamo marcado como resuelto');
+                  await loadDrafts();
+                  setResolvingClaim(null);
+                } catch (err: any) {
+                  toast.error(err?.response?.data?.error || 'No se pudo marcar');
+                } finally {
+                  setResolvingBusy(false);
+                }
+              }}
+            >
+              {resolvingBusy ? 'Resolviendo…' : 'Marcar como resuelto'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
