@@ -879,19 +879,24 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
           pushName,
           avatarUrl,
         );
+        // Marcos 2026-08-13 (WhatsApp 13:12 AR — caso "otra cosa" →
+        // "Dale, preguntá" prematuro + par contradictorio sobre moldes):
+        // los clientes escriben en 2-3 mensajes cortos seguidos. Antes,
+        // cada mensaje disparaba una respuesta inmediata sin ver los
+        // siguientes. Ahora la persistencia sigue siendo eager (siempre
+        // llamamos al handler que guarda el mensaje en DB + dedup por
+        // waMessageId + escalaciones L3 / mayorista / aiPaused), pero
+        // el ENVÍO del reply al cliente se debounza: si otro mensaje
+        // del mismo jid entra dentro de AGENT_MSG_DEBOUNCE_MS (default
+        // 4s), la respuesta anterior se descarta y sólo sale la última.
+        // Trade-off: pagamos ~1 llamada extra a Claude por ráfaga de
+        // mensajes, pero el cliente ve una sola respuesta coherente
+        // en lugar de dos contradictorias. Kill switch: AGENT_MSG_DEBOUNCE_MS=0
         const result = await this.conversationHandler.handleWhatsAppMessage(incoming);
-        // Marcos 2026-07-13 (A3): modo revisión. Cuando el switch
-        // WHATSAPP_AUTO_SEND_DISABLED está activo, la IA arma la
-        // respuesta y queda guardada como borrador (pendingReview),
-        // pero NO sale al cliente hasta que el operador la aprueba
-        // desde el CRM. Mismo criterio que ML tiene con
-        // ML_AUTO_SEND_DISABLED.
         const waReviewMode =
           (process.env.WHATSAPP_AUTO_SEND_DISABLED ?? 'false').toLowerCase() === 'true';
         if (result.success && result.response && !waReviewMode) {
-          // Auto-reply usa el mismo JID del inbound para no perder el
-          // esquema (@lid vs @s.whatsapp.net) en el retorno.
-          await this.sendMessage(remoteJid, result.response);
+          this.scheduleDebouncedSend(remoteJid, from, result.response);
         } else if (result.success && result.response && waReviewMode) {
           this.logger.log(`⏸️  A3 modo revisión activo — borrador guardado, no se envía a ${from}`);
         }
@@ -899,5 +904,29 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`handler invocation failed for ${from}: ${err?.message ?? err}`);
       }
     }
+  }
+
+  private pendingSendTimers: Map<string, { timer: NodeJS.Timeout; response: string }> = new Map();
+
+  private scheduleDebouncedSend(remoteJid: string, from: string, response: string): void {
+    const debounceMs = Number(process.env.AGENT_MSG_DEBOUNCE_MS ?? 4000);
+    if (!Number.isFinite(debounceMs) || debounceMs <= 0) {
+      void this.sendMessage(remoteJid, response);
+      return;
+    }
+    const existing = this.pendingSendTimers.get(remoteJid);
+    if (existing) {
+      clearTimeout(existing.timer);
+      this.logger.debug(`debounce: superseded pending reply for ${from} (older reply discarded)`);
+    }
+    const timer = setTimeout(() => {
+      const pending = this.pendingSendTimers.get(remoteJid);
+      this.pendingSendTimers.delete(remoteJid);
+      if (!pending) return;
+      void this.sendMessage(remoteJid, pending.response).catch((e) =>
+        this.logger.error(`debounced send failed for ${from}: ${e?.message ?? e}`),
+      );
+    }, debounceMs);
+    this.pendingSendTimers.set(remoteJid, { timer, response });
   }
 }
