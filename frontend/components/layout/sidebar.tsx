@@ -26,6 +26,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 
 const ALL_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.LOGISTICA, UserRole.ENCARGADO];
 
@@ -256,6 +257,21 @@ const navigationItems = [
     wash: "bg-gradient-to-r from-slate-500/10 via-zinc-400/10 to-transparent",
     rail: "bg-gradient-to-b from-slate-500 to-zinc-400",
     roles: [UserRole.ADMIN],
+    category: 'sistema' as Category,
+  },
+  {
+    // Marcos 2026-08-13 (WhatsApp 9:39 AR): "cerre y volvi a entrar y
+    // no me aparece ajustes tampoco". Página dedicada de reconexión
+    // WA — entrada propia en la sidebar, visible para ADMIN y
+    // ENCARGADO, así Brenda / Franco la encuentran sin URL.
+    name: "Reconectar WhatsApp",
+    href: "/whatsapp-conexion",
+    icon: WhatsAppIcon,
+    iconColor: "text-emerald-600",
+    activeBg: "bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 shadow-[0_8px_20px_-6px_rgb(16_185_129/0.55)]",
+    wash: "bg-gradient-to-r from-emerald-500/10 via-teal-400/10 to-transparent",
+    rail: "bg-gradient-to-b from-emerald-500 to-teal-400",
+    roles: [UserRole.ADMIN, UserRole.ENCARGADO],
     category: 'sistema' as Category,
   },
   {
