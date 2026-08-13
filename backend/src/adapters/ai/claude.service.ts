@@ -10,6 +10,18 @@ import { promises as fs } from 'fs';
 import { Channel, PrismaClient } from '@prisma/client';
 
 /**
+ * Marcos 2026-08-13 (WhatsApp 13:06 AR): "el corchete es texto interno
+ * del sistema que salió al cliente. Un placeholder o una instrucción
+ * de fallback que nunca debería ser visible". Antes cuando el URL guard
+ * strippeaba un link inventado, dejaba un marcador `[link no disponible
+ * — pedímelo y te lo paso del catálogo]` en el mensaje final. Ese
+ * texto se veía como una instrucción interna filtrada. Ahora usamos
+ * un texto neutral y natural, humano — parece parte de la respuesta,
+ * no una nota del sistema.
+ */
+const CUSTOMER_SAFE_LINK_FALLBACK = 'te lo confirmo en un momento';
+
+/**
  * Channel-specific system-prompt addenda. These are injected as the LAST
  * system block (uncached — they vary per turn) so they take precedence
  * over anything in the base Lucas prompt. ML's block is non-negotiable
@@ -783,7 +795,7 @@ export class ClaudeService implements IAIService {
       const entry = this.skuToUrl.get(sku) ?? this.skuToUrl.get(String(sku).toLowerCase());
       if (!entry) {
         this.logger.warn(`C2 link marker for unknown SKU "${sku}" — stripping`);
-        return '[link no disponible — pedímelo y te lo paso del catálogo]';
+        return CUSTOMER_SAFE_LINK_FALLBACK;
       }
       const isPrivateChan =
         channel === Channel.WHATSAPP ||
@@ -797,7 +809,7 @@ export class ClaudeService implements IAIService {
           : (entry.tn ?? entry.ml);
       if (!chosen) {
         this.logger.warn(`C2 link marker for SKU "${sku}" — no URL for channel ${channel}, stripping`);
-        return '[link no disponible — pedímelo y te lo paso del catálogo]';
+        return CUSTOMER_SAFE_LINK_FALLBACK;
       }
       return chosen;
     });
@@ -871,18 +883,39 @@ export class ClaudeService implements IAIService {
           }
           dropped++;
           this.logger.warn(`Fabricated ML URL dropped (not in permalink allowlist): ${trimmed}`);
-          return '[link no disponible — pedímelo y te lo paso del catálogo]';
+          return CUSTOMER_SAFE_LINK_FALLBACK;
         }
+        // Marcos 2026-08-13 (WhatsApp 13:06 AR — caso "me pasas el
+        // link de la resina de espesores"): la comparación normalizaba
+        // slash final pero NO `www.`, así que la URL legítima
+        // `https://www.tiendaservifibras.com/productos/resinaepoxiespesores/`
+        // se rechazaba porque el catálogo la guarda como
+        // `https://tiendaservifibras.com/productos/resinaepoxiespesores`.
+        // Normalizamos ambos lados: strip `www.` + strip trailing slash.
+        const normalizeUrl = (u: string) =>
+          u
+            .replace(/^https?:\/\/www\./i, (p) => p.replace('www.', ''))
+            .replace(/\/$/, '');
+        const trimmedNorm = normalizeUrl(trimmed);
         if (
           this.validCatalogUrls.has(trimmed) ||
           this.validCatalogUrls.has(trimmed + '/') ||
-          this.validCatalogUrls.has(trimmed.replace(/\/$/, ''))
+          this.validCatalogUrls.has(trimmed.replace(/\/$/, '')) ||
+          this.validCatalogUrls.has(trimmedNorm) ||
+          this.validCatalogUrls.has(trimmedNorm + '/')
         ) {
           return raw;
         }
+        // Double-check against a whitelist re-index without www./slash
+        // in case future catalog rows come in with either variant.
+        for (const validUrl of this.validCatalogUrls) {
+          if (normalizeUrl(validUrl) === trimmedNorm) {
+            return raw;
+          }
+        }
         dropped++;
         this.logger.warn(`Fabricated URL dropped from agent reply: ${trimmed}`);
-        return '[link no disponible — pedímelo y te lo paso del catálogo]';
+        return CUSTOMER_SAFE_LINK_FALLBACK;
       });
     }
 
