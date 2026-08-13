@@ -4,8 +4,15 @@
  * que el operador escanee), disconnect (wipea sesión + reinicia
  * para vincular otro número).
  *
- * Gateado a ADMIN: el QR vincula una cuenta WhatsApp completa al
- * servidor — solo Marcos / Yanina deberían tener esa palanca.
+ * Marcos 2026-08-13 (WhatsApp 7:04 AR): "se nos desconectó whatsapp
+ * y yo no tengo el dispositivo para iniciar sesión. Le podemos dar
+ * acceso al qr a otros usuarios para que puedan conectar?". Ampliado
+ * a ENCARGADO — Brenda / Franco pueden escanear el QR cuando Marcos
+ * no está físicamente con el teléfono. `disconnect` con
+ * wipeSession:true sigue siendo destructivo (des-vincula la cuenta)
+ * así que la ruta seguirá cubierta por el mismo Rol; si en algún
+ * momento hay que reducir el blast-radius, ese endpoint puede volver
+ * a ADMIN-only con un guard por-endpoint.
  */
 
 import { Body, Controller, Get, Headers, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
@@ -16,7 +23,7 @@ import { WhatsappQrService } from '../../../adapters/whatsapp-qr/whatsapp-qr.ser
 
 @Controller('admin/whatsapp-qr')
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.ENCARGADO)
 export class WhatsappQrController {
   constructor(private readonly svc: WhatsappQrService) {}
 
