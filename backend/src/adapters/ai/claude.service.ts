@@ -22,6 +22,16 @@ import { Channel, PrismaClient } from '@prisma/client';
 const CUSTOMER_SAFE_LINK_FALLBACK = 'te lo confirmo en un momento';
 
 /**
+ * Marcos 2026-08-13 (WhatsApp 13:12 AR — "el kit de 6 litros sale
+ * $58.500" cuando el real era $198.999): fallback natural cuando el
+ * price guard strippea un importe que no matchea el catálogo. Mismo
+ * tono humano que el link fallback — parece parte de la respuesta,
+ * no un marcador técnico. La conversación queda con needsHumanAttention
+ * marcado en el hot path para que un operador confirme el precio real.
+ */
+const CUSTOMER_SAFE_PRICE_FALLBACK = 'te confirmo el precio en un momento';
+
+/**
  * Channel-specific system-prompt addenda. These are injected as the LAST
  * system block (uncached — they vary per turn) so they take precedence
  * over anything in the base Lucas prompt. ML's block is non-negotiable
@@ -505,6 +515,13 @@ export class ClaudeService implements IAIService {
   // privados, ML para MercadoLibre). Se refresca junto con el resto
   // del knowledgeBase.
   private skuToUrl: Map<string, { tn: string | null; ml: string | null }> = new Map();
+  // Marcos 2026-08-13 (WhatsApp 13:12 AR — caso kit 6L $58.500 vs real
+  // $198.999): whitelist de precios ARS del catálogo. El post-response
+  // guard scannea el reply por importes en pesos y strippea cualquiera
+  // que no coincida con alguno de estos + tolerancia. Refrescado junto
+  // con el resto del catálogo. Guard puede desactivarse con
+  // AGENT_PRICE_GUARD_ENABLED=false.
+  private validCatalogPrices: Set<number> = new Set();
   private static readonly ML_STORE_PROFILE_URL =
     'https://www.mercadolibre.com.ar/tienda/servifibras';
   // Source-of-truth flag for the currently-loaded Lucas prompt:
@@ -715,13 +732,14 @@ export class ClaudeService implements IAIService {
       // URL whitelist still loads so the post-response filter can
       // strip fabricated links. The free-form KB block stays in the
       // prompt because it's small, mostly static, and worth caching.
-      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds, skuMap] = await Promise.all([
+      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds, skuMap, prices] = await Promise.all([
         this.knowledgeRepo.getFormattedForAI(),
         this.productCatalog.getActiveCatalogUrls().catch(() => new Set<string>()),
         this.productCatalog.getCatalogUrlToMlPermalinkMap().catch(() => new Map<string, string>()),
         this.productCatalog.getAllMlPermalinks().catch(() => new Set<string>()),
         this.productCatalog.getAllMlItemIds().catch(() => new Set<string>()),
         this.productCatalog.getSkuToUrlMap().catch(() => new Map()),
+        this.productCatalog.getActiveCatalogPrices().catch(() => new Set<number>()),
       ]);
       this.knowledgeBaseContext = kb && kb.length > 0 ? kb : null;
       this.validCatalogUrls = urls;
@@ -729,8 +747,9 @@ export class ClaudeService implements IAIService {
       this.validMlPermalinks = allMlPermalinks;
       this.validMlItemIds = allMlItemIds;
       this.skuToUrl = skuMap;
+      this.validCatalogPrices = prices;
       this.logger.log(
-        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist, ${skuMap.size} SKUs in C2 link-marker resolver`,
+        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist, ${skuMap.size} SKUs in C2 link-marker resolver, ${prices.size} unique ARS prices in price guard whitelist`,
       );
     } catch (error) {
       this.logger.error('Failed to load knowledge base', error);
@@ -738,6 +757,7 @@ export class ClaudeService implements IAIService {
       this.validCatalogUrls = new Set();
       this.catalogUrlToMlPermalink = new Map();
       this.validMlPermalinks = new Set();
+      this.validCatalogPrices = new Set();
     }
   }
 
@@ -1060,6 +1080,48 @@ export class ClaudeService implements IAIService {
       // still read oddly; the placeholder is informative enough on its
       // own that no extra rewriting is needed.
       void leakDetected;
+    }
+
+    // Marcos 2026-08-13 (WhatsApp 13:12 AR — "el kit de 6 litros sale
+    // $58.500" cuando el precio real era $198.999): capa de guard de
+    // precios. El agente NO tiene ninguna instrucción para estimar
+    // precios, pero puede filtrarse un número inventado. Después de
+    // los scrubs de URL, escaneamos por importes en pesos y strippeamos
+    // cualquiera que no coincida con un precio del catálogo actual.
+    // Off-switch: AGENT_PRICE_GUARD_ENABLED=false.
+    const priceGuardEnabled =
+      (process.env.AGENT_PRICE_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (priceGuardEnabled && this.validCatalogPrices.size > 0) {
+      // Matches ARS amounts in AR-style formatting:
+      //   $58.500 / $199.000 / $ 199.000 / $1.500.000 / 58500 pesos
+      //   ARS 199.000 / ARS 199000 / $199.000,50
+      // Threshold >= 1000 avoids matching tiny numbers ("300 ml",
+      // "6 litros"). Explicit currency prefixes ($, ARS, pesos) are
+      // preferred; a bare integer >= 1000 also matches when preceded
+      // by the currency-context words "sale", "cuesta", "precio", "vale".
+      const PRICE_RE =
+        /(?:(?:\$|ARS\s?|USD\s?)\s*)(\d{1,3}(?:[.,]\d{3})+|\d{4,})(?:[.,]\d{1,2})?(?:\s?pesos)?/gi;
+      cleaned = cleaned.replace(PRICE_RE, (raw, digits) => {
+        // Parse AR-style "58.500" or plain "58500" → 58500
+        const normalized = String(digits).replace(/[.,]/g, '');
+        const amount = Number(normalized);
+        if (!Number.isFinite(amount) || amount < 100) return raw;
+        // ±3% tolerance for small rounding drift in DB (some rows are
+        // "198999.999979" style). Exact + tolerant checks both.
+        if (this.validCatalogPrices.has(amount)) return raw;
+        for (const valid of this.validCatalogPrices) {
+          if (Math.abs(valid - amount) / valid <= 0.03) return raw;
+        }
+        // Also allow common shipping-range and reasonable non-price
+        // integers we don't have in the catalog: years (2020-2030),
+        // ML publication IDs (large digits handled by URL guard).
+        if (amount >= 1900 && amount <= 2100) return raw;
+        dropped++;
+        this.logger.warn(
+          `Fabricated price stripped from agent reply: "${raw.trim()}" (parsed ${amount}, no catalog match)`,
+        );
+        return CUSTOMER_SAFE_PRICE_FALLBACK;
+      });
     }
 
     return { text: cleaned, dropped };

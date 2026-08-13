@@ -367,6 +367,32 @@ export class ProductCatalogService {
    * the prompt rule isn't respected, the fabricated link never reaches
    * the customer.
    */
+  /**
+   * Marcos 2026-08-13 (WhatsApp 13:12 AR — caso "kit 6L $58.500"):
+   * el agente inventó un precio ($58.500) para un producto cuyo
+   * precio real en el catálogo es $198.999. El guard de salida sólo
+   * miraba URLs, no números. Este método expone el set de precios
+   * válidos del catálogo (basePriceArs de productos activos) para
+   * que ClaudeService lo use como whitelist de la nueva capa de
+   * guard de precios: si el mensaje del agente contiene un número
+   * en pesos que no coincide con ninguno de estos, se strippea.
+   * Redondeamos a peso entero — la agente nunca escribe centavos.
+   */
+  async getActiveCatalogPrices(): Promise<Set<number>> {
+    const rows = await this.prisma.product.findMany({
+      where: { active: true, basePriceArs: { not: null } },
+      select: { basePriceArs: true },
+    });
+    const set = new Set<number>();
+    for (const r of rows) {
+      const raw = r.basePriceArs as any;
+      const num = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(num) || num <= 0) continue;
+      set.add(Math.round(num));
+    }
+    return set;
+  }
+
   async getActiveCatalogUrls(): Promise<Set<string>> {
     const rows = await this.prisma.product.findMany({
       where: { active: true, url: { not: null } },
