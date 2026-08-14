@@ -529,6 +529,27 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
               <h2 className="truncate text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
                 {conversation.contact.name || "Sin nombre"}
               </h2>
+              {/* Marcos 2026-08-14 (WhatsApp 6:53 AR): "una vez que
+                 estás en la conversación no te muestra el nombre ni el
+                 número de con quien estás hablando" — el nombre estaba
+                 pero el teléfono/email vivía sólo en la tarjeta de la
+                 derecha. Ahora también aparece acá arriba, chico,
+                 debajo del nombre. */}
+              {(conversation.contact.phone || conversation.contact.email) && (
+                <p className="mt-0.5 truncate font-mono text-xs text-slate-500">
+                  {conversation.contact.phone || conversation.contact.email}
+                </p>
+              )}
+              {/* Marcos 2026-08-14 (WhatsApp 6:53 AR): "si hay
+                 conversación anterior no te dice la fecha" — cuando el
+                 contacto ya escribió antes, mostramos DD/MM/YYYY de
+                 ese hilo previo así el operador ve al toque si es
+                 cliente recurrente. */}
+              {(conversation as any).priorConversationAt && (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Contactó antes: {new Date((conversation as any).priorConversationAt).toLocaleDateString("es-AR")}
+                </p>
+              )}
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/70 bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />

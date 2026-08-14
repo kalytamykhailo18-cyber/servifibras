@@ -79,8 +79,22 @@ export function ConversationListItem({ conversation, selected, onSelect, onFavor
   const channelDot = CHANNEL_DOT[conversation.channel] ?? "bg-slate-400";
   // Marcos 2026-07-23: hora exacta estilo WhatsApp — HH:MM hoy,
   // "ayer HH:MM" ayer, día corto (<7d), fecha para más viejo.
-  const timeAgo = conversation.lastMessageAt ? safeFormatInboxTime(conversation.lastMessageAt) : "";
+  // Marcos 2026-08-14 (WhatsApp 6:53 AR): "si hay conversación
+  // anterior no te dice la fecha" — filas con lastMessageAt null
+  // quedaban en blanco. Fallback a createdAt así SIEMPRE hay una
+  // fecha visible, aunque sea la de creación del hilo.
+  const timeAnchor = conversation.lastMessageAt ?? conversation.createdAt ?? null;
+  const timeAgo = timeAnchor ? safeFormatInboxTime(timeAnchor) : "";
   const needsHuman = !!conversation.needsHumanAttention;
+  // Marcos 2026-08-14 (WhatsApp 6:53 AR): "En la parte de Todas no
+  // distingue las conversaciones que tienen mensajes para responder
+  // de las que no". El indicador visual ahora se dispara con
+  // hasUnreadCustomer (cliente escribió último y nadie respondió),
+  // mismo criterio que la tab "No leídas". En la tab "No leídas"
+  // todas las filas están unread por definición, así que no marcamos
+  // ahí; en el resto (Todas / Favoritas / etc.) las unread se ven
+  // resaltadas.
+  const unreadFromCustomer = !!conversation.hasUnreadCustomer;
   const isMayorista =
     conversation.contact.type === "MAYORISTA" ||
     conversation.contact.customerType === "MAYORISTA";
@@ -95,13 +109,13 @@ export function ConversationListItem({ conversation, selected, onSelect, onFavor
         "group relative flex w-full min-w-0 items-center gap-2.5 border-b border-slate-100 px-3 py-2 text-left transition-colors " +
         (selected
           ? "bg-blue-50/80 hover:bg-blue-50"
-          : needsHuman
+          : unreadFromCustomer
           ? "bg-rose-50/40 hover:bg-rose-50/70"
           : "hover:bg-slate-50")
       }
     >
       {selected && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-blue-600" />}
-      {needsHuman && !selected && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-rose-500" />}
+      {unreadFromCustomer && !selected && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-rose-500" />}
 
       {conversation.contact.avatarUrl ? (
         <img
@@ -123,7 +137,7 @@ export function ConversationListItem({ conversation, selected, onSelect, onFavor
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${channelDot}`} title={conversation.channel} />
-            <span className="truncate text-[13px] font-semibold text-slate-900">{name}</span>
+            <span className={"truncate text-[13px] text-slate-900 " + (unreadFromCustomer ? "font-bold" : "font-semibold")}>{name}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1">
             <button

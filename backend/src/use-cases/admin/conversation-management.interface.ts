@@ -52,6 +52,14 @@ export interface ConversationDetails {
   lastMessageAt: Date | null;
   messageCount: number;
   needsHumanAttention: boolean;
+  // Marcos 2026-08-14: WA-style unread flag por-fila. Expuesto para
+  // que la lista + el detalle puedan diferenciar visualmente hilos
+  // esperando respuesta del negocio.
+  hasUnreadCustomer?: boolean;
+  // Marcos 2026-08-14: fecha del último hilo previo del mismo contacto
+  // (cualquier canal). null cuando es primer contacto. Se muestra en
+  // el header del detalle como "Contactó antes: DD/MM/YYYY".
+  priorConversationAt?: Date | null;
   escalatedAt: Date | null;
   // Marcos 2026-07-21: tab Favoritas.
   favorite: boolean;

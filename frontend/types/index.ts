@@ -168,6 +168,15 @@ export interface Conversation {
   // off, or customer explicitly asked for a person). Cleared when any staff
   // member sends a reply through the panel.
   needsHumanAttention?: boolean;
+  // Marcos 2026-08-14 (WhatsApp 6:53 AR): flag por-fila para indicar
+  // "el cliente escribió último, todavía no le respondió nadie". Mismo
+  // valor que dispara la tab "No leídas"; expuesto acá para que la
+  // lista de "Todas" pueda marcar visualmente cuáles esperan respuesta.
+  hasUnreadCustomer?: boolean;
+  // Marcos 2026-08-14 (WhatsApp 6:53 AR): fecha del último hilo previo
+  // del mismo contacto. null / undefined = primer contacto. Se muestra
+  // en el header del detalle como "Contactó antes: DD/MM/YYYY".
+  priorConversationAt?: string | null;
   escalatedAt?: string | null;
   // Marcos 2026-07-21: tab "Favoritas" — flag compartido entre operadores.
   favorite?: boolean;

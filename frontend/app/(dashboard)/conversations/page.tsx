@@ -100,6 +100,20 @@ export default function ConversationsPage() {
     return () => { cancelled = true; clearInterval(h); };
   }, [mlTabAllowed]);
 
+  const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const [filters, setFilters] = useState<ConversationFilters>({
+    status: "ALL",
+    channel: "ALL",
+    assignedTo: "ALL",
+    search: "",
+  });
+
   // Marcos 2026-08-10 (WhatsApp 13:55 AR): "podemos incorporar arriba
   // que marque los no leídos totales en pequeño, como hace whatsapp?
   // así chequeamos que coincida". Contador global independiente del
@@ -107,10 +121,22 @@ export default function ConversationsPage() {
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const refreshUnreadCount = useCallback(async () => {
     try {
-      const r = await api.conversations.getAll({ page: 1, limit: 1, needsHumanAttention: true });
+      // Marcos 2026-08-14 (WhatsApp 6:53 AR): "marca que hay más
+      // conversaciones No leídas de las que en realidad hay. Por
+      // ejemplo ahora hay 36 y dice que son 77". Root cause: el badge
+      // contaba TODOS los canales (WA + ML + webchat) mientras que la
+      // lista visible tiene el filtro de canal aplicado. Ahora el badge
+      // aplica los MISMOS filtros que la lista (canal, asignado,
+      // búsqueda) así el número siempre coincide con lo que ve.
+      const params: GetConversationsParams = { page: 1, limit: 1, needsHumanAttention: true };
+      if (filters.status && filters.status !== "ALL") params.status = filters.status;
+      if (filters.channel && filters.channel !== "ALL") params.channel = filters.channel;
+      if (filters.assignedTo && filters.assignedTo !== "ALL") params.assignedTo = filters.assignedTo;
+      if (filters.search && filters.search.trim().length > 0) params.search = filters.search.trim();
+      const r = await api.conversations.getAll(params);
       setUnreadCount(Number(r?.total || 0));
     } catch { /* non-fatal */ }
-  }, []);
+  }, [filters]);
   // Marcos 2026-08-11 (video 7:19 AR): botón para bulk-clear del backlog
   // heredado. Confirm dialog custom (per feedback_custom_confirm_modals).
   const [confirmMarkAllOpen, setConfirmMarkAllOpen] = useState(false);
@@ -132,20 +158,6 @@ export default function ConversationsPage() {
     const h = setInterval(() => { void refreshUnreadCount(); }, 30_000);
     return () => clearInterval(h);
   }, [refreshUnreadCount]);
-
-  const [conversations, setConversations] = useState<ConversationWithRelations[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const [filters, setFilters] = useState<ConversationFilters>({
-    status: "ALL",
-    channel: "ALL",
-    assignedTo: "ALL",
-    search: "",
-  });
 
   // Marcos 2026-07-21: buscador siempre visible en el header (antes
   // estaba adentro del panel de filtros y "desapareció" al colapsar).

@@ -443,6 +443,12 @@ export class ConversationManagementService implements IConversationManagementSer
         lastMessageAt: conv.lastMessageAt,
         messageCount: conv._count.messages,
         needsHumanAttention: conv.needsHumanAttention,
+        // Marcos 2026-08-14 (WhatsApp 6:53 AR): "En la parte de Todas
+        // no distingue las conversaciones que tienen mensajes para
+        // responder de las que no". Exponemos hasUnreadCustomer así el
+        // list-item lo puede usar como señal visual (misma semántica
+        // que "No leídas" pero por-fila, sirve para todas las tabs).
+        hasUnreadCustomer: (conv as any).hasUnreadCustomer ?? false,
         escalatedAt: conv.escalatedAt,
         favorite: (conv as any).favorite ?? false,
         favoritedAt: (conv as any).favoritedAt ?? null,
@@ -534,6 +540,25 @@ export class ConversationManagementService implements IConversationManagementSer
         }
       }
 
+      // Marcos 2026-08-14 (WhatsApp 6:53 AR): "si hay conversación
+      // anterior no te dice la fecha". Traemos la fecha de la última
+      // conversación previa del mismo contacto (cualquier canal), si
+      // existe. Se surfacea en el header del detalle como "Contactó
+      // antes: DD/MM/YYYY" para que el operador tenga contexto de si
+      // es un cliente recurrente sin abrir la ficha completa.
+      const priorConv = await this.prisma.conversation
+        .findFirst({
+          where: {
+            contactId: conversation.contact.id,
+            id: { not: conversation.id },
+          },
+          orderBy: { lastMessageAt: 'desc' },
+          select: { lastMessageAt: true, createdAt: true },
+        })
+        .catch(() => null);
+      const priorConversationAt =
+        priorConv?.lastMessageAt ?? priorConv?.createdAt ?? null;
+
       return {
         id: conversation.id,
         contact: {
@@ -561,6 +586,8 @@ export class ConversationManagementService implements IConversationManagementSer
         lastMessageAt: conversation.lastMessageAt,
         messageCount: conversation._count.messages,
         needsHumanAttention: conversation.needsHumanAttention,
+        hasUnreadCustomer: (conversation as any).hasUnreadCustomer ?? false,
+        priorConversationAt,
         escalatedAt: conversation.escalatedAt,
         favorite: (conversation as any).favorite ?? false,
         favoritedAt: (conversation as any).favoritedAt ?? null,
