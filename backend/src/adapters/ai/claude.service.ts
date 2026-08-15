@@ -1124,7 +1124,60 @@ export class ClaudeService implements IAIService {
       // mezclar cifras.
       if (strippedAny) {
         cleaned =
-          'Un segundo — te confirmo el precio exacto y te lo paso.';
+          'Un segundo, te confirmo el precio exacto y te lo paso.';
+      }
+    }
+
+    // Marcos 2026-08-15 (WhatsApp 15:15 AR screenshot): la respuesta
+    // salió con "(sin IVA)" pegado al total, aún con la regla dura
+    // agregada al prompt esa misma tarde. Las reglas del prompt son
+    // recomendaciones que el modelo cumple casi siempre, no un guard
+    // duro. Los precios del catálogo YA incluyen IVA — nunca aclarar
+    // nada. Sacamos cualquier variante ("sin IVA", "más IVA", "IVA
+    // aparte", "IVA incluido", "más impuestos", "sin impuestos") por
+    // regex antes del envío. Todas contra la última mención de un
+    // total o precio en el mismo bloque, así el mensaje queda
+    // narrativamente parejo. Kill switch: AGENT_IVA_GUARD_ENABLED=false.
+    const ivaGuardEnabled =
+      (process.env.AGENT_IVA_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (ivaGuardEnabled) {
+      const IVA_LEAK_RE =
+        /\s*[(\-–—]?\s*(?:m[áa]s|sin|con|\+|incluye|incluido)?\s*(?:IVA|iva|impuestos)(?:\s+(?:aparte|incluido|incluida|aparte|inclu[ií]do))?\s*[)]?\s*/g;
+      const before = cleaned;
+      cleaned = cleaned.replace(IVA_LEAK_RE, ' ');
+      cleaned = cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1');
+      if (cleaned !== before) {
+        dropped++;
+        this.logger.warn(`IVA leak stripped from agent reply`);
+      }
+    }
+
+    // Marcos 2026-08-15: la agente sigue estimando costos de envío
+    // ("$4.500 aprox., depende del peso exacto") aunque el prompt lo
+    // prohíba. No tenemos herramienta real de cálculo por CP, así
+    // que cualquier monto en pesos que aparezca en un contexto de
+    // envío es inventado. Detectamos por proximidad: si un $XXX
+    // aparece a menos de 40 caracteres de "envío", "shipping", "flete"
+    // o "correo", lo strippeamos + reemplazamos toda la línea por
+    // la fórmula estándar. Kill switch: AGENT_SHIPPING_GUARD_ENABLED=false.
+    const shippingGuardEnabled =
+      (process.env.AGENT_SHIPPING_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (shippingGuardEnabled) {
+      const SHIP_LINE_RE =
+        /(?:^|\n)[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*\$\s*\d[\d.,]*[^\n]*/gi;
+      const SHIP_LINE_RE_REV =
+        /(?:^|\n)[^\n]*\$\s*\d[\d.,]*[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*/gi;
+      let shippingLeaked = false;
+      const flag = (m: string) => {
+        shippingLeaked = true;
+        return (m.startsWith('\n') ? '\n' : '') +
+          'El costo del envío depende del código postal, pasame el tuyo y te confirmo.';
+      };
+      cleaned = cleaned.replace(SHIP_LINE_RE, flag);
+      cleaned = cleaned.replace(SHIP_LINE_RE_REV, flag);
+      if (shippingLeaked) {
+        dropped++;
+        this.logger.warn(`Shipping-cost leak stripped from agent reply`);
       }
     }
 
