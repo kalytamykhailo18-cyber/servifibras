@@ -21,15 +21,10 @@ import { Channel, PrismaClient } from '@prisma/client';
  */
 const CUSTOMER_SAFE_LINK_FALLBACK = 'te lo confirmo en un momento';
 
-/**
- * Marcos 2026-08-13 (WhatsApp 13:12 AR — "el kit de 6 litros sale
- * $58.500" cuando el real era $198.999): fallback natural cuando el
- * price guard strippea un importe que no matchea el catálogo. Mismo
- * tono humano que el link fallback — parece parte de la respuesta,
- * no un marcador técnico. La conversación queda con needsHumanAttention
- * marcado en el hot path para que un operador confirme el precio real.
- */
-const CUSTOMER_SAFE_PRICE_FALLBACK = 'te confirmo el precio en un momento';
+// Note: previous inline price fallback removed 2026-08-15 — when the
+// guard strips a fabricated price we now short-circuit the entire
+// reply to a canned line (see dropFabricatedUrls) so no partial
+// mixed text reaches the customer.
 
 /**
  * Channel-specific system-prompt addenda. These are injected as the LAST
@@ -924,13 +919,17 @@ export class ClaudeService implements IAIService {
           this.validCatalogUrls.has(trimmedNorm) ||
           this.validCatalogUrls.has(trimmedNorm + '/')
         ) {
-          return raw;
+          // Marcos 2026-08-15: "los links a veces salen con www. y a
+          // veces sin. Parecen dos fuentes distintas." Normalizamos
+          // al emitir así el mismo producto siempre luce igual — sin
+          // www. y sin barra final, coincide con lo que TN muestra.
+          return normalizeUrl(raw);
         }
         // Double-check against a whitelist re-index without www./slash
         // in case future catalog rows come in with either variant.
         for (const validUrl of this.validCatalogUrls) {
           if (normalizeUrl(validUrl) === trimmedNorm) {
-            return raw;
+            return normalizeUrl(raw);
           }
         }
         dropped++;
@@ -1092,36 +1091,41 @@ export class ClaudeService implements IAIService {
     const priceGuardEnabled =
       (process.env.AGENT_PRICE_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
     if (priceGuardEnabled && this.validCatalogPrices.size > 0) {
-      // Matches ARS amounts in AR-style formatting:
-      //   $58.500 / $199.000 / $ 199.000 / $1.500.000 / 58500 pesos
-      //   ARS 199.000 / ARS 199000 / $199.000,50
-      // Threshold >= 1000 avoids matching tiny numbers ("300 ml",
-      // "6 litros"). Explicit currency prefixes ($, ARS, pesos) are
-      // preferred; a bare integer >= 1000 also matches when preceded
-      // by the currency-context words "sale", "cuesta", "precio", "vale".
       const PRICE_RE =
         /(?:(?:\$|ARS\s?|USD\s?)\s*)(\d{1,3}(?:[.,]\d{3})+|\d{4,})(?:[.,]\d{1,2})?(?:\s?pesos)?/gi;
+      let strippedAny = false;
       cleaned = cleaned.replace(PRICE_RE, (raw, digits) => {
-        // Parse AR-style "58.500" or plain "58500" → 58500
         const normalized = String(digits).replace(/[.,]/g, '');
         const amount = Number(normalized);
         if (!Number.isFinite(amount) || amount < 100) return raw;
-        // ±3% tolerance for small rounding drift in DB (some rows are
-        // "198999.999979" style). Exact + tolerant checks both.
         if (this.validCatalogPrices.has(amount)) return raw;
         for (const valid of this.validCatalogPrices) {
           if (Math.abs(valid - amount) / valid <= 0.03) return raw;
         }
-        // Also allow common shipping-range and reasonable non-price
-        // integers we don't have in the catalog: years (2020-2030),
-        // ML publication IDs (large digits handled by URL guard).
         if (amount >= 1900 && amount <= 2100) return raw;
         dropped++;
+        strippedAny = true;
         this.logger.warn(
           `Fabricated price stripped from agent reply: "${raw.trim()}" (parsed ${amount}, no catalog match)`,
         );
-        return CUSTOMER_SAFE_PRICE_FALLBACK;
+        return '(precio a confirmar)';
       });
+      // Marcos 2026-08-15 (WhatsApp mensaje largo del sábado):
+      // "apareció un 'te lo confirmo en un momento' incrustado en el
+      // medio de una cotización, entre el precio de la resina y el del
+      // glitter". Antes el fallback substituía el precio inventado
+      // pero la respuesta quedaba narrativamente rota (mezclando el
+      // fallback con precios reales). Ahora si strippeamos algo,
+      // REEMPLAZAMOS TODA la respuesta por un canned corto y honesto —
+      // así no queda ninguna parte del texto original en el mensaje al
+      // cliente. Un operador puede releer, corregir el precio real y
+      // reenviar. El precio en el catálogo puede estar desactualizado
+      // por la ventana de sync, así que preferimos hard-stop antes que
+      // mezclar cifras.
+      if (strippedAny) {
+        cleaned =
+          'Un segundo — te confirmo el precio exacto y te lo paso.';
+      }
     }
 
     return { text: cleaned, dropped };
