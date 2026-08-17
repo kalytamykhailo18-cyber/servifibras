@@ -22,12 +22,51 @@ const STOP_ON_FAIL = (process.env.E2E_STOP_ON_FAIL || 'true').toLowerCase() !== 
     const results = [];
     for (const c of cases) {
       if (ONLY.length > 0 && !ONLY.includes(c.id)) continue;
+      if (c.skip) {
+        console.log(`\n\n============ ${c.id} — ${c.title} [SKIPPED: ${c.skipReason || 'no reason'}] ============`);
+        results.push({ id: c.id, title: c.title, pass: true, skipped: true, turns: [] });
+        continue;
+      }
       console.log(`\n\n============ ${c.id} — ${c.title} ============`);
       await runner.switchChannel(page, c.channel).catch(() => {});
       await runner.newConversation(page);
 
       let caseAllPass = true;
       const turnResults = [];
+      // Burst cases: send all customer messages, wait for one reply.
+      // Only the LAST turn's asserts are checked (the consolidated reply).
+      if (c.burst) {
+        const msgs = c.turns.map((t) => t.customer);
+        console.log(`\n[BURST] ${msgs.length} mensajes en ráfaga`);
+        const t0 = Date.now();
+        const { arrived, reply, extraReplies } = await runner.runBurstCase(page, msgs).catch((e) => ({ arrived: false, reply: null, extraReplies: 0, error: e.message }));
+        const ms = Date.now() - t0;
+        if (!arrived) {
+          console.log(`  ✗ NO REPLY (${ms}ms)`);
+          caseAllPass = false;
+        } else {
+          console.log(`  → ${(reply || '').replace(/\n/g, ' | ').slice(0, 220)}${(reply || '').length > 220 ? '…' : ''}`);
+          console.log(`  extras: ${extraReplies} (0 = debounce OK, >0 = múltiples respuestas)`);
+          if (extraReplies > 0) {
+            console.log(`  ✗ debounce falló (${extraReplies + 1} bubbles del asistente)`);
+            caseAllPass = false;
+          }
+          const lastTurn = c.turns[c.turns.length - 1];
+          for (const a of lastTurn.asserts) {
+            let pass;
+            try { pass = !!a.fn(reply || ''); } catch { pass = false; }
+            console.log(`    ${pass ? '✓' : '✗'} ${a.name}`);
+            if (!pass) caseAllPass = false;
+          }
+        }
+        results.push({ id: c.id, title: c.title, pass: caseAllPass, turns: [] });
+        if (!caseAllPass && STOP_ON_FAIL) {
+          console.log(`\n\n>>>>>> FREEZE on ${c.id} <<<<<<`);
+          await page.screenshot({ path: `/tmp/e2e-fail-${c.id}.png`, fullPage: true }).catch(() => {});
+          break;
+        }
+        continue;
+      }
       for (let ti = 0; ti < c.turns.length; ti++) {
         const turn = c.turns[ti];
         console.log(`\n[T${ti + 1}] ${turn.customer}`);

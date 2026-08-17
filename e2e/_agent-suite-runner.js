@@ -91,8 +91,26 @@ async function runSingleTurnCase(page, customerMsg) {
   return { arrived: true, reply };
 }
 
+// Send N customer messages in quick succession without waiting for
+// individual replies. Between messages, sleep `gapMs` (default 2s) to
+// mimic real bursts. After the LAST message, wait for one agent reply.
+// Validates debounce — a single reply must consolidate the burst.
+async function runBurstCase(page, customerMsgs, gapMs = 2000) {
+  const beforeAll = await page.locator('[data-testid="sandbox-agent-bubble"]').count();
+  for (let i = 0; i < customerMsgs.length; i++) {
+    await sendMessage(page, customerMsgs[i]);
+    if (i < customerMsgs.length - 1) await page.waitForTimeout(gapMs);
+  }
+  const arrived = await waitForAgentReply(page, beforeAll, 60000);
+  if (!arrived) return { arrived: false, reply: null, extraReplies: 0 };
+  const after = await page.locator('[data-testid="sandbox-agent-bubble"]').count();
+  const extra = after - beforeAll - 1;
+  const reply = await readLatestAgentReply(page);
+  return { arrived: true, reply, extraReplies: extra };
+}
+
 module.exports = {
   login, openSandbox, switchChannel, newConversation,
-  sendMessage, waitForAgentReply, readLatestAgentReply, runSingleTurnCase,
+  sendMessage, waitForAgentReply, readLatestAgentReply, runSingleTurnCase, runBurstCase,
   FRONT, EMAIL, PASSWORD, chromium,
 };

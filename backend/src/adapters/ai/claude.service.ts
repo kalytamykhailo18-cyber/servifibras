@@ -1208,6 +1208,25 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-17 (E2E case J.6): "nunca listas numeradas en
+    // WhatsApp" es regla dura del prompt que el modelo ignora
+    // intermitentemente. Escalamos a code-guard: si detectamos líneas
+    // que arrancan con "N." o "N)" (dígitos + separador), sustituimos
+    // el prefijo por un guión. Preserva la estructura del bloque pero
+    // saca la numeración que Marcos flaggeó. Sólo en canales privados
+    // (WA/webchat/IG/FB); ML permite formato más flexible.
+    // Kill switch: AGENT_NUMBERED_LIST_GUARD=false.
+    const numberedListGuardEnabled =
+      (process.env.AGENT_NUMBERED_LIST_GUARD ?? 'true').toLowerCase() !== 'false';
+    if (numberedListGuardEnabled && isPrivateForCloser) {
+      const NUMBERED_LINE_RE = /^\s*(\d+)[.)]\s+/gm;
+      if (NUMBERED_LINE_RE.test(cleaned)) {
+        NUMBERED_LINE_RE.lastIndex = 0;
+        cleaned = cleaned.replace(NUMBERED_LINE_RE, '- ');
+        this.logger.warn(`Numbered list stripped from agent reply (replaced with dashes)`);
+      }
+    }
+
     // Marcos 2026-08-17 (E2E case A.1 second run): la regla "nunca
     // precio sin link" del prompt la ignora el modelo. Guard duro:
     // si el reply menciona un precio en pesos pero NO tiene ninguna
