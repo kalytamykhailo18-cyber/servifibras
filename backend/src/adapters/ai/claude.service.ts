@@ -1208,6 +1208,24 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-17 (E2E case A.1 second run): la regla "nunca
+    // precio sin link" del prompt la ignora el modelo. Guard duro:
+    // si el reply menciona un precio en pesos pero NO tiene ninguna
+    // URL de la tienda, appendear una línea con el link a los
+    // productos como fallback. Kill switch:
+    // AGENT_PRICE_WITHOUT_LINK_GUARD=false.
+    const priceLinkGuardEnabled =
+      (process.env.AGENT_PRICE_WITHOUT_LINK_GUARD ?? 'true').toLowerCase() !== 'false';
+    if (priceLinkGuardEnabled && isPrivateForCloser) {
+      const hasPrice = /\$\s*\d[\d.,]{2,}/.test(cleaned);
+      const hasLink = /tiendaservifibras\.com\/productos/i.test(cleaned);
+      if (hasPrice && !hasLink) {
+        cleaned = cleaned.replace(/\s+$/, '') +
+          '\n\nEl catálogo completo lo tenés acá: https://tiendaservifibras.com/productos';
+        this.logger.log(`Fallback catalog link appended (price without link detected)`);
+      }
+    }
+
     return { text: cleaned, dropped };
   }
 
