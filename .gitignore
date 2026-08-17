@@ -92,6 +92,9 @@ e2e/*
 !e2e/_e2e-auth.js
 !e2e/test-ml-post-venta-messages-ui-e2e.js
 !e2e/test-competidores-remove-ui-e2e.js
+!e2e/_agent-suite-runner.js
+!e2e/_agent-suite-cases.js
+!e2e/agent-suite-driver.js
 
 # WhatsApp / TN / ML media uploads captured at runtime — 61MB+ of
 # customer voice notes, photos, docs. Only May PDFs were tracked in
