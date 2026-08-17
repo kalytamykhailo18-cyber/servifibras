@@ -1181,6 +1181,33 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-17 (E2E case A.1): la regla dura del prompt
+    // "cuando cotiza SIEMPRE mencioná transferencia + cuotas" la
+    // ignora el modelo cuando hace cotizaciones cortas. Escalamos a
+    // guard duro: si la respuesta contiene un $XXX del catálogo y es
+    // en canal privado (WA/webchat/IG/FB — no ML porque en ML no se
+    // pueden dar métodos de pago externos) y no menciona ninguna
+    // herramienta comercial, appendear el closer estándar como un
+    // bloque nuevo separado por \n\n. En ML no se aplica.
+    // Kill switch: AGENT_COMMERCIAL_CLOSER_ENABLED=false.
+    const closerEnabled =
+      (process.env.AGENT_COMMERCIAL_CLOSER_ENABLED ?? 'true').toLowerCase() !== 'false';
+    const isPrivateForCloser =
+      channel === Channel.WHATSAPP ||
+      channel === Channel.FACEBOOK ||
+      channel === Channel.INSTAGRAM ||
+      channel === Channel.TIENDANUBE_WEBCHAT;
+    if (closerEnabled && isPrivateForCloser) {
+      const hasPrice = /\$\s*\d[\d.,]{2,}/.test(cleaned);
+      const hasCloser =
+        /transferencia|cuotas\s+sin\s+inter[eé]s|descuento.*(?:tarjeta|efectivo)|10%/i.test(cleaned);
+      if (hasPrice && !hasCloser) {
+        cleaned = cleaned.replace(/\s+$/, '') +
+          '\n\nPagando por transferencia tenés 10% de descuento, o hasta 6 cuotas sin interés con tarjeta.';
+        this.logger.log(`Commercial closer appended (price without closer detected)`);
+      }
+    }
+
     return { text: cleaned, dropped };
   }
 
