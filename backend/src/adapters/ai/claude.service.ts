@@ -1198,7 +1198,7 @@ export class ClaudeService implements IAIService {
       channel === Channel.INSTAGRAM ||
       channel === Channel.TIENDANUBE_WEBCHAT;
     if (closerEnabled && isPrivateForCloser) {
-      const hasPrice = /\$\s*\d[\d.,]{2,}/.test(cleaned);
+      const hasPrice = /(?:\$|ARS\s|USD\s)\s*\d[\d.,]{2,}/i.test(cleaned);
       const hasCloser =
         /transferencia|cuotas\s+sin\s+inter[eé]s|descuento.*(?:tarjeta|efectivo)|10%/i.test(cleaned);
       if (hasPrice && !hasCloser) {
@@ -1217,7 +1217,7 @@ export class ClaudeService implements IAIService {
     const priceLinkGuardEnabled =
       (process.env.AGENT_PRICE_WITHOUT_LINK_GUARD ?? 'true').toLowerCase() !== 'false';
     if (priceLinkGuardEnabled && isPrivateForCloser) {
-      const hasPrice = /\$\s*\d[\d.,]{2,}/.test(cleaned);
+      const hasPrice = /(?:\$|ARS\s|USD\s)\s*\d[\d.,]{2,}/i.test(cleaned);
       const hasLink = /tiendaservifibras\.com\/productos/i.test(cleaned);
       if (hasPrice && !hasLink) {
         cleaned = cleaned.replace(/\s+$/, '') +
