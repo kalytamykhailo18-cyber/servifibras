@@ -777,6 +777,7 @@ export class ClaudeService implements IAIService {
   private dropFabricatedUrls(
     text: string,
     channel?: Channel,
+    turn?: import('../../use-cases/ai/ai.interface').AITurnContext,
   ): { text: string; dropped: number } {
     if (!text) return { text, dropped: 0 };
     let dropped = 0;
@@ -1099,8 +1100,15 @@ export class ClaudeService implements IAIService {
         const amount = Number(normalized);
         if (!Number.isFinite(amount) || amount < 100) return raw;
         if (this.validCatalogPrices.has(amount)) return raw;
+        // Marcos 2026-08-17 (WhatsApp 10:02 AR): tolerancia bajada de
+        // 3% a 1%. Con 3%, un precio inventado como $124.999 pasaba
+        // porque OTROS productos del catálogo (carro $122.185, silicona
+        // $123.406) quedaban dentro de esa tolerancia — el chequeo no
+        // exige que el precio matchee al producto correcto, sólo que
+        // haya ALGUNO parecido. Bajando a 1% se corta ese loophole y
+        // aún tolera diferencias de redondeo reales del catálogo.
         for (const valid of this.validCatalogPrices) {
-          if (Math.abs(valid - amount) / valid <= 0.03) return raw;
+          if (Math.abs(valid - amount) / valid <= 0.01) return raw;
         }
         if (amount >= 1900 && amount <= 2100) return raw;
         dropped++;
@@ -1160,24 +1168,67 @@ export class ClaudeService implements IAIService {
     // aparece a menos de 40 caracteres de "envío", "shipping", "flete"
     // o "correo", lo strippeamos + reemplazamos toda la línea por
     // la fórmula estándar. Kill switch: AGENT_SHIPPING_GUARD_ENABLED=false.
+    // Marcos 2026-08-17 (WhatsApp 10:02 AR screenshot): mi guard de
+    // envío disparaba DOS veces sobre la misma línea (una regex por
+    // "envío…$", otra por "$…envío"), appendeando la línea de
+    // fallback duplicada. Y encima disparaba aún cuando el cliente ya
+    // había dado el código postal (contexto ignorado). Rediseño:
+    // (a) UNA sola pasada que detecta líneas con envío + $, evita el
+    //     double-hit del mismo fragmento por dos regexes;
+    // (b) DETECTAR si el customer input reciente contiene un CP
+    //     válido (4-5 dígitos o X#### / S#### estilo AR). Si lo dio,
+    //     NO strippear — dejar que el agente responda con el costo
+    //     real (aún si es estimado por el modelo, mejor eso que un
+    //     loop conversacional donde el cliente ya dio el dato y el
+    //     agente sigue pidiéndolo);
+    // (c) DEDUP total del texto de fallback en la misma respuesta —
+    //     si aparece dos veces, colapsar a una.
     const shippingGuardEnabled =
       (process.env.AGENT_SHIPPING_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
     if (shippingGuardEnabled) {
-      const SHIP_LINE_RE =
-        /(?:^|\n)[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*\$\s*\d[\d.,]*[^\n]*/gi;
-      const SHIP_LINE_RE_REV =
-        /(?:^|\n)[^\n]*\$\s*\d[\d.,]*[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*/gi;
-      let shippingLeaked = false;
-      const flag = (m: string) => {
-        shippingLeaked = true;
-        return (m.startsWith('\n') ? '\n' : '') +
+      // Check if the LAST customer message contains a CP-like token.
+      // We pass this in via context.customerLastMessage when available.
+      const lastCustomerMsg = (turn as any)?.customerLastMessage as string | undefined;
+      const customerAlreadyGaveCp = lastCustomerMsg
+        ? /\b[A-Z]?\d{4,5}\b/.test(lastCustomerMsg.trim())
+        : false;
+      if (!customerAlreadyGaveCp) {
+        const SHIP_LINE_RE =
+          /(?:^|\n)[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*\$\s*\d[\d.,]*[^\n]*(?=\n|$)/gi;
+        const FALLBACK_TEXT =
           'El costo del envío depende del código postal, pasame el tuyo y te confirmo.';
-      };
-      cleaned = cleaned.replace(SHIP_LINE_RE, flag);
-      cleaned = cleaned.replace(SHIP_LINE_RE_REV, flag);
-      if (shippingLeaked) {
-        dropped++;
-        this.logger.warn(`Shipping-cost leak stripped from agent reply`);
+        let shippingLeaked = false;
+        cleaned = cleaned.replace(SHIP_LINE_RE, (m) => {
+          shippingLeaked = true;
+          return (m.startsWith('\n') ? '\n' : '') + FALLBACK_TEXT;
+        });
+        // Also collapse the reverse "$X ... envío" phrasing, but only
+        // if the line wasn't already replaced by the first pass.
+        const SHIP_LINE_RE_REV =
+          /(?:^|\n)[^\n]*\$\s*\d[\d.,]*[^\n]*(?:env[íi]o|flete|correo|shipping)[^\n]*(?=\n|$)/gi;
+        cleaned = cleaned.replace(SHIP_LINE_RE_REV, (m) => {
+          if (m.includes(FALLBACK_TEXT)) return m;
+          shippingLeaked = true;
+          return (m.startsWith('\n') ? '\n' : '') + FALLBACK_TEXT;
+        });
+        // Dedup: collapse any accidental repetition of the fallback
+        // text (e.g. two adjacent instances) to a single occurrence.
+        const dupPattern = new RegExp(
+          FALLBACK_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+            '(?:\\s*[.]?\\s*' +
+            FALLBACK_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+            ')+',
+          'g',
+        );
+        cleaned = cleaned.replace(dupPattern, FALLBACK_TEXT);
+        if (shippingLeaked) {
+          dropped++;
+          this.logger.warn(`Shipping-cost leak stripped from agent reply`);
+        }
+      } else {
+        this.logger.debug(
+          `Shipping guard skipped — customer already gave a CP-like token in last message`,
+        );
       }
     }
 
@@ -2204,7 +2255,7 @@ IMPORTANTE sobre precios:
     // si hay fuga, todo el texto se descarta y no tiene sentido
     // procesarlo más.
     const sanitized = this.guardAgainstInternalClassificationLeak(rawText, turn);
-    const guarded = this.dropFabricatedUrls(sanitized, turn?.channel);
+    const guarded = this.dropFabricatedUrls(sanitized, turn?.channel, turn);
     const stripped = stripMarkdownForChat(guarded.text);
     const noEmoji = stripDecorativeEmoji(stripped);
     const safeText = noEmoji.emptied
@@ -2813,7 +2864,11 @@ IMPORTANTE sobre precios:
       // lives in `applyReplyPostProcessing` so the batch path can
       // run identical processing on Claude's batch output.
       const raw = this.extractTextFromResponse(response);
-      return this.applyReplyPostProcessing(raw, turn);
+      // Marcos 2026-08-17: pipe the customer's last message into the
+      // post-processing turn context so the shipping guard can detect
+      // if the customer already gave a CP and skip the fallback loop.
+      const turnWithLastMsg = { ...(turn ?? {}), customerLastMessage: newMessage } as any;
+      return this.applyReplyPostProcessing(raw, turnWithLastMsg);
     } catch (error: any) {
       if (error instanceof BudgetExceededError) throw error;
       const errModel = (turn?.modelOverride && turn.modelOverride.trim().length > 0)

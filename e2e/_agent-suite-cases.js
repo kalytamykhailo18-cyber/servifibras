@@ -404,4 +404,30 @@ module.exports = [
       { name: 'incluye link + next step (link cuenta como camino a la web)', fn: (t) => /tiendaservifibras|web|retir|caseros|comprar|dejame\s+tu|te\s+pas[ao]|cuotas|transferencia/i.test(t) },
     ]},
   ]},
+
+  // --- C.7 REGRESSION — Marcos WhatsApp 2026-08-17 10:02 AR screenshot ---
+  // Reproduce el caso exacto: cliente pregunta envío a Córdoba, agente
+  // pide CP, cliente da "cordoba capital" (no es CP), agente pide CP
+  // otra vez (OK), cliente da "5000" (SÍ es CP) → el agente NO debe
+  // pedir CP una tercera vez, NO debe duplicar la línea de envío
+  // fallback, NO debe cotizar productos que el cliente no pidió.
+  { id: 'C.7', title: 'REGRESSION Marcos 08-17: cliente da CP, agente no re-pregunta ni duplica', channel: 'WEBCHAT', turns: [
+    { customer: 'quiero comprar la resina de altos espesores de 3 litros', asserts: [
+      { name: 'cotiza', fn: (t) => /(?:\$|ARS\s|USD\s)\s*\d/i.test(t) },
+    ]},
+    { customer: 'perfecto, y para mandarla a mi prima que vive en cordoba capital, cuanto saldría?', asserts: [
+      { name: 'pide CP', fn: (t) => /c[oó]digo\s+postal|CP\b/i.test(t) },
+    ]},
+    { customer: 'es cordoba capital.', asserts: [
+      { name: 'sigue pidiendo CP (la ciudad sola no es CP)', fn: (t) => /c[oó]digo\s+postal|CP\b/i.test(t) },
+    ]},
+    { customer: '5000', asserts: [
+      { name: 'no re-pregunta CP (ya lo dio)', fn: (t) => !/pasame\s+(?:tu\s+|el\s+)?(?:c[oó]digo\s+postal|CP)|¿cu[aá]l\s+es\s+(?:tu\s+)?(?:c[oó]digo\s+postal|CP)/i.test(t) },
+      { name: 'NO duplica la línea de fallback de envío', fn: (t) => {
+        const m = t.match(/El costo del env[íi]o depende del c[oó]digo postal/gi);
+        return !m || m.length <= 1;
+      }},
+      { name: 'reconoce el 5000 como CP (no como monto)', fn: (t) => !/\$\s*5000\b|5000\s+de\s+(?:compra|pedido)/i.test(t) },
+    ]},
+  ]},
 ];
