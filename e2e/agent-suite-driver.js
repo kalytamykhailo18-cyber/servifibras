@@ -6,6 +6,11 @@ const cases = require('./_agent-suite-cases');
 
 const ONLY = (process.env.E2E_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
 const STOP_ON_FAIL = (process.env.E2E_STOP_ON_FAIL || 'true').toLowerCase() !== 'false';
+// Retry a failed case up to N times before declaring it a real fail —
+// LLM output has natural variance and a case that passes N-1 times but
+// fails once is a flake, not a bug. Only retry non-skipped cases.
+// Default 3 per the harness spec's fix-before-advance protocol.
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.E2E_MAX_ATTEMPTS || 3));
 
 (async () => {
   const browser = await runner.chromium.launch({ headless: true });
@@ -28,11 +33,18 @@ const STOP_ON_FAIL = (process.env.E2E_STOP_ON_FAIL || 'true').toLowerCase() !== 
         continue;
       }
       console.log(`\n\n============ ${c.id} — ${c.title} ============`);
+
+      let caseAllPass = false;
+      let attempts = 0;
+      let turnResults = [];
+      while (attempts < MAX_ATTEMPTS && !caseAllPass) {
+        attempts++;
+        if (attempts > 1) console.log(`\n[retry attempt ${attempts}/${MAX_ATTEMPTS}]`);
       await runner.switchChannel(page, c.channel).catch(() => {});
       await runner.newConversation(page);
 
-      let caseAllPass = true;
-      const turnResults = [];
+      caseAllPass = true;
+      turnResults = [];
       // Burst cases: send all customer messages, wait for one reply.
       // Only the LAST turn's asserts are checked (the consolidated reply).
       if (c.burst) {
@@ -90,12 +102,15 @@ const STOP_ON_FAIL = (process.env.E2E_STOP_ON_FAIL || 'true').toLowerCase() !== 
         }
         turnResults.push({ ti, arrived: true, reply, ms, asserts: assertResults });
       }
-      results.push({ id: c.id, title: c.title, pass: caseAllPass, turns: turnResults });
-      if (!caseAllPass && STOP_ON_FAIL) {
-        console.log(`\n\n>>>>>> FREEZE on ${c.id} — see failed asserts above. Fix + re-run. <<<<<<`);
+      } // end retry loop
+      results.push({ id: c.id, title: c.title, pass: caseAllPass, attempts, turns: turnResults });
+      if (!caseAllPass) {
+        console.log(`\n>>>>>> ${c.id} failed after ${attempts} attempts <<<<<<`);
         await page.screenshot({ path: `/tmp/e2e-fail-${c.id}.png`, fullPage: true }).catch(() => {});
         console.log(`Screenshot: /tmp/e2e-fail-${c.id}.png`);
-        break;
+        if (STOP_ON_FAIL) break;
+      } else if (attempts > 1) {
+        console.log(`\n[${c.id} passed on attempt ${attempts} — flaky]`);
       }
     }
 

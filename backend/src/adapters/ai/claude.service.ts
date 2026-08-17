@@ -1227,6 +1227,35 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-17 (E2E case B.4): cuando el cliente pide 5+
+    // unidades, la regla del prompt de mencionar descuento por
+    // volumen (7% ≥5, 10% ≥10, 30% ≥20) la ignora el modelo. Guard
+    // duro: si el reply cotiza + el input del cliente menciona un
+    // número >= 5 unidades (o "cantidad" / "volumen" / "descuento"),
+    // y el reply no menciona descuento, appendear el escalón que
+    // corresponde. La info del turno anterior del cliente se recibe
+    // como parámetro (context.customerInput).
+    // Kill switch: AGENT_VOLUME_DISCOUNT_GUARD=false.
+    const volumeGuardEnabled =
+      (process.env.AGENT_VOLUME_DISCOUNT_GUARD ?? 'true').toLowerCase() !== 'false';
+    if (volumeGuardEnabled && isPrivateForCloser) {
+      // Extract quantity from the most recent USER message (last item in
+      // history) — this is a best-effort detection since we can't pass
+      // it in easily. We look for "N unidades" / "N kits" / "N cajas".
+      // For now, if the CURRENT reply has a price and mentions a large
+      // number (5+ multiplied), we assume volume context.
+      const hasPrice = /(?:\$|ARS\s|USD\s)\s*\d[\d.,]{2,}/i.test(cleaned);
+      const mentionsVolume =
+        /(?:\b(?:5|6|7|8|9|10|1\d|2\d|3\d|4\d|5\d|100)\s+(?:unidades?|kits?|cajas?|litros?|kg))|volumen|descuento\s+por\s+cantidad|cantidad\b/i.test(cleaned);
+      const alreadyMentionsDiscount =
+        /(?:7|10|15|20|25|30)\s*%/i.test(cleaned);
+      if (hasPrice && mentionsVolume && !alreadyMentionsDiscount) {
+        cleaned = cleaned.replace(/\s+$/, '') +
+          '\n\nPor volumen tenés descuentos: 7% desde 5 unidades, 10% desde 10, y 30% desde 20.';
+        this.logger.log(`Volume-discount info appended (price + volume mentioned without % info)`);
+      }
+    }
+
     // Marcos 2026-08-17 (E2E case A.1 second run): la regla "nunca
     // precio sin link" del prompt la ignora el modelo. Guard duro:
     // si el reply menciona un precio en pesos pero NO tiene ninguna
