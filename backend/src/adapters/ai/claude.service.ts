@@ -1142,6 +1142,76 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-18 (investigación de 5 fabricated-prices de la
+    // noche anterior): el price guard atrapa los NÚMEROS inventados
+    // uno por uno, pero la CAUSA es que el modelo hace aritmética por
+    // su cuenta (10 unidades × $12.000 = $120.000, o "para 3 L
+    // necesitás 10 kits", o "9 m × $XXX/m") y ese cómputo se aleja
+    // del catálogo. Detectamos el PATRÓN de cálculo aritmético y
+    // cortamos toda la respuesta antes de que salga: la agente no
+    // debe multiplicar precios, sólo cotizar los kits reales del
+    // catálogo. Si el kit exacto no existe, deriva. Este guard es
+    // más agresivo que el de precio suelto — mata la operación en
+    // lugar de sólo escribir el resultado.
+    // Kill switch: AGENT_ARITHMETIC_GUARD=false.
+    const arithGuardEnabled =
+      (process.env.AGENT_ARITHMETIC_GUARD ?? 'true').toLowerCase() !== 'false';
+    const isPrivateArith =
+      channel === Channel.WHATSAPP ||
+      channel === Channel.FACEBOOK ||
+      channel === Channel.INSTAGRAM ||
+      channel === Channel.TIENDANUBE_WEBCHAT;
+    if (arithGuardEnabled && isPrivateArith) {
+      // Patrones que indican que el modelo está calculando:
+      //   "10 × $12.000"  "10 x $12.000"  "10*$12000"
+      //   "5 unidades × $18.500"  "9 metros × $XXX/m"
+      //   "$460.000 × 0.9"  "$XX × N"
+      //   "= $XXX"  (equals sign after arithmetic)
+      //   "Subtotal:"  "Total:"  "Total con..."  followed by $
+      const ARITH_PATTERNS = [
+        /\b\d+(?:[,.]\d+)?\s*(?:unidades?|kits?|litros?|metros?|kg|m|L)?\s*[×xX*]\s*(?:\$|ARS\s?|USD\s?)\s*\d/i,
+        /(?:\$|ARS\s?|USD\s?)\s*\d[\d.,]*\s*[×xX*]\s*\d/i,
+        /=\s*(?:\$|ARS\s?|USD\s?)\s*\d[\d.,]*/i,
+        /\b(?:subtotal|total|monto\s+total|precio\s+total)\s*(?:con\s+descuento)?\s*[:=]\s*(?:\$|ARS\s?|USD\s?)?\s*\d/i,
+      ];
+      let arithDetected = false;
+      for (const re of ARITH_PATTERNS) {
+        if (re.test(cleaned)) {
+          arithDetected = true;
+          break;
+        }
+      }
+      if (arithDetected) {
+        // Extra safety: don't fire if EVERY $ amount in the reply
+        // already matches the catalog (means the "total" happens to
+        // be a real catalog price — rare but possible). If any $ is
+        // off-catalog, block.
+        let allPricesReal = true;
+        const priceMatches = cleaned.matchAll(
+          /(?:\$|ARS\s?|USD\s?)\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,})/gi,
+        );
+        for (const m of priceMatches) {
+          const n = Number(String(m[1]).replace(/[.,]/g, ''));
+          if (!Number.isFinite(n) || n < 100) continue;
+          let hit = this.validCatalogPrices.has(n);
+          if (!hit) {
+            for (const v of this.validCatalogPrices) {
+              if (Math.abs(v - n) / v <= 0.01) { hit = true; break; }
+            }
+          }
+          if (!hit) { allPricesReal = false; break; }
+        }
+        if (!allPricesReal) {
+          this.logger.warn(
+            `${gTag}Arithmetic pricing blocked (agent calculated a total instead of using catalog kit)`,
+          );
+          cleaned =
+            'Para esa cantidad prefiero pasarte la cotización exacta. Dejame chequear el kit que mejor te sirve y te lo confirmo enseguida.';
+          dropped++;
+        }
+      }
+    }
+
     // Marcos 2026-08-15 (WhatsApp 15:15 AR screenshot): la respuesta
     // salió con "(sin IVA)" pegado al total, aún con la regla dura
     // agregada al prompt esa misma tarde. Las reglas del prompt son

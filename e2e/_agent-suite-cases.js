@@ -411,6 +411,24 @@ module.exports = [
   // otra vez (OK), cliente da "5000" (SÍ es CP) → el agente NO debe
   // pedir CP una tercera vez, NO debe duplicar la línea de envío
   // fallback, NO debe cotizar productos que el cliente no pidió.
+  // --- B.8 REGRESSION — Marcos overnight test 2026-08-18 02:22 AR ---
+  // Marcos probando 15L de resina altos espesores. La agente hacía
+  // multiplicaciones inventadas ($414k = $460k × 0.9 con descuento
+  // aplicado como precio base, $562k, $624k). Guard aritmético bloquea:
+  // si el reply tiene un patrón "N × $" o "= $" y el total no matchea
+  // el catálogo, corta la respuesta.
+  { id: 'B.8', title: 'REGRESSION Marcos 08-18: bulk 15L no auto-calcula', channel: 'WEBCHAT', turns: [
+    { customer: 'Cuanto salen los 15 litros de resina epoxi altos espesores?', asserts: [
+      { name: 'no hay patrón de multiplicación de precios', fn: (t) => !/\d+\s*[×xX*]\s*(?:\$|ARS\s|USD\s)/.test(t) },
+      { name: 'no hay "= $" (ecuación con resultado)', fn: (t) => !/=\s*(?:\$|ARS\s|USD\s)\s*\d/i.test(t) },
+    ]},
+    { customer: 'y si compro 3 unidades de la de 5 litros para llegar a 15?', asserts: [
+      { name: 'no calcula 3 × precio', fn: (t) => !/3\s*[×xX*]\s*(?:\$|ARS\s|USD\s)/.test(t) },
+      { name: 'no muestra total calculado con "="', fn: (t) => !/=\s*(?:\$|ARS\s|USD\s)\s*\d/i.test(t) },
+      { name: 'sin patrón "5 × 3 ="', fn: (t) => !/5\s*[×x]\s*3\s*=/i.test(t) },
+    ]},
+  ]},
+
   // --- F.2 REGRESSION — real prod ML case 2026-08-18 01:09 (LAUTI 1106) ---
   // Cliente pregunta cuánto sale N metros de laminado PRFV. El agente
   // NUNCA debe cotizar PRFV directo — la regla del prompt dice "siempre
