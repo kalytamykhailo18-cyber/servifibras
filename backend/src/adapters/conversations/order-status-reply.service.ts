@@ -96,13 +96,27 @@ export class OrderStatusReplyService {
 
   private async findOrder(contactId: string, orderNumber: string | null) {
     if (orderNumber) {
-      const o = await this.prisma.order.findUnique({
-        where: { orderNumber },
-      });
-      // Only return it if it actually belongs to this contact — prevents
-      // someone pasting another customer's number to fish for info.
-      if (o && o.contactId === contactId) return o;
-      // Number doesn't belong to caller — fall back to their latest order.
+      // The intent detector extracts three shapes:
+      //   ORD-YYYY-NNNN — manual/CRM orders (canonical form, use as-is)
+      //   TN-NNNN       — TiendaNube-synced orders (canonical form, use as-is)
+      //   NNNN          — bare digits pulled from "Pedido 15518" — resolve
+      //                   against every source's prefix convention.
+      const bareDigits = /^\d{3,7}$/.test(orderNumber);
+      const candidates: string[] = bareDigits
+        ? [
+            `TN-${orderNumber}`,
+            `ORD-${new Date().getFullYear()}-${orderNumber.padStart(4, '0')}`,
+            `ORD-${new Date().getFullYear() - 1}-${orderNumber.padStart(4, '0')}`,
+            orderNumber, // last resort: exact match on the digits
+          ]
+        : [orderNumber];
+      for (const key of candidates) {
+        const o = await this.prisma.order.findUnique({ where: { orderNumber: key } });
+        // Only return it if it actually belongs to this contact — prevents
+        // someone pasting another customer's number to fish for info.
+        if (o && o.contactId === contactId) return o;
+      }
+      // Number(s) didn't belong to caller — fall back to their latest order.
     }
 
     const since = new Date(Date.now() - lookupWindowMs());
