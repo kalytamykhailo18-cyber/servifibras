@@ -1173,6 +1173,15 @@ export class ClaudeService implements IAIService {
         /(?:\$|ARS\s?|USD\s?)\s*\d[\d.,]*\s*[×xX*]\s*\d/i,
         /=\s*(?:\$|ARS\s?|USD\s?)\s*\d[\d.,]*/i,
         /\b(?:subtotal|total|monto\s+total|precio\s+total)\s*(?:con\s+descuento)?\s*[:=]\s*(?:\$|ARS\s?|USD\s?)?\s*\d/i,
+        // Marcos 2026-08-18 (WhatsApp 7:28 AR): la agente evadía el
+        // guard escribiendo "50 unidades, lo que sale $600.000" en
+        // vez de "50 × $12.000". Patrones narrativos: N unidades /
+        // N kits / N litros de X ... $XXX en la misma línea.
+        /\b\d{2,}\s+(?:unidades?|kits?|litros?|kg\b|paquetes?|cajas?)[^\n]{0,80}(?:sale|salen|cuesta|vale|total|son)[^\n]{0,20}(?:\$|ARS\s?|USD\s?)\s*\d/i,
+        // "necesitarías N unidades" / "necesitás M kits" — la agente
+        // arma bulk multiplicando presentaciones pequeñas en vez de
+        // usar el kit grande del catálogo.
+        /\bnecesit[aá][sr][íi]?[aá]?s?\s+\d{2,}\s+(?:unidades?|kits?|paquetes?)/i,
       ];
       let arithDetected = false;
       for (const re of ARITH_PATTERNS) {

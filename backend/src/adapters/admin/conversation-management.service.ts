@@ -99,20 +99,16 @@ export class ConversationManagementService implements IConversationManagementSer
       // del listado del día a día. Consistente con lo que hace la card
       // de Atención en Analítica. Kill switch: subir el env a 365.
       if (filter.needsHumanAttention === true) {
-        // Marcos 2026-08-10 13:12 AR: "no leidos actualmente son 8"
-        // (WhatsApp Web) vs 341 (CRM) — WA cuenta unread por receipts
-        // del celular, el CRM antes contaba `needsHumanAttention` que
-        // se disparaba por escalación aunque Marcos ya hubiera visto
-        // el mensaje. Nueva columna hasUnreadCustomer: TRUE cuando
-        // cliente escribe, FALSE cuando el equipo responde O cuando
-        // Marcos abre el chat en el celular (via chats.update de
-        // Baileys). Alinea 1:1 con la semántica de "no leído" de WA.
+        // Marcos 2026-08-18 (WhatsApp 7:26 AR): "hay 247 sin leer en
+        // whatsapp y en el crm figuran únicamente 81". El filtro de
+        // 24h que agregué antes como safety-net estaba escondiendo
+        // los no-leídos viejos que WhatsApp SÍ sigue contando. WA
+        // no aging-out, tampoco debe hacerlo el CRM — el conteo tiene
+        // que coincidir 1:1 con lo que ve el operador en su celular.
+        // Sacamos el filtro de edad. Si el sync se atrasa y quedan
+        // flags obsoletos, el botón "Marcar todas como leídas" del
+        // tab los limpia manualmente.
         where.hasUnreadCustomer = true;
-        // Aún filtramos por edad como safety net por si el sync de
-        // Baileys se atrasa — mantiene el orden natural del inbox.
-        const inboxHours = num('INBOX_UNREAD_MAX_AGE_HOURS', 24);
-        const inboxCutoff = new Date(Date.now() - inboxHours * 60 * 60 * 1000);
-        where.lastMessageAt = { gte: inboxCutoff };
       }
 
       // Marcos 2026-07-21: filtro para la tab "Favoritas".
