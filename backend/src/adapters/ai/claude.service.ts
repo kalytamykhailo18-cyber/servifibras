@@ -782,6 +782,12 @@ export class ClaudeService implements IAIService {
     if (!text) return { text, dropped: 0 };
     let dropped = 0;
     let cleaned = text;
+    // Marcos 2026-08-18: prefijo [E2E] en los logs de guards cuando la
+    // request viene de tráfico de prueba (isSandbox → isTestTraffic).
+    // Sin esto, una corrida completa de la suite mete 100+ eventos que
+    // se confunden con firings reales de producción y falsean el
+    // sensor. Con la etiqueta, filtrar reales es `grep -v "\[E2E\]"`.
+    const gTag = turn?.isTestTraffic ? '[E2E] ' : '';
 
     // Universal scrub: internal test markers must never reach the
     // customer. The prompt-editor probe v1 historically leaked
@@ -794,7 +800,7 @@ export class ClaudeService implements IAIService {
       /\b(?:E2E-MARKER|MARKER-(?:ON|OFF|BACK|STILL-OFF))[- ]?[A-Za-z0-9_-]*\b/gi;
     cleaned = cleaned.replace(INTERNAL_MARKER_RE_OUT, (raw) => {
       dropped++;
-      this.logger.warn(`Internal marker stripped from agent reply: "${raw}"`);
+      this.logger.warn(`${gTag}Internal marker stripped from agent reply: "${raw}"`);
       return '';
     });
 
@@ -898,7 +904,7 @@ export class ClaudeService implements IAIService {
             return raw;
           }
           dropped++;
-          this.logger.warn(`Fabricated ML URL dropped (not in permalink allowlist): ${trimmed}`);
+          this.logger.warn(`${gTag}Fabricated ML URL dropped (not in permalink allowlist): ${trimmed}`);
           return CUSTOMER_SAFE_LINK_FALLBACK;
         }
         // Marcos 2026-08-13 (WhatsApp 13:06 AR — caso "me pasas el
@@ -934,7 +940,7 @@ export class ClaudeService implements IAIService {
           }
         }
         dropped++;
-        this.logger.warn(`Fabricated URL dropped from agent reply: ${trimmed}`);
+        this.logger.warn(`${gTag}Fabricated URL dropped from agent reply: ${trimmed}`);
         return CUSTOMER_SAFE_LINK_FALLBACK;
       });
     }
@@ -1156,7 +1162,7 @@ export class ClaudeService implements IAIService {
       cleaned = cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1');
       if (cleaned !== before) {
         dropped++;
-        this.logger.warn(`IVA leak stripped from agent reply`);
+        this.logger.warn(`${gTag}IVA leak stripped from agent reply`);
       }
     }
 
@@ -1223,7 +1229,7 @@ export class ClaudeService implements IAIService {
         cleaned = cleaned.replace(dupPattern, FALLBACK_TEXT);
         if (shippingLeaked) {
           dropped++;
-          this.logger.warn(`Shipping-cost leak stripped from agent reply`);
+          this.logger.warn(`${gTag}Shipping-cost leak stripped from agent reply`);
         }
       } else {
         this.logger.debug(
@@ -1255,7 +1261,7 @@ export class ClaudeService implements IAIService {
       if (hasPrice && !hasCloser) {
         cleaned = cleaned.replace(/\s+$/, '') +
           '\n\nPagando por transferencia tenés 10% de descuento, o hasta 6 cuotas sin interés con tarjeta.';
-        this.logger.log(`Commercial closer appended (price without closer detected)`);
+        this.logger.log(`${gTag}Commercial closer appended (price without closer detected)`);
       }
     }
 
@@ -1274,7 +1280,7 @@ export class ClaudeService implements IAIService {
       if (NUMBERED_LINE_RE.test(cleaned)) {
         NUMBERED_LINE_RE.lastIndex = 0;
         cleaned = cleaned.replace(NUMBERED_LINE_RE, '- ');
-        this.logger.warn(`Numbered list stripped from agent reply (replaced with dashes)`);
+        this.logger.warn(`${gTag}Numbered list stripped from agent reply (replaced with dashes)`);
       }
     }
 
@@ -1303,7 +1309,7 @@ export class ClaudeService implements IAIService {
       if (hasPrice && mentionsVolume && !alreadyMentionsDiscount) {
         cleaned = cleaned.replace(/\s+$/, '') +
           '\n\nPor volumen tenés descuentos: 7% desde 5 unidades, 10% desde 10, y 30% desde 20.';
-        this.logger.log(`Volume-discount info appended (price + volume mentioned without % info)`);
+        this.logger.log(`${gTag}Volume-discount info appended (price + volume mentioned without % info)`);
       }
     }
 
@@ -1321,7 +1327,7 @@ export class ClaudeService implements IAIService {
       if (hasPrice && !hasLink) {
         cleaned = cleaned.replace(/\s+$/, '') +
           '\n\nEl catálogo completo lo tenés acá: https://tiendaservifibras.com/productos';
-        this.logger.log(`Fallback catalog link appended (price without link detected)`);
+        this.logger.log(`${gTag}Fallback catalog link appended (price without link detected)`);
       }
     }
 
