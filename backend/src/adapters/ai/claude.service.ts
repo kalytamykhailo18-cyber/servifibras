@@ -1284,6 +1284,28 @@ export class ClaudeService implements IAIService {
       }
     }
 
+    // Marcos 2026-08-18 (investigación 01:09 caso real LAUTI 1106):
+    // El prompt (sección 5 laminados PRFV) dice "siempre derivar a
+    // Marcos, no cotizar directo". La agente lo ignoró en un caso
+    // real de ML y quiso cotizar $1.013.589,60 para 9 m de lámina
+    // PRFV. El price guard atrapó el número específico pero la
+    // violación de "no cotizar PRFV" seguía viva. Escalamos a code
+    // guard: si el reply menciona "PRFV" o "laminado" y a la vez
+    // tiene un $XXX, cortamos toda la respuesta a un fallback de
+    // derivación. Kill switch: AGENT_PRFV_QUOTE_GUARD=false.
+    const prfvGuardEnabled =
+      (process.env.AGENT_PRFV_QUOTE_GUARD ?? 'true').toLowerCase() !== 'false';
+    if (prfvGuardEnabled) {
+      const mentionsPrfv = /\bPRFV\b|lamin[ae][od]|l[aá]mina\s+(?:de\s+)?fibra/i.test(cleaned);
+      const hasAmount = /(?:\$|ARS\s|USD\s)\s*\d[\d.,]{2,}/i.test(cleaned);
+      if (mentionsPrfv && hasAmount) {
+        this.logger.warn(`${gTag}PRFV auto-quote blocked (must derive to Marcos)`);
+        cleaned =
+          'Para laminados PRFV la cotización la hace directamente Marcos. Dejame tu nombre y el detalle (ancho, largo, espesor) y te contacta.';
+        dropped++;
+      }
+    }
+
     // Marcos 2026-08-17 (E2E case B.4): cuando el cliente pide 5+
     // unidades, la regla del prompt de mencionar descuento por
     // volumen (7% ≥5, 10% ≥10, 30% ≥20) la ignora el modelo. Guard
