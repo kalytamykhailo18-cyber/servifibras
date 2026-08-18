@@ -633,6 +633,42 @@ export class ConversationHandlerService implements IConversationHandler {
       // reply en 4 convs marcadas aiPaused=true. Movido acá arriba del
       // mayorista para que aiPaused corte todo el fan-out.
       if (await this.isAiPaused(conversation.id)) {
+        // Marcos 2026-08-18 (replay-harness): con WA por default en
+        // aiPaused=true toda pregunta postventa cae en la cola humana
+        // aunque la respuesta sea 100% determinística. Antes de
+        // escalar, corremos los 3 shortcuts pre-canned
+        // (product-lookup / FAQ / order-status) — ninguno usa LLM ni
+        // puede alucinar. Si alguno matchea, respondemos directo y
+        // evitamos la escalación. Kill-switch:
+        // PAUSED_CONV_AUTO_REPLIES_ENABLED=false.
+        const pausedAutoReplies =
+          (process.env.PAUSED_CONV_AUTO_REPLIES_ENABLED ?? 'true')
+            .toLowerCase() === 'true';
+        if (pausedAutoReplies) {
+          const pProductCanned = await this.tryProductLookupReply({
+            channel: conversation.channel,
+            text: message.text,
+          });
+          const pFaqCanned = pProductCanned
+            ? null
+            : await this.tryFaqPreAiReply(conversation.channel, message.text);
+          const pCanned =
+            pProductCanned ??
+            pFaqCanned ??
+            (await this.tryOrderStatusReply(contact.id, message.text));
+          if (pCanned) {
+            await this.saveMessage(
+              conversation.id,
+              MessageSender.AI,
+              pCanned,
+              true,
+            );
+            this.logger.log(
+              `⏸️→📦 aiPaused pero auto-reply determinístico matcheó: "${pCanned.substring(0, 60)}..."`,
+            );
+            return { success: true, response: pCanned, error: null };
+          }
+        }
         await this.handoff.escalate({
           conversationId: conversation.id,
           contactId: contact.id,
