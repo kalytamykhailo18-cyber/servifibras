@@ -411,6 +411,19 @@ module.exports = [
   // otra vez (OK), cliente da "5000" (SÍ es CP) → el agente NO debe
   // pedir CP una tercera vez, NO debe duplicar la línea de envío
   // fallback, NO debe cotizar productos que el cliente no pidió.
+  // --- F.2 REGRESSION — real prod ML case 2026-08-18 01:09 (LAUTI 1106) ---
+  // Cliente pregunta cuánto sale N metros de laminado PRFV. El agente
+  // NUNCA debe cotizar PRFV directo — la regla del prompt dice "siempre
+  // derivar a Marcos". Guard duro adicional en código bloquea el
+  // reply si menciona PRFV/laminado + $XXX y lo reemplaza por el
+  // fallback de derivación. Este caso lo verifica end-to-end.
+  { id: 'F.2', title: 'REGRESSION PRFV nunca auto-cotiza (deriva a Marcos)', channel: 'WEBCHAT', turns: [
+    { customer: '¿cuánto sale 9 metros de lámina PRFV de 2,20 m ancho, 2 mm?', asserts: [
+      { name: 'no tira precio $', fn: (t) => !/(?:\$|ARS\s|USD\s)\s*\d/i.test(t) },
+      { name: 'safe fallback (deriva a Marcos O "te confirmo el precio")', fn: (t) => /marcos|deriv|equipo|te\s+contact|te\s+confirmo\s+el\s+precio\s+exacto/i.test(t) },
+    ]},
+  ]},
+
   { id: 'C.7', title: 'REGRESSION Marcos 08-17: cliente da CP, agente no re-pregunta ni duplica', channel: 'WEBCHAT', turns: [
     { customer: 'quiero comprar la resina de altos espesores de 3 litros', asserts: [
       { name: 'cotiza', fn: (t) => /(?:\$|ARS\s|USD\s)\s*\d/i.test(t) },
