@@ -76,15 +76,15 @@ export class OrderStatusReplyService {
     if (!det.match) return null;
 
     try {
-      const order = await this.findOrder(contactId, det.orderNumber);
-      if (!order) {
+      const found = await this.findOrder(contactId, det.orderNumber);
+      if (!found) {
         // Intent matched but we have no order on file — explicit "we don't
         // see one" message is friendlier than letting Claude guess.
         return this.replyNoOrder(det.orderNumber);
       }
-      const reply = this.composeReply(order);
+      const reply = this.composeReply(found.order, { ownedByCaller: found.ownedByCaller });
       this.logger.log(
-        `Order-status auto-reply for ${order.orderNumber} (${order.status}) — signals=${det.signals.join('|')}`,
+        `Order-status auto-reply for ${found.order.orderNumber} (${found.order.status}) — owned=${found.ownedByCaller} signals=${det.signals.join('|')}`,
       );
       return reply;
     } catch (err: any) {
@@ -94,7 +94,10 @@ export class OrderStatusReplyService {
     }
   }
 
-  private async findOrder(contactId: string, orderNumber: string | null) {
+  private async findOrder(
+    contactId: string,
+    orderNumber: string | null,
+  ): Promise<{ order: any; ownedByCaller: boolean } | null> {
     if (orderNumber) {
       // The intent detector extracts three shapes:
       //   ORD-YYYY-NNNN — manual/CRM orders (canonical form, use as-is)
@@ -110,20 +113,28 @@ export class OrderStatusReplyService {
             orderNumber, // last resort: exact match on the digits
           ]
         : [orderNumber];
+      // Cross-contact policy (Marcos 2026-08-19 via Ustym): if the number
+      // matches an order that belongs to a DIFFERENT contact, still
+      // surface the status — real customers routinely write from a
+      // different WhatsApp number than the one they used at TN checkout,
+      // and the old "no lo veo" cover looked like a broken lookup.
+      // Sensitive fields (tracking, carrier, dispatch/delivery dates)
+      // are stripped when ownedByCaller=false so we don't leak
+      // logistics detail to a phone that isn't on the order.
       for (const key of candidates) {
         const o = await this.prisma.order.findUnique({ where: { orderNumber: key } });
-        // Only return it if it actually belongs to this contact — prevents
-        // someone pasting another customer's number to fish for info.
-        if (o && o.contactId === contactId) return o;
+        if (o) return { order: o, ownedByCaller: o.contactId === contactId };
       }
-      // Number(s) didn't belong to caller — fall back to their latest order.
+      // Number(s) didn't resolve at all — fall through to latest-by-contact.
     }
 
     const since = new Date(Date.now() - lookupWindowMs());
-    return this.prisma.order.findFirst({
+    const latest = await this.prisma.order.findFirst({
       where: { contactId, createdAt: { gte: since } },
       orderBy: { createdAt: 'desc' },
     });
+    if (!latest) return null;
+    return { order: latest, ownedByCaller: true };
   }
 
   private replyNoOrder(orderNumber: string | null): string {
@@ -140,56 +151,71 @@ export class OrderStatusReplyService {
     );
   }
 
-  private composeReply(order: {
-    orderNumber: string;
-    status: OrderStatus;
-    trackingNumber: string | null;
-    carrier: string | null;
-    dispatchedAt: Date | null;
-    deliveredAt: Date | null;
-  }): string {
+  private composeReply(
+    order: {
+      orderNumber: string;
+      status: OrderStatus;
+      trackingNumber: string | null;
+      carrier: string | null;
+      dispatchedAt: Date | null;
+      deliveredAt: Date | null;
+    },
+    opts: { ownedByCaller: boolean } = { ownedByCaller: true },
+  ): string {
     const num = order.orderNumber;
+    // Cross-contact hits (order exists but belongs to a different contact)
+    // still get the status. Logistics detail — tracking code, carrier,
+    // dispatch/delivery dates — is withheld so we don't leak it to a
+    // phone that isn't the one on the order.
+    const showLogistics = opts.ownedByCaller;
+    const suffixIfCross = opts.ownedByCaller
+      ? ''
+      : ' Si el pedido no lo hiciste vos, avisame para que lo verifique un asesor.';
     switch (order.status) {
       case OrderStatus.CONFIRMED:
         return (
           `Tu pedido ${num} está confirmado y en preparación. ` +
-          `Te aviso por acá apenas tenga la fecha de despacho.`
+          `Te aviso por acá apenas tenga la fecha de despacho.` +
+          suffixIfCross
         );
 
       case OrderStatus.PROCESSING:
         return (
           `Tu pedido ${num} ya está en preparación. ` +
-          `Estamos por despacharlo — te paso el seguimiento apenas salga.`
+          `Estamos por despacharlo — te paso el seguimiento apenas salga.` +
+          suffixIfCross
         );
 
       case OrderStatus.DISPATCHED: {
         const parts: string[] = [`Tu pedido ${num} ya fue despachado.`];
-        if (order.dispatchedAt) {
+        if (showLogistics && order.dispatchedAt) {
           parts.push(`Fecha de despacho: ${fmtDate(order.dispatchedAt)}.`);
         }
-        if (order.carrier) {
+        if (showLogistics && order.carrier) {
           parts.push(`Transportista: ${order.carrier}.`);
         }
-        if (order.trackingNumber) {
+        if (showLogistics && order.trackingNumber) {
           parts.push(`Número de seguimiento: ${order.trackingNumber}.`);
-        } else {
+        } else if (showLogistics) {
           parts.push(`Si necesitás el número de seguimiento, te lo paso en un momento.`);
         }
-        return parts.join(' ');
+        return parts.join(' ') + suffixIfCross;
       }
 
       case OrderStatus.DELIVERED: {
-        const when = order.deliveredAt ? ` el ${fmtDate(order.deliveredAt)}` : '';
+        const when = showLogistics && order.deliveredAt ? ` el ${fmtDate(order.deliveredAt)}` : '';
         return (
           `Tu pedido ${num} figura como entregado${when}. ` +
-          `Si no lo recibiste o hay algún problema, avisame y lo escalamos.`
+          `Si no lo recibiste o hay algún problema, avisame y lo escalamos.` +
+          suffixIfCross
         );
       }
 
       case OrderStatus.CANCELLED:
         return (
           `Tu pedido ${num} figura como cancelado. ` +
-          `Si esto no es lo que esperabas, decime y un asesor lo revisa.`
+          `Si esto no es lo que esperabas, decime y un asesor lo revisa.` +
+          suffixIfCross
         );
 
       default:
