@@ -18,6 +18,7 @@ import {
   Delete,
   Get,
   Logger,
+  Optional,
   Param,
   Post,
   Query,
@@ -44,12 +45,15 @@ interface DailyPoint {
 @UseGuards(AuthGuard, RolesGuard)
 export class QualityController {
   private readonly logger = new Logger(QualityController.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly scorer: ConversationScorerService,
     private readonly pattern: QualityPatternService,
-  ) {}
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Marcos 2026-06-12: import the Prometheo Q&A export so the agent

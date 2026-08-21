@@ -20,6 +20,7 @@ import {
   UseInterceptors,
   Request,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ConversationManagementService } from '../../../adapters/admin/conversation-management.service';
@@ -60,9 +61,12 @@ export class ConversationsController {
     private readonly orderManagement: OrderManagementService,
     private readonly summary: ConversationSummaryService,
     private readonly scorer: ConversationScorerService,
-  ) {}
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.scorePrisma = prismaShared ?? new PrismaClient();
+  }
 
-  private readonly scorePrisma = new PrismaClient();
+  private readonly scorePrisma: PrismaClient;
 
   /**
    * Helper — extracts ip + UA off the express request for audit-log entries.

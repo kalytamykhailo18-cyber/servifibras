@@ -25,6 +25,7 @@ import {
   Controller,
   Get,
   Logger,
+  Optional,
   Param,
   Post,
   Query,
@@ -67,9 +68,14 @@ const SANDBOX_ROLES = [
 @UseGuards(AuthGuard, RolesGuard)
 export class SandboxController {
   private readonly logger = new Logger(SandboxController.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly conversationHandler: ConversationHandlerService) {}
+  constructor(
+    private readonly conversationHandler: ConversationHandlerService,
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Normalise the channel query/body parameter into the internal

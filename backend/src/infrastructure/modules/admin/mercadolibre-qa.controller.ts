@@ -10,7 +10,7 @@
  * (corrections) still go through the existing /admin/quality flow.
  */
 
-import { BadRequestException, Body, Controller, Get, Logger, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Logger, Optional, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
@@ -40,7 +40,7 @@ import { Channel, PrismaClient } from '@prisma/client';
 // configuración) llevan @Roles propio.
 @Roles(UserRole.ADMIN, UserRole.ATENCION, UserRole.VENTAS, UserRole.ENCARGADO)
 export class MercadolibreQaController {
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private readonly logger = new Logger(MercadolibreQaController.name);
   constructor(
     private readonly svc: MercadolibreQaService,
@@ -52,7 +52,10 @@ export class MercadolibreQaController {
     // fila kept en MlPublicationKnowledge para que el historial
     // del panel /ml-conocimiento siga vivo.
     private readonly mlKnowledge: MlPublicationKnowledgeService,
-  ) {}
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   @Get('qa/counts')
   async counts(): Promise<{ success: true; data: Awaited<ReturnType<MercadolibreQaService['qaFilterCounts']>> }> {

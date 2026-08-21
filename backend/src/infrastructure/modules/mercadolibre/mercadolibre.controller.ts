@@ -23,7 +23,7 @@ export class MercadoLibreController {
   // for the review-mode helper below. Cross-module DI of
   // MercadolibreQaService would force MercadoLibreModule to import
   // AdminModule (circular), so we just hit the DB directly here.
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   /**
    * Mark the most recent AI message in this ML buyer's conversation
@@ -172,7 +172,10 @@ export class MercadoLibreController {
     private readonly channelGate: ChannelGateService,
     @Optional()
     private readonly mlKnowledge?: MlPublicationKnowledgeService,
-  ) {}
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Webhook endpoint for MercadoLibre notifications

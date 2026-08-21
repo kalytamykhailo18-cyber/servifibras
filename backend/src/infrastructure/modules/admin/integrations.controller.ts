@@ -17,6 +17,7 @@ import {
   Delete,
   Get,
   Logger,
+  Optional,
   Param,
   Post,
   UseGuards,
@@ -55,9 +56,14 @@ interface ProviderState {
 @Roles(UserRole.ADMIN)
 export class IntegrationsController {
   private readonly logger = new Logger(IntegrationsController.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly credentials: OAuthCredentialsService) {}
+  constructor(
+    private readonly credentials: OAuthCredentialsService,
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   @Get()
   async list(): Promise<{ success: true; data: ProviderState[] }> {

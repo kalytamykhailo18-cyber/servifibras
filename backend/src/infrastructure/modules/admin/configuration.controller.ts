@@ -15,6 +15,7 @@ import {
   Req,
   UseGuards,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
 import { ConfigurationService } from '../../../adapters/admin/configuration.service';
@@ -35,7 +36,10 @@ export class ConfigurationController {
     private readonly configurationService: ConfigurationService,
     private readonly audit: AuditLogService,
     private readonly claude: ClaudeService,
-  ) {}
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.correctionsPrisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * GET /admin/configuration/lucas-prompt — fetch the currently-loaded
@@ -489,7 +493,7 @@ export class ConfigurationController {
   // not by negative; surfacing the bad version in the prompt would just
   // give the model another pattern to copy.
 
-  private readonly correctionsPrisma = new PrismaClient();
+  private readonly correctionsPrisma: PrismaClient;
 
   @Post('ai/corrections')
   @Roles(UserRole.ADMIN)

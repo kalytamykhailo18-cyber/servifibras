@@ -19,6 +19,7 @@ import {
   Body,
   Controller,
   Logger,
+  Optional,
   Post,
   Request,
   UseGuards,
@@ -62,9 +63,14 @@ interface ReplayResponse {
 @UseGuards(AuthGuard, RolesGuard)
 export class ReplayController {
   private readonly logger = new Logger(ReplayController.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly handler: ConversationHandlerService) {}
+  constructor(
+    private readonly handler: ConversationHandlerService,
+    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * POST /admin/replay/process-message
