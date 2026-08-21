@@ -38,6 +38,39 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Channel } from '@prisma/client';
 import { ConversationSummaryService } from './conversation-summary.service';
+
+/**
+ * Detecta si un keyFact del summary parece un dato de ubicación de
+ * envío (dirección, ciudad, CP, provincia). El summary los guarda para
+ * el dashboard del operador, pero NO deben entrar al system block que
+ * ve el modelo porque cuando la próxima consulta del cliente es sobre
+ * envío, el modelo agarra ese token como referencia de distancia y
+ * arma frases del tipo "sale más que a Zárate" — el pueblo que estaba
+ * en el keyFact de un turno viejo, no en la consulta actual.
+ *
+ * Ejemplos que se filtran:
+ *   "Dirección: Ameghino, Buenos Aires"
+ *   "Envío a Córdoba Capital"
+ *   "Ciudad: Zárate"
+ *   "CP 6064"
+ *   "Localidad: Palermo"
+ *   "Provincia: Chubut"
+ */
+export function isLocationLikeKeyFact(fact: string): boolean {
+  if (!fact) return false;
+  const lc = fact.toLowerCase().trim();
+  // Prefix con palabra clave de ubicación seguida de : - = o espacio.
+  if (
+    /^(direcci[oó]n|env[ií]o(?:\s+a)?|env[ií]a\s+a|entrega(?:r|\s+a)?|domicilio|ciudad|localidad|provincia|zona(?:\s+de\s+env[ií]o)?|destino|ubicaci[oó]n|c[oó]digo\s+postal|cp)\b[\s\-:=]/.test(
+      lc,
+    )
+  ) {
+    return true;
+  }
+  // CP standalone: "CP 6064", "cp: 1425", "Código postal 5000".
+  if (/^cp\s*\d{3,5}\b/.test(lc)) return true;
+  return false;
+}
 import { CostOptCounterService } from './cost-opt-counter.service';
 
 export interface CompressionResult<TMsg = any> {
@@ -167,7 +200,7 @@ export class HistoryCompressionService {
   ): string | null {
     const lines: string[] = [];
     lines.push(
-      '[Resumen de conversación previa — los últimos turnos están copiados textualmente más abajo. Usalo para mantener continuidad sin pedir al cliente que repita.]',
+      '[Resumen de conversación previa — los últimos turnos están copiados textualmente más abajo. Usalo para mantener continuidad sin pedir al cliente que repita. Si el turno actual es una consulta de envío, la ubicación tenés que sacarla de lo que el cliente dice ahora y de la herramienta consultar_envio, NO de este resumen.]',
     );
     if (summary.summary) lines.push(`Resumen: ${summary.summary}`);
     if (summary.status) lines.push(`Estado: ${summary.status}`);
@@ -175,8 +208,23 @@ export class HistoryCompressionService {
       lines.push(`Productos mencionados: ${summary.products.join(', ')}`);
     }
     if (summary.keyFacts && summary.keyFacts.length > 0) {
-      lines.push('Datos clave:');
-      for (const f of summary.keyFacts) lines.push(`- ${f}`);
+      // Marcos 2026-08-19 (Ustym report Frente C.4.2 — "Zárate"
+      // hallucination): el summary prompt le pide al modelo poner
+      // "dirección" en keyFacts, entonces un keyFact tipo "Dirección:
+      // Zárate" quedaba inyectado en el system block de TODA respuesta
+      // futura de esa conversación. Cuando el mismo cliente después
+      // preguntaba "envío a Córdoba", Claude tenía "Zárate" en
+      // contexto y lo usaba de referencia de distancia. La solución
+      // fue dejar de inyectar keyFacts que tengan forma de dato de
+      // ubicación — la fuente autoritativa de dirección para envíos
+      // es la herramienta `consultar_envio` con lo que dice el cliente
+      // en el turno actual, no una nota memorizada de un turno viejo.
+      // El summary sigue completo para el dashboard del operador.
+      const filtered = summary.keyFacts.filter((f) => !isLocationLikeKeyFact(f));
+      if (filtered.length > 0) {
+        lines.push('Datos clave:');
+        for (const f of filtered) lines.push(`- ${f}`);
+      }
     }
     lines.push(`(Historial total: ${totalMessages} mensajes.)`);
     const text = lines.join('\n').trim();
