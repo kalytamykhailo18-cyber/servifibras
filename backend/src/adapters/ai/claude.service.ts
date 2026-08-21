@@ -1326,6 +1326,37 @@ export class ClaudeService implements IAIService {
           `Shipping guard skipped — customer already gave a CP-like token in last message`,
         );
       }
+
+      // Marcos 2026-08-21 (WhatsApp 11:51 AR): loop de envíos residual —
+      // el agente responde "sin cargo, llega en 0-2 días" (bien, salió
+      // de consultar_envio con GBA→free) Y en el MISMO mensaje agrega
+      // "El costo del envío depende del código postal, pasame el tuyo
+      // y te confirmo" (viejo fallback de la regla dura). Dos frases
+      // contradictorias juntas. El modelo sigue enganchado con el
+      // patrón viejo aún con la regla nueva; guard determinístico:
+      // si la respuesta contiene una resolución positiva de envío
+      // (sin cargo / gratis / retira / paga en terminal) Y también
+      // una frase "depende del CP / pasame el CP", strippeamos las
+      // segundas — la primera ya cierra el tema.
+      const POSITIVE_SHIP_RE =
+        /(?:sin\s+cargo|gratis|gratuit[oa]?|env[íi]o\s+gratis|retir[aá]s?\s+en|paga(?:s|r[ií]as?)?\s+(?:cuando|al)\s+(?:llega|retir|te\s+llega)|abon[aá]s?\s+(?:cuando|al\s+retirar|al\s+llegar)|terminal\s+de\s+micro)/i;
+      const CP_REQUEST_RE =
+        /(?:^|[.!?\n])\s*[^.!?\n]*(?:depende\s+del?\s+c[oó]digo\s+postal|pasame\s+(?:el\s+)?(?:tuyo|c[oó]digo\s+postal|cp)|pas[aá]s?me\s+(?:el\s+)?(?:tuyo|c[oó]digo\s+postal|cp)|confirmame\s+(?:el\s+)?(?:c[oó]digo\s+postal|cp))[^.!?\n]*[.!?]?/gi;
+      if (POSITIVE_SHIP_RE.test(cleaned) && CP_REQUEST_RE.test(cleaned)) {
+        const before = cleaned;
+        cleaned = cleaned.replace(CP_REQUEST_RE, (m) => {
+          // Preserve the leading punctuation/whitespace anchor so
+          // adjacent sentences don't fuse; drop the CP-ask clause.
+          const anchor = m.match(/^[.!?\n]?\s*/)?.[0] ?? '';
+          return anchor;
+        }).replace(/\s+/g, ' ').replace(/\s*\.\s*\./g, '.').trim();
+        if (cleaned !== before) {
+          dropped++;
+          this.logger.warn(
+            `${gTag}Shipping contradiction stripped: agent had positive resolution AND CP-ask in same reply`,
+          );
+        }
+      }
     }
 
     // Marcos 2026-08-17 (E2E case A.1): la regla dura del prompt
