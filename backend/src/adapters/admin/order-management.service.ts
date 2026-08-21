@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaClient, OrderStatus } from '@prisma/client';
 import {
   IOrderManagementService,
@@ -19,8 +19,10 @@ export class OrderManagementService implements IOrderManagementService {
   constructor(
     private readonly contactDimensions: ContactDimensionsService,
     private readonly orderNotifications: OrderNotificationService,
+    // Marcos 2026-08-21: shared Prisma pool.
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
   ) {
-    this.prisma = new PrismaClient();
+    this.prisma = prismaShared ?? new PrismaClient();
   }
 
   private generateOrderNumber(): string {

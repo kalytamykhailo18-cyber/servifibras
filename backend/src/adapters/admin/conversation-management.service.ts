@@ -2,7 +2,7 @@
  * ADAPTERS LAYER - Conversation Management Service
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, ContentType, MessageSender } from '@prisma/client';
 import {
   IConversationManagementService,
@@ -56,8 +56,10 @@ export class ConversationManagementService implements IConversationManagementSer
     private readonly fileShare: FileShareService,
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
+    // Marcos 2026-08-21: shared Prisma pool.
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
   ) {
-    this.prisma = new PrismaClient();
+    this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Conversation Management service initialized');
   }
 

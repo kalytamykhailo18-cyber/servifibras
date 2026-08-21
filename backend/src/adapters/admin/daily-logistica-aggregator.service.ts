@@ -487,7 +487,7 @@ const isMlStuckInHub = (
 @Injectable()
 export class DailyLogisticaAggregatorService {
   private readonly logger = new Logger(DailyLogisticaAggregatorService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly armado: LogisticaArmadoService,
@@ -511,7 +511,11 @@ export class DailyLogisticaAggregatorService {
     private readonly postalZones?: PostalCodeZoneService,
     @Optional()
     private readonly carrierDefaults?: CarrierDefaultsService,
-  ) {}
+    // Marcos 2026-08-21: shared Prisma pool.
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async aggregate(date: Date): Promise<AggregatedDay> {
     // Marcos 2026-07-24: precargar alias del admin (in-memory, cached

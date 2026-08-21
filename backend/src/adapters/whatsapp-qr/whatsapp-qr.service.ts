@@ -53,7 +53,7 @@ type ConnectionStatus =
 @Injectable()
 export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappQrService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private sock: WASocket | null = null;
   private status: ConnectionStatus = 'disabled';
   private lastQrDataUrl: string | null = null;
@@ -81,7 +81,11 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     // WhatsApp en la misma carpeta que el resto de attachments del CRM
     // para que aparezcan en el hilo con miniatura y click-to-download.
     @Optional() private readonly uploads?: UploadStorageService,
-  ) {}
+    // Marcos 2026-08-21: shared Prisma pool.
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private get enabled(): boolean {
     return (process.env.WHATSAPP_QR_ENABLED ?? 'false').toLowerCase() === 'true';

@@ -479,7 +479,7 @@ export class ClaudeService implements IAIService {
   private readonly client: Anthropic | null;
   private readonly model: string;
   private readonly isConfigured: boolean;
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private knowledgeBaseContext: string | null = null;
   // Whitelist of real, currently-active product URLs from the catalog.
   // Used by the post-response URL filter to strip any link Claude
@@ -551,7 +551,13 @@ export class ClaudeService implements IAIService {
     // consultar_envio para romper el loop de "pasame el CP". @Optional
     // para no romper los scripts que construyen ClaudeService a mano.
     @Optional() private readonly shippingMethods?: ShippingMethodsService,
+    // Marcos 2026-08-21: shared Prisma pool. @Optional para no romper
+    // los scripts que construyen ClaudeService a mano — cuando falta,
+    // caemos a un `new PrismaClient()` local (misma semántica que antes,
+    // pero solo en el path standalone; en Nest siempre se resuelve).
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
   ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     // ✅ RULE 1: All config from .env, never hardcoded
     const apiKey = process.env.CLAUDE_API_KEY;
     this.model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';

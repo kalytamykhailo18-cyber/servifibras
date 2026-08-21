@@ -97,8 +97,12 @@ export class ConversationHandlerService implements IConversationHandler {
     // publication. WhatsApp / Webchat handlers ignore it.
     @Optional() @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
+    // Marcos 2026-08-21: shared Prisma pool. Cae a un local
+    // PrismaClient si el módulo global no está resuelto (paths
+    // standalone / tests / scripts).
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
   ) {
-    this.prisma = new PrismaClient();
+    this.prisma = prismaShared ?? new PrismaClient();
   }
 
   /**

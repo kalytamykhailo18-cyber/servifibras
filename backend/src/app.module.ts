@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PrismaModule } from './infrastructure/modules/prisma/prisma.module';
 import { AuthModule } from './infrastructure/modules/auth/auth.module';
 import { AdminModule } from './infrastructure/modules/admin/admin.module';
 import { AIModule } from './infrastructure/modules/ai/ai.module';
@@ -48,6 +49,11 @@ function num(envKey: string, fallback: number): number {
         limit: num('THROTTLE_DEFAULT_LIMIT', 100),
       },
     ]),
+    // Marcos 2026-08-21: shared PrismaService — global singleton pool
+    // que reemplaza los ~72 pools locales que teníamos. Se registra
+    // ANTES de todo lo demás para que los servicios que lo inyectan
+    // lo tengan resuelto en constructor time.
+    PrismaModule,
     AuthModule,
     AuditModule,
     MonitoringModule,
