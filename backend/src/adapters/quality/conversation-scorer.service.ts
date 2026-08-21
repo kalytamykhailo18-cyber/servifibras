@@ -17,7 +17,7 @@
  * so the panel can distinguish "not yet scored" from "scored 0".
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   Channel,
   ConversationSeverity,
@@ -76,7 +76,7 @@ const SEVERE_VALUES: Record<string, ConversationSeverity> = {
 @Injectable()
 export class ConversationScorerService {
   private readonly logger = new Logger(ConversationScorerService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   // In-memory debounce: maps conversationId → last-scheduled timestamp.
   // Prevents back-to-back operator replies from each spawning a Claude
   // call. Reset on process restart, which is fine — the close-trigger
@@ -86,7 +86,10 @@ export class ConversationScorerService {
   constructor(
     private readonly claude: ClaudeService,
     private readonly notifications: NotificationsGateway,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Fire-and-forget rescore for live mid-conversation scoring (Marcos's

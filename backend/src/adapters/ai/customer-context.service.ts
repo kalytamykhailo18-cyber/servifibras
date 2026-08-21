@@ -26,7 +26,7 @@
  *   CUSTOMER_CONTEXT_MAX_BYTES     — hard cap on the block (default 2048)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 const CUSTOMER_TYPE_LABEL_ES: Record<string, string> = {
@@ -70,7 +70,13 @@ function relativeAge(date: Date): string {
 @Injectable()
 export class CustomerContextService {
   private readonly logger = new Logger(CustomerContextService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private isEnabled(): boolean {
     const raw = process.env.CUSTOMER_CONTEXT_ENABLED;

@@ -14,7 +14,7 @@
  * role users if the conversation lands unassigned).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, UserRole, LeadStatus, ConversationStatus, MessageSender } from '@prisma/client';
 import {
   IHumanHandoffService,
@@ -30,13 +30,16 @@ import { ClaudeService } from '../ai/claude.service';
 @Injectable()
 export class HumanHandoffService implements IHumanHandoffService {
   private readonly logger = new Logger(HumanHandoffService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly metrics: MetricsBroadcaster,
     private readonly claudeService: ClaudeService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async escalate(ctx: HandoffContext): Promise<HandoffOutcome> {
     const conv = await this.prisma.conversation.findUnique({

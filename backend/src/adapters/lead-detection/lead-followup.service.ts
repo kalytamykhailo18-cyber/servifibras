@@ -30,7 +30,7 @@
  *   LEAD_FOLLOWUP_MESSAGE_TEMPLATE        — override text. {{name}} interpolated.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   Channel,
   LeadStatus,
@@ -95,14 +95,17 @@ export interface FollowupRunResult {
 @Injectable()
 export class LeadFollowupService {
   private readonly logger = new Logger(LeadFollowupService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly whatsapp: WhatsAppService,
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
     private readonly metrics: MetricsBroadcaster,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Find every lead that's due for a follow-up and process each one. Errors

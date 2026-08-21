@@ -17,7 +17,7 @@
  * CONVERSATION_SUMMARY_* env vars below).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaClient, MessageSender } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
@@ -35,7 +35,7 @@ export interface ConversationSummary {
 @Injectable()
 export class ConversationSummaryService {
   private readonly logger = new Logger(ConversationSummaryService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private readonly client: Anthropic | null;
   private readonly model: string;
   private readonly maxTokens: number;
@@ -44,7 +44,11 @@ export class ConversationSummaryService {
   private readonly debounceMs: number;
   private readonly historyWindow: number;
 
-  constructor(private readonly gateway: NotificationsGateway) {
+  constructor(
+    private readonly gateway: NotificationsGateway,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     const apiKey = process.env.CLAUDE_API_KEY;
     this.client = apiKey && apiKey !== 'sk-ant-your-api-key-here' ? new Anthropic({ apiKey }) : null;
     this.model = process.env.CONVERSATION_SUMMARY_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';

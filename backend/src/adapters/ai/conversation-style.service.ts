@@ -29,7 +29,7 @@
  *                                         prompt + token spend bounded.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Channel, PrismaClient } from '@prisma/client';
 
 export interface StyleTurn {
@@ -60,8 +60,10 @@ export class ConversationStyleService {
   private readonly logger = new Logger(ConversationStyleService.name);
   private readonly prisma: PrismaClient;
 
-  constructor() {
-    this.prisma = new PrismaClient();
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
   }
 
   private isEnabled(): boolean {

@@ -3,19 +3,20 @@
  * Implements IKnowledgeRepository using Prisma
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import {
   IKnowledgeRepository,
   KnowledgeItem,
 } from '../../domain/repositories/knowledge.repository.interface';
+import type { PrismaService } from './prisma.service';
 
 @Injectable()
 export class KnowledgeRepository implements IKnowledgeRepository {
   private prisma: PrismaClient;
 
-  constructor() {
-    this.prisma = new PrismaClient();
+  constructor(@Optional() prismaShared?: PrismaService) {
+    this.prisma = prismaShared ?? new PrismaClient();
   }
 
   async getAllActive(): Promise<KnowledgeItem[]> {

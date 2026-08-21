@@ -58,13 +58,16 @@ export interface EnqueueInput {
 @Injectable()
 export class MlBatchQueueService {
   private readonly logger = new Logger(MlBatchQueueService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly claude: ClaudeService,
     @Optional() @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   static modeEnabled(): boolean {
     return (process.env.ML_BATCH_MODE_ENABLED || '').toLowerCase() === 'true';

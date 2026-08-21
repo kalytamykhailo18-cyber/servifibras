@@ -3,7 +3,7 @@
  * Handles JWT token generation, password hashing, and user authentication
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, UserRole as PrismaUserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
@@ -44,8 +44,10 @@ export class AuthService implements IAuthService {
   private readonly jwtExpiresIn: string;
   private readonly saltRounds = 10;
 
-  constructor() {
-    this.prisma = new PrismaClient();
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     // Marcos 2026-07-13 (C4 del documento, "el sistema NO arranca sin
     // clave real"): antes usábamos un default hardcodeado como
     // fallback y sólo se logueaba un warning; un olvido en el deploy
