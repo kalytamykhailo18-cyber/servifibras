@@ -21,13 +21,15 @@ import { AppModule } from '../app.module';
 import { ClaudeService } from '../adapters/ai/claude.service';
 import { AIConversation } from '../domain/entities/ai-message.entity';
 
-const CASES = [
-  'Hola buenos días, si quisiera mandarle a mi prima que vive en córdoba capital, ¿cuánto saldría?',
-  'quisiera saber cuanto sale el envío a CABA',
-  'hacen envíos a Salta?',
-  '¿cuánto sale mandar a Palermo?',
-  'llegan a La Plata?',
-];
+const CASES = process.env.PROBE_CASES
+  ? JSON.parse(process.env.PROBE_CASES) as string[]
+  : [
+      'Hola buenos días, si quisiera mandarle a mi prima que vive en córdoba capital, ¿cuánto saldría?',
+      'quisiera saber cuanto sale el envío a CABA',
+      'hacen envíos a Salta?',
+      '¿cuánto sale mandar a Palermo?',
+      'llegan a La Plata?',
+    ];
 
 async function main() {
   if ((process.env.WHATSAPP_QR_ENABLED ?? '').toLowerCase() !== 'false') {

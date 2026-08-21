@@ -347,6 +347,38 @@ export class ProductCatalogService {
   }
 
   /**
+   * Marcos 2026-08-19 (Ustym report Frente B1): después de un sync
+   * completo, cualquier fila del mismo `source` que NO fue tocada en
+   * esta corrida es stale — variante que TN eliminó, producto que ya
+   * no existe, o fila legacy de la era single-variant que este pase
+   * reemplazó por una nueva. La marcamos inactiva (nunca hard-delete,
+   * para no romper pedidos históricos que la referencian por
+   * `sku`/`productId` snapshotado). Devuelve la cantidad de filas
+   * marcadas inactivas. Se llama SÓLO desde el full-sync, no desde el
+   * webhook de single-product update.
+   */
+  async reconcileInactive(
+    source: ProductSource,
+    touchedRowIds: string[],
+  ): Promise<{ deactivated: number }> {
+    if (touchedRowIds.length === 0) return { deactivated: 0 };
+    const r = await this.prisma.product.updateMany({
+      where: {
+        source,
+        active: true,
+        id: { notIn: touchedRowIds },
+      },
+      data: { active: false, lastSyncedAt: new Date() },
+    });
+    if (r.count > 0) {
+      this.logger.log(
+        `Reconcile (${source}): ${r.count} stale row(s) marked inactive (touched=${touchedRowIds.length})`,
+      );
+    }
+    return { deactivated: r.count };
+  }
+
+  /**
    * Render the active catalog into a compact Markdown block for Claude's
    * system prompt. Trimmed to PRODUCT_CATALOG_AI_LIMIT rows so a 5000-SKU
    * catalog doesn't blow the token budget. Descriptions are stripped of
@@ -681,10 +713,15 @@ export class ProductCatalogService {
   async bulkUpsertFromExternal(
     rows: ExternalProductRow[],
     source: ProductSource,
-  ): Promise<{ created: number; updated: number; skipped: number; errors: string[] }> {
+  ): Promise<{ created: number; updated: number; skipped: number; errors: string[]; touchedRowIds: string[] }> {
     let created = 0, updated = 0, skipped = 0;
     const errors: string[] = [];
     const touchedIds: string[] = [];
+    // Marcos 2026-08-19 (Frente B1): full set of Product.id that this
+    // bulk operation touched (create or update). The full-sync path uses
+    // this to run `reconcileInactive` — anything of the same source that
+    // wasn't touched is stale (variant removed on TN or product deleted).
+    const touchedRowIds: string[] = [];
 
     for (const raw of rows) {
       try {
@@ -726,19 +763,59 @@ export class ProductCatalogService {
           lastSyncedAt: source === ProductSource.MANUAL ? null : new Date(),
         };
 
-        // Find existing row by externalId first (sync), then by SKU
-        // (manual / csv).
-        const existing = externalId
-          ? await this.prisma.product.findFirst({ where: { externalId, source } })
-          : await this.prisma.product.findUnique({ where: { sku: data.sku } });
+        // Marcos 2026-08-19 (Ustym report Frente B1): TN products can have
+        // multiple variants and each is its own row. Lookup order:
+        //   1) (externalId + variantId in attributes) — the ONLY key that
+        //      distinguishes siblings of the same product. Without this,
+        //      four variants of "MAT 300" all resolve to the same legacy
+        //      row and stomp each other.
+        //   2) SKU exact — catches manual/CSV rows and legacy TN rows
+        //      whose sku was already per-variant.
+        //   3) (externalId + no variantId in attributes) — legacy TN row
+        //      from before multi-variant sync. First variant of the
+        //      product claims it (backfill), subsequent variants create.
+        const rawVariantId =
+          raw.attributes && typeof raw.attributes === 'object'
+            ? (raw.attributes as any).tiendanubeVariantId
+            : null;
+        let existing = null as any;
+        if (externalId && rawVariantId != null && source === ProductSource.TIENDANUBE) {
+          existing = await this.prisma.product.findFirst({
+            where: {
+              externalId,
+              source,
+              attributes: {
+                path: ['tiendanubeVariantId'],
+                equals: rawVariantId as any,
+              },
+            },
+          });
+        }
+        if (!existing) {
+          existing = await this.prisma.product.findUnique({ where: { sku: data.sku } });
+        }
+        if (!existing && externalId && source === ProductSource.TIENDANUBE) {
+          existing = await this.prisma.product.findFirst({
+            where: {
+              externalId,
+              source,
+              OR: [
+                { attributes: { equals: Prisma.DbNull } },
+                { attributes: { path: ['tiendanubeVariantId'], equals: Prisma.DbNull } },
+              ],
+            },
+          });
+        }
 
         if (existing) {
           const row = await this.prisma.product.update({ where: { id: existing.id }, data });
           updated++;
+          touchedRowIds.push(row.id);
           if (data.stockQuantity != null) touchedIds.push(row.id);
         } else {
           const row = await this.prisma.product.create({ data });
           created++;
+          touchedRowIds.push(row.id);
           if (data.stockQuantity != null) touchedIds.push(row.id);
         }
       } catch (err: any) {
@@ -753,7 +830,7 @@ export class ProductCatalogService {
     if (this.stockHook && touchedIds.length > 0) {
       void Promise.resolve(this.stockHook(touchedIds)).catch(() => {});
     }
-    return { created, updated, skipped, errors };
+    return { created, updated, skipped, errors, touchedRowIds };
   }
 
   private requireString(v: any, field: string): string {

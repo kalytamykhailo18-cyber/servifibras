@@ -54,9 +54,42 @@ export interface TiendaNubeRawProduct {
     stock?: number | null;
     stock_management?: boolean | null;
     promotional_price?: string | number | null;
+    // TiendaNube devuelve `values` como un array de nombres localizados
+    // (uno por atributo del producto, en el mismo orden que `attributes`).
+    // Ejemplo: producto "Fibra de vidrio MAT 300" con atributo "Tamaño",
+    // variantes con values [{es: "1 m²"}], [{es: "5 m²"}], etc. Lo
+    // levantamos como `baseUnit` + sufijo del nombre para que el
+    // agente lo lea como "MAT 300 - 10 m² (presentación: 10 m²)".
+    values?: Array<Record<string, string> | string | null>;
   }>;
   categories?: Array<{ name: Record<string, string> | string | null } | string>;
   published?: boolean;
+}
+
+/**
+ * Extract the presentation label of a TiendaNube variant from its
+ * `values` array — one localized string per product attribute. Returns
+ * a joined display like "10 m²" or "10 m² / Azul" for multi-attribute
+ * variants, or null if the variant has no values (single-variant
+ * product where TN omits `values` or the array is empty).
+ */
+function extractVariantPresentation(
+  values: Array<Record<string, string> | string | null> | null | undefined,
+): string | null {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const parts: string[] = [];
+  for (const v of values) {
+    if (v == null) continue;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (s.length > 0) parts.push(s);
+      continue;
+    }
+    const localized = pickLocale(v as any);
+    if (localized) parts.push(localized);
+  }
+  if (parts.length === 0) return null;
+  return parts.join(' / ');
 }
 
 export interface SyncRunResult {
@@ -205,9 +238,9 @@ export class TiendaNubeSyncService {
       if (!Array.isArray(body) || body.length === 0) break;
 
       for (const p of body as TiendaNubeRawProduct[]) {
-        const row = this.normalize(p);
-        if (row) collected.push(row);
-        else     result.skipped++;
+        const variantRows = this.normalize(p);
+        if (variantRows.length === 0) result.skipped++;
+        else for (const row of variantRows) collected.push(row);
       }
       result.fetched += body.length;
 
@@ -216,12 +249,42 @@ export class TiendaNubeSyncService {
       if (!/rel="next"/.test(link) && body.length < pageSize) break;
     }
 
+    let touchedRowIds: string[] = [];
     if (collected.length > 0) {
       const upsert = await this.catalog.bulkUpsertFromExternal(collected, ProductSource.TIENDANUBE);
       result.created += upsert.created;
       result.updated += upsert.updated;
       result.skipped += upsert.skipped;
       for (const e of upsert.errors) result.errors.push(e);
+      touchedRowIds = upsert.touchedRowIds;
+    }
+
+    // Marcos 2026-08-19 (Frente B1): reconcile — cualquier fila TN
+    // que quedó fuera de esta corrida es stale (variante removida,
+    // producto eliminado, fila legacy pre-multi-variant). Sólo tiene
+    // sentido cuando el sync corrió sin errores fatales y trajo un
+    // volumen razonable (guard: si trajo <10 filas, probablemente hubo
+    // un fallo de API y no queremos apagar el catálogo entero).
+    const reconcileMinRows = envNum('TIENDANUBE_SYNC_RECONCILE_MIN_ROWS', 10);
+    if (
+      touchedRowIds.length >= reconcileMinRows &&
+      result.errors.length === 0
+    ) {
+      try {
+        const rec = await this.catalog.reconcileInactive(
+          ProductSource.TIENDANUBE,
+          touchedRowIds,
+        );
+        if (rec.deactivated > 0) {
+          this.logger.log(`TiendaNube reconcile: ${rec.deactivated} stale row(s) marked inactive`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Reconcile failed (non-fatal): ${err.message}`);
+      }
+    } else if (touchedRowIds.length > 0) {
+      this.logger.warn(
+        `TiendaNube reconcile SKIPPED — touched=${touchedRowIds.length} min=${reconcileMinRows} errors=${result.errors.length}`,
+      );
     }
 
     this.logger.log(
@@ -280,10 +343,10 @@ export class TiendaNubeSyncService {
     const body = await resp.json().catch(() => null);
     if (!body) return { ok: false, reason: 'invalid JSON from TN' };
 
-    const row = this.normalize(body as TiendaNubeRawProduct);
-    if (!row) return { ok: false, reason: 'normalize returned null' };
+    const variantRows = this.normalize(body as TiendaNubeRawProduct);
+    if (variantRows.length === 0) return { ok: false, reason: 'normalize returned no variants' };
 
-    const out = await this.catalog.bulkUpsertFromExternal([row], ProductSource.TIENDANUBE);
+    const out = await this.catalog.bulkUpsertFromExternal(variantRows, ProductSource.TIENDANUBE);
     return {
       ok: true,
       created: out.created > 0,
@@ -305,30 +368,37 @@ export class TiendaNubeSyncService {
   }
 
   /**
-   * Convert one TiendaNube product into our `ExternalProductRow` shape.
-   * Picks the first variant for the SKU/price/stock; multi-variant
-   * products land as a single row using variant 0 (Marcos can reorganize
-   * the catalog manually if a SKU split is ever needed).
+   * Convert one TiendaNube product into `ExternalProductRow[]` — one
+   * row per variant. Marcos 2026-08-19 (Ustym report Frente B1): antes
+   * `normalize()` devolvía SÓLO variants[0] con `baseUnit` hardcodeado
+   * en 'unidad'. Un producto multi-variante como "MAT 300" (1/5/10/20
+   * m²) entraba como una sola fila con el precio del 1 m² y sin
+   * presentación — el agente contestaba $4.105 para todos los tamaños.
+   *
+   * Ahora cada variante es su propia fila:
+   *   - SKU: variant.sku si existe, sino "TN-{productId}-{variantId}".
+   *   - name: nombre base del producto + " - {presentación}" cuando
+   *     la variante tiene `values`, así el agente busca "MAT 300 10m²"
+   *     y matchea directo.
+   *   - baseUnit: presentación real de la variante (ej. "10 m²"),
+   *     o 'unidad' cuando el producto es single-variant.
+   *   - attributes.tiendanubeVariantId: variantId. Lo usa
+   *     `bulkUpsertFromExternal` para lookup exact-match — sin él, un
+   *     product con 4 variantes machacaría siempre la misma fila.
+   *
+   * Rows con precio null se filtran (TN devuelve variantes desactivadas
+   * como price=null; no queremos precios "a confirmar" en el catálogo).
    */
-  private normalize(p: TiendaNubeRawProduct): ExternalProductRow | null {
-    const name = pickLocale(p.name);
-    if (!name) return null;
-    const variants = Array.isArray(p.variants) && p.variants.length > 0 ? p.variants : [{}];
-    const v = variants[0] ?? {};
-    // SKU: prefer variant.sku; fall back to "TN-{productId}-{variantId|0}"
-    const sku = (v.sku && String(v.sku).trim().length > 0)
-      ? String(v.sku).trim()
-      : `TN-${p.id}${v.id != null ? '-' + v.id : ''}`;
+  private normalize(p: TiendaNubeRawProduct): ExternalProductRow[] {
+    const baseName = pickLocale(p.name);
+    if (!baseName) return [];
+    const category = pickCategory(p);
     const description = pickLocale(p.description);
-    const inStock = v.stock_management === false
-      ? true
-      : (v.stock == null || (typeof v.stock === 'number' && v.stock > 0));
-    // Build the public storefront URL. TiendaNube ships `handle` (slug)
-    // and sometimes `permalink` directly on the product payload — prefer
+    const active = p.published !== false;
+
+    // URL: TN ships `handle` (slug) and sometimes `permalink` — prefer
     // those; only fall back to `?p=<id>` if the store base URL is set
-    // but the API didn't return a slug. The catalog service will
-    // overwrite this with a base+id fallback if we leave it null, so
-    // worst case the agent still has *a* working link.
+    // but the API didn't return a slug.
     const base = (process.env.TIENDANUBE_STORE_BASE_URL || '').replace(/\/+$/, '');
     const handle = pickLocale((p as any).handle);
     const permalink = typeof (p as any).permalink === 'string' && (p as any).permalink.length > 0
@@ -338,21 +408,43 @@ export class TiendaNubeSyncService {
     if (permalink) url = permalink;
     else if (base && handle) url = `${base}/productos/${handle}`;
     else if (base) url = `${base}/productos/${p.id}`;
-    return {
-      sku,
-      name,
-      category: pickCategory(p),
-      description,
-      baseUnit: 'unidad',
-      basePriceArs: priceOrNull(v.promotional_price ?? v.price),
-      basePriceUsd: null,
-      inStock,
-      stockQuantity: typeof v.stock === 'number' ? v.stock : null,
-      attributes: { tiendanubeProductId: p.id, tiendanubeVariantId: v.id ?? null },
-      active: p.published !== false,
-      externalId: String(p.id),
-      url,
-    };
+
+    const variants = Array.isArray(p.variants) && p.variants.length > 0 ? p.variants : [{}];
+    const rows: ExternalProductRow[] = [];
+    for (const v of variants) {
+      const presentation = extractVariantPresentation(v.values);
+      const sku = (v.sku && String(v.sku).trim().length > 0)
+        ? String(v.sku).trim()
+        : `TN-${p.id}${v.id != null ? '-' + v.id : ''}`;
+      const inStock = v.stock_management === false
+        ? true
+        : (v.stock == null || (typeof v.stock === 'number' && v.stock > 0));
+      const price = priceOrNull(v.promotional_price ?? v.price);
+      const name = presentation ? `${baseName} - ${presentation}` : baseName;
+      const baseUnit = presentation ?? 'unidad';
+      rows.push({
+        sku,
+        name,
+        category,
+        description,
+        baseUnit,
+        basePriceArs: price,
+        basePriceUsd: null,
+        inStock,
+        stockQuantity: typeof v.stock === 'number' ? v.stock : null,
+        attributes: {
+          tiendanubeProductId: p.id,
+          tiendanubeVariantId: v.id ?? null,
+          // Guardamos la presentación cruda por si necesitamos rearmar
+          // display strings del lado del panel sin re-parsear el name.
+          presentation: presentation ?? null,
+        },
+        active,
+        externalId: String(p.id),
+        url,
+      });
+    }
+    return rows;
   }
 
   private async timed<T>(p: Promise<T>, ms: number): Promise<T> {
