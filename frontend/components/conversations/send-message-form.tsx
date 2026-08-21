@@ -209,28 +209,38 @@ export function SendMessageForm({
     }
   };
 
-  // Watch the textarea for the slash-trigger. We only open the picker
-  // when "/" is the FIRST character of the input — keeps random "/" inside
-  // a sentence from popping the menu.
+  // Watch the textarea for the slash-trigger. Marcos 2026-08-21: antes
+  // sólo abría cuando "/" era el PRIMER carácter — "hola /" no
+  // disparaba el picker. Ahora abrimos cuando "/" arranca un token al
+  // final del texto (después de whitespace o al inicio), como Slack/
+  // Discord: "/", "hola /", "hola /hor" abren; "1/2" o "http://..."
+  // no. La query es lo que sigue al "/".
+  const SLASH_TRIGGER = /(?:^|\s)\/([^\s]*)$/;
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
-    if (v.startsWith("/")) {
-      setPickerQuery(v.slice(1));
+    const m = SLASH_TRIGGER.exec(v);
+    if (m) {
+      setPickerQuery(m[1]);
     } else if (pickerQuery !== null) {
       setPickerQuery(null);
     }
   };
 
   const handlePick = (opt: QuickReplyOption) => {
-    setContentValue(opt.body);
+    // Reemplazá SOLO el segmento "/token" del final; conservá el
+    // texto que el operador ya había escrito antes. Ej: "hola /hor" →
+    // pick "HORARIOS" → "hola <body>".
+    const stripped = contentValue.replace(SLASH_TRIGGER, "").trimEnd();
+    setContentValue(stripped ? `${stripped} ${opt.body}` : opt.body);
     setPickerQuery(null);
     // Best-effort usage tracking — never blocks the operator.
     api.conversations.markQuickReplyUsed(opt.id).catch(() => {});
   };
 
   const handlePickerDismiss = () => {
-    // Strip the leading "/" so dismissing leaves a clean textarea.
-    if (contentValue.startsWith("/")) setContentValue("");
+    // Strip only the trailing "/token" so dismissing preserves any
+    // text the operator had typed before invoking the picker.
+    setContentValue(contentValue.replace(SLASH_TRIGGER, "").trimEnd());
     setPickerQuery(null);
   };
 
