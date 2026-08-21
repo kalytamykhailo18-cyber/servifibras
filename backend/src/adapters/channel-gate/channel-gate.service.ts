@@ -11,13 +11,19 @@
  * configured anything.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel } from '@prisma/client';
 
 @Injectable()
 export class ChannelGateService {
   private readonly logger = new Logger(ChannelGateService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async isEnabled(channel: Channel): Promise<boolean> {
     try {

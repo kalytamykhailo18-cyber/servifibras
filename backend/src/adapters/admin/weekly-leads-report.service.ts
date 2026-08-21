@@ -19,7 +19,7 @@
  *   WEEKLY_LEADS_REPORT_LOOKBACK_DAYS  — window length (default 7).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, LeadStatus } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppOutgoingMessage } from '../../domain/entities/whatsapp-message.entity';
@@ -91,9 +91,14 @@ export interface WeeklyLeadsRunResult {
 @Injectable()
 export class WeeklyLeadsReportService {
   private readonly logger = new Logger(WeeklyLeadsReportService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly whatsapp: WhatsAppService) {}
+  constructor(
+    private readonly whatsapp: WhatsAppService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async run(): Promise<WeeklyLeadsRunResult> {
     if (!envBool('WEEKLY_LEADS_REPORT_ENABLED', true)) {

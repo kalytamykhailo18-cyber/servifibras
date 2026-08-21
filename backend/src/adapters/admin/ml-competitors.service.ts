@@ -57,7 +57,7 @@ export interface MlCompetitorsSnapshot {
 @Injectable()
 export class MlCompetitorsService {
   private readonly logger = new Logger(MlCompetitorsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   // Per-itemId cache so dashboard reloads don't hammer ML when the
   // operator adds 10 watches and opens the product detail twice.
   private readonly itemCache = new Map<string, { at: number; data: any | null; error: string | null }>();
@@ -65,7 +65,10 @@ export class MlCompetitorsService {
   constructor(
     @Optional() @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private cacheTtlMs(): number {
     const n = Number(process.env.ML_COMPETITORS_CACHE_MS);

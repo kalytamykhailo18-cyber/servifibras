@@ -57,12 +57,15 @@ function num(envKey: string, fallback: number): number {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly exchangeRate: ExchangeRateService,
     @Optional() private readonly whatsappQr?: WhatsappQrService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async check(): Promise<HealthReport> {
     const [database, dolarBlue, claude, backup, whatsapp] = await Promise.all([

@@ -44,7 +44,7 @@ export class WhatsAppService implements IWhatsAppService {
   private readonly appSecret: string;
   private readonly apiUrl: string;
   private readonly isConfigured: boolean;
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     // Marcos 2026-07-03: cuando WHATSAPP_QR_ENABLED=true y la sesión de
@@ -57,7 +57,9 @@ export class WhatsAppService implements IWhatsAppService {
     @Optional()
     @Inject(forwardRef(() => WhatsappQrService))
     private readonly qr?: WhatsappQrService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
   ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     // ✅ RULE 1: All config from .env, never hardcoded
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
     this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';

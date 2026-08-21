@@ -16,7 +16,7 @@
  * table directly.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { MessageSender, PrismaClient } from '@prisma/client';
 
 export interface TeamPerformanceRow {
@@ -45,7 +45,13 @@ export interface TeamPerformanceRow {
 @Injectable()
 export class TeamPerformanceService {
   private readonly logger = new Logger(TeamPerformanceService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async team(args: { fromIso: string; toIso: string }): Promise<{
     fromIso: string;

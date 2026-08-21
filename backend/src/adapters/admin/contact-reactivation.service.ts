@@ -26,7 +26,7 @@
  *      (default 200 — same scale as CAMPAIGN_BATCH_SIZE)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   CustomerType,
   FunnelStage,
@@ -66,9 +66,14 @@ export interface ReactivationRunResult {
 @Injectable()
 export class ContactReactivationService {
   private readonly logger = new Logger(ContactReactivationService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly campaigns: CampaignService) {}
+  constructor(
+    private readonly campaigns: CampaignService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Find dormant contacts and flip them to REACTIVAR. Optionally fires

@@ -12,7 +12,7 @@
  * call rebuilds the cache.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigurationType, PrismaClient } from '@prisma/client';
 
 export const DEFAULT_MAYORISTA_KEYWORDS = [
@@ -44,7 +44,13 @@ export interface MayoristaConfig {
 @Injectable()
 export class LeadDetectionConfigService {
   private readonly logger = new Logger(LeadDetectionConfigService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
   private cache: MayoristaConfig | null = null;
   private cacheTime = 0;
   private readonly cacheTtlMs =

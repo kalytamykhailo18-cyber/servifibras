@@ -71,14 +71,17 @@ interface CacheEntry {
 @Injectable()
 export class VentasUnificadasService {
   private readonly logger = new Logger(VentasUnificadasService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private readonly cache = new Map<VentasRange, CacheEntry>();
 
   constructor(
     @Optional()
     @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private cacheTtlMs(): number {
     const n = Number(process.env.ML_VENTAS_UNIFICADAS_CACHE_MS);

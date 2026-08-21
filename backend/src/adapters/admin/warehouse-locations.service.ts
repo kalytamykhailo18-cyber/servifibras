@@ -11,7 +11,7 @@
  * the item line.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
@@ -26,7 +26,13 @@ export interface WarehouseLocationUploadResult {
 @Injectable()
 export class WarehouseLocationsService {
   private readonly logger = new Logger(WarehouseLocationsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Parse the workbook (.xlsx or .csv-as-xlsx — `xlsx` autodetects)

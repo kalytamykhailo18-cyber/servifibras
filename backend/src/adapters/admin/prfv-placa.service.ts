@@ -19,7 +19,7 @@
  * misclicks on a busy panel.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrfvPlaca, PrfvPlacaState, PrismaClient } from '@prisma/client';
 
 export interface PrfvPlacaInput {
@@ -53,7 +53,13 @@ function nextState(current: PrfvPlacaState): PrfvPlacaState | null {
 @Injectable()
 export class PrfvPlacaService {
   private readonly logger = new Logger(PrfvPlacaService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async list(filter: PrfvPlacaListFilter = {}): Promise<PrfvPlaca[]> {
     const where: any = {};

@@ -17,7 +17,7 @@
  * detalles, Lista de Precios) are derived views and are ignored.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigurationType, PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
@@ -113,7 +113,13 @@ function asStr(v: any): string {
 @Injectable()
 export class LaminadosPriceConfigService {
   private readonly logger = new Logger(LaminadosPriceConfigService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
   private cache: LaminadosPricelist | null = null;
   private cacheTime = 0;
   private readonly cacheTtlMs =

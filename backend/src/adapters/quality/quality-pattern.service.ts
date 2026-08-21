@@ -12,7 +12,7 @@
  * enough until we have enough signal to upgrade to embeddings.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -20,12 +20,15 @@ import { AuditLogService } from '../audit/audit-log.service';
 @Injectable()
 export class QualityPatternService {
   private readonly logger = new Logger(QualityPatternService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly audit: AuditLogService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async detectAndAlert(): Promise<{
     clusters: Array<{ key: string; reason: string; operatorCount: number; operatorIds: string[] }>;

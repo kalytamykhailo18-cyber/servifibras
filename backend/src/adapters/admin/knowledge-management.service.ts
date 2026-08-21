@@ -2,7 +2,7 @@
  * ADAPTERS LAYER - Knowledge Base Management Service
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import {
   IKnowledgeManagementService,
@@ -18,8 +18,10 @@ export class KnowledgeManagementService implements IKnowledgeManagementService {
   private readonly logger = new Logger(KnowledgeManagementService.name);
   private readonly prisma: PrismaClient;
 
-  constructor() {
-    this.prisma = new PrismaClient();
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Knowledge Management service initialized');
   }
 

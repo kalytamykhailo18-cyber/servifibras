@@ -18,7 +18,7 @@
  * Page. Until then the branch is a no-op that still 200s the webhook.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, LeadStatus } from '@prisma/client';
 import { MetaAuthResolver } from '../oauth/meta-auth.resolver';
 
@@ -44,10 +44,14 @@ export interface MetaLeadFieldData {
 @Injectable()
 export class MetaAdsService {
   private readonly logger = new Logger(MetaAdsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private readonly apiUrl: string;
 
-  constructor(private readonly auth: MetaAuthResolver) {
+  constructor(
+    private readonly auth: MetaAuthResolver,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     this.apiUrl = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v18.0';
   }
 

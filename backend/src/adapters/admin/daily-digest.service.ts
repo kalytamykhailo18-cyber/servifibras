@@ -19,7 +19,7 @@
  *   DAILY_DIGEST_LOOKBACK_HOURS — window (default 24).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { CampaignDeliveryStatus, OrderStatus, PrismaClient } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppOutgoingMessage } from '../../domain/entities/whatsapp-message.entity';
@@ -75,12 +75,15 @@ export interface DigestRunResult {
 @Injectable()
 export class DailyDigestService {
   private readonly logger = new Logger(DailyDigestService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly whatsapp: WhatsAppService,
     private readonly budget: ClaudeBudgetService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Run once a day. Builds the digest data, formats the Spanish text,

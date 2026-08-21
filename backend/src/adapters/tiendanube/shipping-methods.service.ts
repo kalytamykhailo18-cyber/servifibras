@@ -22,7 +22,7 @@
  *   SHIPPING_METHODS_CACHE_TTL_MS  cache TTL (default 300_000 ms = 5 min)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 export type ShippingZone =
@@ -62,7 +62,13 @@ interface StoredShippingMethods {
 @Injectable()
 export class ShippingMethodsService {
   private readonly logger = new Logger(ShippingMethodsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private cache: { methods: ShippingMethod[]; loadedAt: number } | null = null;
 
