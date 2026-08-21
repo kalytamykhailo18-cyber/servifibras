@@ -26,7 +26,7 @@
  *   ml-shortcut          — cualquier otro skip-Claude desde el ML handler
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 export type CostOptSource =
@@ -61,7 +61,13 @@ const SAVED_TOKENS_BY_SOURCE: Record<CostOptSource, number> = {
 @Injectable()
 export class CostOptCounterService {
   private readonly logger = new Logger(CostOptCounterService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Disparado por cada surface que skipea Claude. Devuelve void —

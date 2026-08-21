@@ -17,7 +17,7 @@
  * happens via explicit admin override (which would write directly).
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, CustomerType, FunnelStage } from '@prisma/client';
 import {
   CUSTOMER_TYPE_DETECTOR,
@@ -52,12 +52,15 @@ function isAtLeast(current: FunnelStage | null, target: FunnelStage): boolean {
 @Injectable()
 export class ContactDimensionsService {
   private readonly logger = new Logger(ContactDimensionsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     @Inject(CUSTOMER_TYPE_DETECTOR)
     private readonly typeDetector: ICustomerTypeDetector,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Run on every inbound customer message. Sets:

@@ -12,7 +12,7 @@
  *   MAYORISTA_DEDUP_HOURS — open-lead dedup window (default 24)
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, LeadStatus, Channel, UserRole } from '@prisma/client';
 import {
   ILeadAutoAssignmentService,
@@ -35,14 +35,17 @@ function dedupHours(): number {
 @Injectable()
 export class LeadAutoAssignmentService implements ILeadAutoAssignmentService {
   private readonly logger = new Logger(LeadAutoAssignmentService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     @Inject(MAYORISTA_DETECTOR)
     private readonly detector: IMayoristaDetector,
     private readonly notifications: NotificationsGateway,
     private readonly metrics: MetricsBroadcaster,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async processInboundMessage(
     input: InboundMessageContext,

@@ -180,9 +180,14 @@ function detect(text: string): IntentMatch | null {
 @Injectable()
 export class FaqPreAiService {
   private readonly logger = new Logger(FaqPreAiService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
+  constructor(
+    @Optional() private readonly costOptCounter?: CostOptCounterService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Returns canned FAQ text for the question, or `null` if no FAQ

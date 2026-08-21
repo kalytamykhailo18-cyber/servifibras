@@ -157,11 +157,16 @@ export class BudgetExceededError extends Error {
 @Injectable()
 export class ClaudeBudgetService {
   private readonly logger = new Logger(ClaudeBudgetService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   // Marcos 2026-06-24: Opcional para no romper tests/seeds que
   // instancian ClaudeBudgetService sin el contador de Bloque E.
-  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
+  constructor(
+    @Optional() private readonly costOptCounter?: CostOptCounterService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Returns whether the current call is allowed under the monthly cap.

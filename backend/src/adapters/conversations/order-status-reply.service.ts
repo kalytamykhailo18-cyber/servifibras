@@ -27,7 +27,7 @@
  * (`ConversationHandlerService`) falls through to Claude on null.
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { OrderStatus, PrismaClient } from '@prisma/client';
 import {
   IOrderStatusIntent,
@@ -58,11 +58,14 @@ function fmtDate(d: Date): string {
 @Injectable()
 export class OrderStatusReplyService {
   private readonly logger = new Logger(OrderStatusReplyService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     @Inject(ORDER_STATUS_INTENT) private readonly intent: IOrderStatusIntent,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Returns a Spanish auto-reply text, or `null` if no auto-reply applies

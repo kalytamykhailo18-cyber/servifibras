@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 export interface OAuthCredentialsSnapshot {
@@ -24,7 +24,13 @@ const REFRESH_LEEWAY_SEC =
 export class OAuthCredentialsService {
   private readonly logger = new Logger(OAuthCredentialsService.name);
 
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async save(
     provider: string,

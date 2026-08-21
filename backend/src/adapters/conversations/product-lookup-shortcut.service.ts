@@ -111,9 +111,14 @@ function stockSummary(qty: number | null | undefined, inStock: boolean): string 
 @Injectable()
 export class ProductLookupShortcutService {
   private readonly logger = new Logger(ProductLookupShortcutService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
+  constructor(
+    @Optional() private readonly costOptCounter?: CostOptCounterService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * ML pre-venta variant. Caller provides the mercadolibreListing
