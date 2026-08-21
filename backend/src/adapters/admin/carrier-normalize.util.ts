@@ -52,6 +52,11 @@ export function normaliseCarrier(
     const aliased = aliases.get(lc);
     if (aliased && aliased.trim().length > 0) return aliased.trim();
   }
+  // Marcos 2026-08-19 (Frente D.3): un raw ya-normalizado tipo
+  // "Sin asignar" que reingresa a normaliseCarrier caía en el
+  // title-case fallback y salía como "Sin Asignar" (con A mayúscula),
+  // partiendo el bucket. Ancla explícita al canonical.
+  if (/^sin asignar$/.test(lc)) return 'Sin asignar';
   if (/^andreani\b|env[ií]o nube/.test(lc)) return 'Andreani';
   if (lc === 'flex_373' || /^jyj\b|^j[\s.\-]?y[\s.\-]?j\b/.test(lc)) return 'JyJ';
   // Marcos 2026-06-30: separar TN pickup (comprador pasa a buscar
@@ -84,6 +89,36 @@ export function normaliseCarrier(
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 }
+
+/**
+ * Marcos 2026-08-19 (Ustym report Frente D.3): set canónico de nombres
+ * de mensajería que sabemos manejar (mapeos hardcoded del normalise +
+ * pickup + fallback default). Cualquier grafía que caiga al branch
+ * title-case-passthrough de `normaliseCarrier` no está acá — el caller
+ * lo usa para emitir alerta "carrier desconocido" en vez de crear un
+ * bucket nuevo en silencio y partir el conteo real de esa mensajería
+ * en dos.
+ *
+ * Ojo: el admin puede agregar aliases desde Settings > Alias de
+ * mensajerías, así que un alias nuevo cae en `aliases` (map opcional)
+ * y NO como carrier desconocido. Sólo grafías sin alias entran acá.
+ */
+export const KNOWN_CANONICAL_CARRIERS: ReadonlySet<string> = new Set<string>([
+  'Sin asignar',
+  'Andreani',
+  'JyJ',
+  'Retira Caseros',
+  'Retira Cliente Caseros',
+  'Servifibras propio',
+  'M2',
+  'Baires',
+  'OCA',
+  'Despachos Online',
+  'Mercado Libre',
+  'Uber',
+  'Oscar',
+  'Otros Fletes',
+]);
 
 /**
  * Marcos 2026-06-30: cascade terminal para la mensajería de larga

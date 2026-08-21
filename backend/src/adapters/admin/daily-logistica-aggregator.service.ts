@@ -38,7 +38,7 @@ import { OrderStatus, PrismaClient } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 import { LogisticaArmadoService } from './logistica-armado.service';
-import { normaliseCarrier, applyOutsideZoneFallback, type CarrierAliasMap } from './carrier-normalize.util';
+import { normaliseCarrier, applyOutsideZoneFallback, KNOWN_CANONICAL_CARRIERS, type CarrierAliasMap } from './carrier-normalize.util';
 import { CarrierAliasService } from './carrier-alias.service';
 import { PostalCodeZoneService, type ZoneCache } from './postal-code-zone.service';
 import { CarrierDefaultsService } from './carrier-defaults.service';
@@ -1433,6 +1433,49 @@ export class DailyLogisticaAggregatorService {
       .filter((b) => b.total > 0)
       .sort((a, b) => b.total - a.total);
     stamp('carrierResolve', tCarrier);
+
+    // Marcos 2026-08-19 (Ustym report Frente D.3 + D.4): dos alertas
+    // agregadas al final del pase, para que el frontend / operador las
+    // vea junto con el chip strip de mensajerías sin depender del
+    // journalctl.
+    //   D.3 — Grafía de mensajería desconocida: si carrierSummary tiene
+    //         un bucket cuyo nombre canónico no está en el set conocido,
+    //         emitimos una nota + warn log. Antes creaba un bucket
+    //         silencioso ("R034-e + R072e", "Uber X" typos) y partía el
+    //         conteo real en dos hasta que Marcos lo cachaba a ojo.
+    //   D.4 — Sin asignar visible: si el bucket "Sin asignar" tiene
+    //         rows > 0, notaje + warn log. Antes se descubrían al llegar
+    //         la factura de la mensajería y no cerrar; ahora aparecen
+    //         cada día para que el operador los pique antes del cierre.
+    // Ambas son idempotentes — se recomputan cada `aggregate()`.
+    const unknownCarriers: string[] = [];
+    let unassignedCount = 0;
+    // Case-insensitive canonical set: normaliseCarrier's fallback
+    // branch title-cases raw strings, so a downstream row may show
+    // "Sin Asignar" while the constant is "Sin asignar". Comparar
+    // en mayúsculas normalizadas evita el false-positive.
+    const knownUpper = new Set(
+      Array.from(KNOWN_CANONICAL_CARRIERS).map((c) => c.toUpperCase()),
+    );
+    for (const b of out.carrierSummary) {
+      if (b.carrier.toUpperCase() === 'SIN ASIGNAR') {
+        unassignedCount = b.total;
+        continue;
+      }
+      if (!knownUpper.has(b.carrier.toUpperCase())) {
+        unknownCarriers.push(`${b.carrier} (${b.total})`);
+      }
+    }
+    if (unknownCarriers.length > 0) {
+      const msg = `Mensajerías con grafía desconocida: ${unknownCarriers.join(', ')}. Agregá el alias en Settings > Alias de mensajerías para consolidar el conteo.`;
+      out.notes.push({ source: 'carrier-alias', message: msg });
+      this.logger.warn(`carrier-alias: ${msg}`);
+    }
+    if (unassignedCount > 0) {
+      const msg = `${unassignedCount} paquete${unassignedCount === 1 ? '' : 's'} sin mensajería asignada — necesitan pick del operador antes del cierre del día.`;
+      out.notes.push({ source: 'unassigned', message: msg });
+      this.logger.warn(`unassigned: ${msg}`);
+    }
 
     const totalMs = Date.now() - tAll;
     const rowsTotal = SECTION_ORDER.reduce((acc, s) => acc + out.sections[s].length, 0);
