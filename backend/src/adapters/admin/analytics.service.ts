@@ -8,6 +8,8 @@ import { UserRole } from '../../domain/entities/auth.entity';
 import { DispatchTariffService, normalizeTariffKey } from './dispatch-tariff.service';
 import { PostalCodeZoneService } from './postal-code-zone.service';
 import { normaliseCarrier, outsideZoneDefaultCarrier, applyOutsideZoneFallback, type CarrierAliasMap } from './carrier-normalize.util';
+import { resolveCarrierAndZone } from './carrier-resolver.util';
+import { CarrierDefaultsService } from './carrier-defaults.service';
 import { CarrierAliasService } from './carrier-alias.service';
 
 /**
@@ -55,6 +57,7 @@ export class AnalyticsService implements IAnalyticsService {
     // construyen AnalyticsService sin contenedor sigan funcionando.
     @Optional() private readonly postalZones?: PostalCodeZoneService,
     @Optional() private readonly carrierAliases?: CarrierAliasService,
+    @Optional() private readonly carrierDefaults?: CarrierDefaultsService,
   ) {
     this.prisma = new PrismaClient();
     this.logger.log('✅ Analytics service initialized');
@@ -831,6 +834,7 @@ export class AnalyticsService implements IAnalyticsService {
             id: true,
             orderNumber: true,
             carrier: true,
+            source: true,
             amount: true,
             currency: true,
             shippingCost: true,
@@ -920,6 +924,11 @@ export class AnalyticsService implements IAnalyticsService {
     // tres mapas (byLocalityExact / byLocalityNormalized / byCp)
     // para la cascada nueva del resolver.
     const cpZoneCache = this.postalZones ? await this.postalZones.loadCache() : null;
+    // Marcos 2026-08-19 (Frente D0): defaults por (source, zone) — TN
+    // + AMBA → JYJ, etc. Se cargan una vez por request.
+    const sourceZoneDefaults = this.carrierDefaults
+      ? await this.carrierDefaults.getSourceZoneDefaults()
+      : null;
     for (const s of stamps) {
       if (!s.manuallyDispatchedAt) continue;
       let rawCarrier: string | null = null;
@@ -939,6 +948,7 @@ export class AnalyticsService implements IAnalyticsService {
       // ("GBA 1 GRATIS" → GBA 1) tiene que llegar aunque el carrier
       // ya sea "JyJ".
       let shippingLabel: string | null = null;
+      let source: string | null = null;
       let m = /^(?:crm|tn):([0-9a-f-]{36})$/i.exec(s.rowKey);
       if (m) {
         const o = orderById.get(m[1]);
@@ -950,6 +960,7 @@ export class AnalyticsService implements IAnalyticsService {
           // that first.
           rawCarrier = s.flexCourier?.trim() || o.carrier || null;
           shippingLabel = o.carrier ?? null;
+          source = o.source ?? null;
           orderNumber = o.orderNumber;
           customer = o.contact?.name ?? null;
           amount = o.amount;
@@ -970,54 +981,31 @@ export class AnalyticsService implements IAnalyticsService {
         }
       } else if (/^ml:[12](:|$)/.test(s.rowKey)) {
         rawCarrier = s.flexCourier?.trim() || 'Mercado Libre';
+        source = 'MERCADOLIBRE';
         orderNumber = s.rowKey;
       } else if (/^prfv:/.test(s.rowKey)) {
         rawCarrier = 'Servifibras propio';
+        source = 'PRFV';
         orderNumber = s.rowKey;
       } else {
         rawCarrier = s.flexCourier?.trim() || null;
         orderNumber = s.rowKey;
       }
-      // Marcos 2026-06-29: si la normalización tira "Sin asignar"
-      // (típicamente label TN del estilo "CABA GRATUITO" sin que el
-      // operador haya picado mensajería), miramos el defaultCarrier
-      // cargado por el admin. Doble fallback:
-      //   (a) per-CP/localidad — cuando el contacto tiene metadata
-      //   (b) per-zone — cuando el TN label embebe la zona
-      //       ("CABA GRATUITO" → CABA) pero el contacto no tiene
-      //       postalCode/locality (común en TN orders viejas)
-      // El zone-level lookup usa majority vote sobre las filas de
-      // postal_code_zones con defaultCarrier seteado.
-      let carrier = this.normaliseCarrier(rawCarrier);
-      if (carrier === 'Sin asignar' && this.postalZones && cpZoneCache) {
-        // Path (a): per-CP/localidad
-        const resolved = this.postalZones.resolveZone({ locality, cp: postalCode }, cpZoneCache);
-        if (resolved?.defaultCarrier) {
-          carrier = this.normaliseCarrier(resolved.defaultCarrier);
-        } else {
-          // Path (b): per-zone via label/source-derived zone
-          const labelZone =
-            this.deriveZoneFromShippingLabel(shippingLabel) ??
-            this.deriveZoneFromShippingLabel(rawCarrier) ??
-            this.provinceToZone(shippingZone) ??
-            (typeof shippingZone === 'string' ? shippingZone : null);
-          if (labelZone) {
-            const zoneDefault = this.postalZones.getDefaultCarrierForZone(labelZone, cpZoneCache);
-            if (zoneDefault) {
-              carrier = this.normaliseCarrier(zoneDefault);
-            }
-          }
-        }
-      }
-      // Marcos 2026-06-30 fix: el fallback Despachos Online ahora
-      // solo aplica si la pista del label sugiere out-of-zone. Las
-      // etiquetas CABA / GBA <N> son IN-zone y quedan "Sin asignar"
-      // hasta que el operador pique o el default-per-zona se cargue.
-      carrier = this.normaliseCarrier(applyOutsideZoneFallback({
-        currentCarrier: carrier,
-        rawCarrier,
-        shippingLabel,
-      }));
+      // Marcos 2026-08-19 (Frente D1): cascada unificada — reemplaza
+      // la cadena que analytics tenía duplicada respecto al aggregator
+      // (2 lookups + defaultCarrier + zone majority + outside-zone
+      // fallback). Ahora ambos paneles llaman `resolveCarrierAndZone`
+      // así el mismo paquete resuelve la misma mensajería y zona.
+      const resolved = resolveCarrierAndZone(
+        { rawCarrier, shippingLabel, cp: postalCode, locality, shippingZone, source },
+        {
+          aliases: this.currentAliases,
+          postalZones: this.postalZones ?? null,
+          cpZoneCache,
+          sourceZoneDefaults,
+        },
+      );
+      const carrier = resolved.carrier;
       bumpGroup(carrier, {
         rowKey: s.rowKey,
         orderNumber,

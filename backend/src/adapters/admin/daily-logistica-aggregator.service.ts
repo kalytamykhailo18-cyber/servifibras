@@ -40,6 +40,9 @@ import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.
 import { LogisticaArmadoService } from './logistica-armado.service';
 import { normaliseCarrier, applyOutsideZoneFallback, type CarrierAliasMap } from './carrier-normalize.util';
 import { CarrierAliasService } from './carrier-alias.service';
+import { PostalCodeZoneService, type ZoneCache } from './postal-code-zone.service';
+import { CarrierDefaultsService } from './carrier-defaults.service';
+import { resolveCarrierAndZone } from './carrier-resolver.util';
 import { DispatchTariffService } from './dispatch-tariff.service';
 
 export type DailySection =
@@ -224,6 +227,13 @@ export interface DailySectionRow {
    *  El frontend lo usa para mostrar un chip con la mensajería
    *  efectiva en cada row + chips de distribución arriba del tab. */
   resolvedCarrier: string;
+  /** Marcos 2026-08-19 (Frente D2): zona resuelta por la cascada
+   *  del carrier-resolver.util (CABA / GBA 1 / GBA 2 / GBA 3 /
+   *  Interior (micro) / Nacional / provincia raw / null). El
+   *  aggregator la usa para elegir la tarifa exacta (carrier, zone)
+   *  en lugar del promedio de zonas, y el frontend puede mostrarla
+   *  en el chip de la fila. Null cuando ninguna pista funcionó. */
+  resolvedZone?: string | null;
   /** Marcos 2026-06-30: sub-modo de dispatch para rows PRFV. Solo
    *  se popula en la sección LAMINADOS_PRFV. Null hasta que el
    *  operador pique un botón; 'RETIRA_CASEROS' significa que el
@@ -493,15 +503,38 @@ export class DailyLogisticaAggregatorService {
     // Marcos 2026-07-24: alias del admin overriden hardcoded rules.
     @Optional()
     private readonly carrierAliases?: CarrierAliasService,
+    // Marcos 2026-08-19 (Frente D1): cascada unificada — el
+    // aggregator resuelve mensajería + zona con el mismo motor que
+    // analytics. Requiere PostalCodeZoneService + CarrierDefaultsService
+    // como opcionales para que tests standalone no se rompan.
+    @Optional()
+    private readonly postalZones?: PostalCodeZoneService,
+    @Optional()
+    private readonly carrierDefaults?: CarrierDefaultsService,
   ) {}
 
   async aggregate(date: Date): Promise<AggregatedDay> {
     // Marcos 2026-07-24: precargar alias del admin (in-memory, cached
     // 60s). Se pasa a cada normaliseCarrier del cascade.
+    // Marcos 2026-08-19 (Frente D1/D0): precargamos también el cache
+    // de postal_code_zones + los defaults por (source, zone) — los
+    // mismos que consume el resolver de analytics — para que la
+    // cascada unificada disponga de todo lo que necesita sin
+    // round-trips por fila.
+    let cpZoneCache: ZoneCache | null = null;
+    let sourceZoneDefaults: Map<string, string> | null = null;
     let aliasesForRequest: CarrierAliasMap | undefined;
     try {
       aliasesForRequest = this.carrierAliases ? await this.carrierAliases.getMap() : undefined;
     } catch { aliasesForRequest = undefined; }
+    try {
+      cpZoneCache = this.postalZones ? await this.postalZones.loadCache() : null;
+    } catch { cpZoneCache = null; }
+    try {
+      sourceZoneDefaults = this.carrierDefaults
+        ? await this.carrierDefaults.getSourceZoneDefaults()
+        : null;
+    } catch { sourceZoneDefaults = null; }
     // Marcos 2026-06-29 (perf investigation): instrumentación temporal
     // de cada stage del aggregator. Marcos reportó timeouts de ~30s y
     // pidió cazar la causa raíz en vez de mitigarlo solo con caché.
@@ -1267,18 +1300,42 @@ export class DailyLogisticaAggregatorService {
         // pero acá normalizamos por carrier explícito. PRFV /
         // Servifibras propio idem.
         let raw: string | null = r.flexCourier || null;
+        let inferredSource: string | null = null;
+        if (r.rowKey.startsWith('ml:')) inferredSource = 'MERCADOLIBRE';
+        else if (r.rowKey.startsWith('prfv:')) inferredSource = 'PRFV';
+        else if (r.rowKey.startsWith('tn:')) inferredSource = 'TIENDANUBE';
+        else if (r.rowKey.startsWith('crm:')) inferredSource = 'MANUAL';
         if (!raw) {
           if (r.rowKey.startsWith('ml:')) raw = 'Mercado Libre';
           else if (r.rowKey.startsWith('prfv:')) raw = 'Servifibras propio';
           else raw = (r as { _carrier?: string | null })._carrier ?? null;
         }
-        let resolved = normaliseCarrier(raw, aliasesForRequest);
-        resolved = applyOutsideZoneFallback({
-          currentCarrier: resolved,
-          rawCarrier: raw,
-          shippingLabel: (r as { _carrier?: string | null })._carrier ?? null,
-        });
+        // Marcos 2026-08-19 (Frente D1): cascada única — misma llamada
+        // que hace analytics para que el mismo paquete resuelva la
+        // misma mensajería y zona en ambos paneles. Incluye
+        // defaultCarrier por CP/localidad + zone-majority + source+zone
+        // default (Frente D0: TN + AMBA → JYJ) que antes SÓLO estaban
+        // en analytics.
+        const shippingLabel = (r as { _carrier?: string | null })._carrier ?? null;
+        const resolution = resolveCarrierAndZone(
+          {
+            rawCarrier: raw,
+            shippingLabel,
+            cp: null,
+            locality: null,
+            shippingZone: null,
+            source: inferredSource,
+          },
+          {
+            aliases: aliasesForRequest,
+            postalZones: this.postalZones ?? null,
+            cpZoneCache,
+            sourceZoneDefaults,
+          },
+        );
+        const resolved = resolution.carrier;
         r.resolvedCarrier = resolved;
+        (r as { resolvedZone?: string | null }).resolvedZone = resolution.zone;
         delete (r as { _carrier?: string | null })._carrier;
         // Skip carrier summary contribution for section-managed rows.
         // La row sigue apareciendo en su sección con su chip
@@ -1300,39 +1357,77 @@ export class DailyLogisticaAggregatorService {
         summaryByCarrier.set(resolved, bucket);
       }
     }
-    // Marcos 2026-06-30: avg-cost-per-package por mensajería para
-    // proyectar el costo total del día. Las tarifas vienen por
-    // (carrier, zone); como el aggregator no tiene zone resuelto
-    // per-row, usamos el promedio de zonas como proxy. Match
-    // case-insensitive (DispatchTariff almacena MAYÚSCULAS, el
-    // normalise devuelve "JyJ" / "M2" / etc).
-    const avgByCarrier = new Map<string, number>();
+    // Marcos 2026-08-19 (Frente D2): reemplaza el "promedio de zonas
+    // por carrier" que sistemáticamente sobre-estimaba (CABA/GBA
+    // baratas quedaban ponderadas contra Interior caro). Ahora cada
+    // fila usa su resolvedZone para elegir la tarifa exacta
+    // (carrier, zone). Rows sin zona resuelta o sin tarifa cargada
+    // caen en un contador de "sin tarifa" en vez de arrastrar un
+    // promedio ficticio al total. Un `estimatedCostPerPackage`
+    // ponderado por fila se mantiene sólo para display en el chip.
+    const tariffByKey = new Map<string, number>();
     if (this.dispatchTariff) {
       try {
         const tariffs = await this.dispatchTariff.listActive();
-        const grouped = new Map<string, number[]>();
         for (const t of tariffs) {
-          const key = normaliseCarrier(t.carrier, aliasesForRequest);
-          (grouped.get(key) ?? grouped.set(key, []).get(key))!.push(t.costPerPackage);
-        }
-        for (const [k, vs] of grouped) {
-          if (vs.length > 0) avgByCarrier.set(k, vs.reduce((a, b) => a + b, 0) / vs.length);
+          const carrierKey = normaliseCarrier(t.carrier, aliasesForRequest);
+          const zoneKey = (t.zone ?? '').toString().replace(/\s+/g, '').toUpperCase();
+          if (carrierKey && carrierKey !== 'Sin asignar' && zoneKey) {
+            tariffByKey.set(`${carrierKey}::${zoneKey}`, t.costPerPackage);
+          }
         }
       } catch (err: any) {
         out.notes.push({ source: 'dispatch-tariffs', message: `cost projection skipped: ${err?.message ?? err}` });
       }
     }
+
+    interface CarrierCostAccum {
+      totalCost: number;
+      packagesCosted: number;
+      packagesWithoutTariff: number;
+    }
+    const costByCarrier = new Map<string, CarrierCostAccum>();
+    for (const s of SECTION_ORDER) {
+      if (EXCLUDE_FROM_CARRIER_SUMMARY.has(s)) continue;
+      for (const r of out.sections[s]) {
+        if (r.dispatchMode === 'RETIRA_CASEROS') continue;
+        if (r.isDispatched) continue;
+        const cKey = r.resolvedCarrier;
+        if (!cKey || cKey === 'Sin asignar') continue;
+        const zKey = ((r as { resolvedZone?: string | null }).resolvedZone ?? '')
+          .toString()
+          .replace(/\s+/g, '')
+          .toUpperCase();
+        const acc = costByCarrier.get(cKey) ?? {
+          totalCost: 0,
+          packagesCosted: 0,
+          packagesWithoutTariff: 0,
+        };
+        if (zKey && tariffByKey.has(`${cKey}::${zKey}`)) {
+          acc.totalCost += tariffByKey.get(`${cKey}::${zKey}`)!;
+          acc.packagesCosted += 1;
+        } else {
+          acc.packagesWithoutTariff += 1;
+        }
+        costByCarrier.set(cKey, acc);
+      }
+    }
+
     out.carrierSummary = Array.from(summaryByCarrier.entries())
       .map(([carrier, v]) => {
         const total = v.pending + v.listas;
-        const perPack = avgByCarrier.get(carrier) ?? null;
+        const cost = costByCarrier.get(carrier);
+        const totalCost = cost && cost.packagesCosted > 0 ? Math.round(cost.totalCost) : null;
+        const avgPerPack = cost && cost.packagesCosted > 0
+          ? Math.round(cost.totalCost / cost.packagesCosted)
+          : null;
         return {
           carrier,
           pending: v.pending,
           listas: v.listas,
           total,
-          estimatedCostPerPackage: perPack !== null ? Math.round(perPack) : null,
-          estimatedCostTotal: perPack !== null ? Math.round(perPack * total) : null,
+          estimatedCostPerPackage: avgPerPack,
+          estimatedCostTotal: totalCost,
         };
       })
       .filter((b) => b.total > 0)
