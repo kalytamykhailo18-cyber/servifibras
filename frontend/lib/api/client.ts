@@ -172,6 +172,33 @@ async function runProactiveRefresh(): Promise<void> {
   // time the user makes a real request. Nothing else to do here.
 }
 
+// Marcos 2026-08-21 — cross-tab coordination.
+//
+// El servidor tiene detección de reuso: si el refresh presentado ya está
+// `revokedAt`, considera "token stolen" y revoca la familia entera →
+// ambas pestañas quedan sin sesión. La condición de carrera que veía
+// Marcos: dos pestañas abiertas de la CRM, sus timers de proactive-
+// refresh caen dentro de milisegundos; ambas mandan /auth/refresh con
+// el MISMO token unrevoked; el servidor rota para una, la segunda cae
+// como reuso → family revoke → una pestaña se refresca sola y cierra.
+//
+// Fix: cuando OTRA pestaña escribe el par de tokens, cancelamos
+// nuestro refresh in-flight y re-armamos el timer contra el NUEVO
+// access token de localStorage. La segunda pestaña se entera de la
+// rotación en vez de intentarla ella también.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key !== REFRESH_KEY && e.key !== TOKEN_KEY) return;
+    // Otra pestaña rotó. Descartamos nuestro refresh en curso (si lo
+    // había) y reprogramamos el proactive con el nuevo exp.
+    inflightRefresh = null;
+    cancelProactiveRefresh();
+    if (tokenManager.get()) {
+      scheduleProactiveRefresh();
+    }
+  });
+}
+
 // ============================================================================
 // AXIOS INSTANCE
 // ============================================================================

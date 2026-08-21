@@ -38,6 +38,10 @@ interface ProductRow {
   category: string;
   quantity: string;
   unitPrice: string;
+  // Marcos 2026-08-21: SKU visible bajo el picker para que el
+  // operador pueda repasar qué producto matcheó, incluso cuando el
+  // nombre no entra completo en la celda.
+  sku?: string;
 }
 
 const EMPTY_ROW: ProductRow = { name: "", category: "", quantity: "1", unitPrice: "" };
@@ -219,27 +223,39 @@ export function RegisterOrderDialog({
                   key={idx}
                   className="grid grid-cols-[1fr_88px_1fr_110px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
                 >
-                  <ProductPicker
-                    value={row.name}
-                    currency={currency}
-                    testId={`order-row-name-${idx}`}
-                    onTextChange={(text) => updateRow(idx, { name: text })}
-                    onSelect={(p, price) => {
-                      // Auto-fill from catalog: name, category, and the
-                      // matching-currency price (Marcos's ask — drop
-                      // the manual price entry when the SKU is known).
-                      // We don't clobber a price the operator already
-                      // typed in case they're overriding for this sale.
-                      const patch: Partial<ProductRow> = {
-                        name: p.name,
-                        category: p.category || row.category,
-                      };
-                      if (price != null && !row.unitPrice) {
-                        patch.unitPrice = String(price);
-                      }
-                      updateRow(idx, patch);
-                    }}
-                  />
+                  <div className="min-w-0">
+                    <ProductPicker
+                      value={row.name}
+                      currency={currency}
+                      testId={`order-row-name-${idx}`}
+                      onTextChange={(text) => updateRow(idx, { name: text })}
+                      onSelect={(p, price) => {
+                        // Auto-fill from catalog: name, category, and the
+                        // matching-currency price (Marcos's ask — drop
+                        // the manual price entry when the SKU is known).
+                        // We don't clobber a price the operator already
+                        // typed in case they're overriding for this sale.
+                        const patch: Partial<ProductRow> = {
+                          name: p.name,
+                          category: p.category || row.category,
+                          sku: p.sku || row.sku,
+                        };
+                        if (price != null && !row.unitPrice) {
+                          patch.unitPrice = String(price);
+                        }
+                        updateRow(idx, patch);
+                      }}
+                    />
+                    {row.sku && (
+                      <div
+                        className="mt-1 truncate font-mono text-[10px] text-slate-500"
+                        title={row.sku}
+                        data-testid={`order-row-sku-${idx}`}
+                      >
+                        SKU: {row.sku}
+                      </div>
+                    )}
+                  </div>
                   <Input
                     type="number"
                     inputMode="decimal"

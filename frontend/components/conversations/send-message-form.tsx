@@ -106,6 +106,12 @@ export function SendMessageForm({
   // follows the slash, used for fuzzy filtering inside QuickReplyPicker.
   const [pickerQuery, setPickerQuery] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Marcos 2026-08-21: después de mandar con ENTER, el `disabled=true`
+  // durante isSending desenfocaba el textarea y quedaba fuera de la
+  // conversación — había que volver a clickear adentro para seguir
+  // tipeando. Ahora referenciamos el textarea y le devolvemos foco
+  // apenas termina el submit para que el operador no rompa el flow.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -197,6 +203,9 @@ export function SendMessageForm({
       console.error("Error sending message:", error);
     } finally {
       setIsSending(false);
+      // Devolvemos foco al textarea en el próximo tick, cuando ya se
+      // reevaluó `disabled` y el elemento está enfocable de nuevo.
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   };
 
@@ -472,6 +481,7 @@ export function SendMessageForm({
             />
           )}
           <Textarea
+            ref={textareaRef}
             name="content"
             data-testid="composer-message-input"
             value={contentValue}

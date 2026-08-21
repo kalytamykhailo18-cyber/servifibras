@@ -1164,24 +1164,40 @@ export function OrderFormDialog({
                   data-testid={`order-form-row-${idx}`}
                   className="grid grid-cols-[1fr_70px_1fr_100px_70px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
                 >
-                  <ProductPicker
-                    value={row.name}
-                    currency={currency}
-                    testId={`order-form-row-name-${idx}`}
-                    onTextChange={(text) => updateRow(idx, { name: text })}
-                    onSelect={(p, price) => {
-                      const patch: Partial<ProductRow> = {
-                        name: p.name,
-                        category: p.category || row.category,
-                        // Marcos 2026-06-17: stamp the SKU so the
-                        // Logística panel can pull the UBI from
-                        // Product.warehouseLocation.
-                        sku: p.sku || row.sku,
-                      };
-                      if (price != null && !row.unitPrice) patch.unitPrice = String(price);
-                      updateRow(idx, patch);
-                    }}
-                  />
+                  <div className="min-w-0">
+                    <ProductPicker
+                      value={row.name}
+                      currency={currency}
+                      testId={`order-form-row-name-${idx}`}
+                      onTextChange={(text) => updateRow(idx, { name: text })}
+                      onSelect={(p, price) => {
+                        const patch: Partial<ProductRow> = {
+                          name: p.name,
+                          category: p.category || row.category,
+                          // Marcos 2026-06-17: stamp the SKU so the
+                          // Logística panel can pull the UBI from
+                          // Product.warehouseLocation.
+                          sku: p.sku || row.sku,
+                        };
+                        if (price != null && !row.unitPrice) patch.unitPrice = String(price);
+                        updateRow(idx, patch);
+                      }}
+                    />
+                    {/* Marcos 2026-08-21: mostramos el SKU debajo del
+                        input así el operador ve qué producto matcheó
+                        aunque el nombre no entre completo en la
+                        celda. Antes sólo quedaba el nombre visible y
+                        no había forma de repasar la selección. */}
+                    {row.sku && (
+                      <div
+                        className="mt-1 truncate font-mono text-[10px] text-slate-500"
+                        title={row.sku}
+                        data-testid={`order-form-row-sku-${idx}`}
+                      >
+                        SKU: {row.sku}
+                      </div>
+                    )}
+                  </div>
                   <Input
                     type="number"
                     inputMode="decimal"
