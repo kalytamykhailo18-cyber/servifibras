@@ -10,7 +10,7 @@
  * rows y todo vive en memoria.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { CarrierAliasMap } from './carrier-normalize.util';
 
@@ -24,7 +24,13 @@ export interface CarrierAliasInput {
 @Injectable()
 export class CarrierAliasService {
   private readonly logger = new Logger(CarrierAliasService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   // Caché en memoria del mapa activo. Se recarga en cada write.
   private cachedMap: Map<string, string> | null = null;

@@ -19,7 +19,7 @@
  *     prompt (default 200). Caps token cost on big catalogs.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, PrismaClient, ProductSource } from '@prisma/client';
 
 export interface ProductInput {
@@ -220,7 +220,13 @@ function stripHtmlAndTruncate(raw: string, maxChars: number): string {
 @Injectable()
 export class ProductCatalogService {
   private readonly logger = new Logger(ProductCatalogService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async list(opts?: { activeOnly?: boolean; category?: string; search?: string }) {
     const where: Prisma.ProductWhereInput = {};

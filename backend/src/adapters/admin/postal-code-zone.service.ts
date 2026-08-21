@@ -25,7 +25,7 @@
  * llega como '1000-1499' (500 filas en DB despues del import).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, PostalCodeZone } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
@@ -115,7 +115,13 @@ function expandCpRange(raw: string): string[] | null {
 @Injectable()
 export class PostalCodeZoneService {
   private readonly logger = new Logger(PostalCodeZoneService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Marcos 2026-06-22: tier ordering del env. Cualquier zona no

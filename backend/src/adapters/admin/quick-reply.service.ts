@@ -15,7 +15,7 @@
  * unicidad por label evita duplicados ambiguos en el dropdown.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, QuickReply } from '@prisma/client';
 
 export interface QuickReplyInput {
@@ -30,7 +30,13 @@ export interface QuickReplyInput {
 @Injectable()
 export class QuickReplyService {
   private readonly logger = new Logger(QuickReplyService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /** Lista completa (incluye inactivas) — para el panel admin. */
   async list(opts?: { activeOnly?: boolean }): Promise<QuickReply[]> {

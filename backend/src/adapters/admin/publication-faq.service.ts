@@ -59,9 +59,14 @@ export interface PublicationFaqInput {
 @Injectable()
 export class PublicationFaqService {
   private readonly logger = new Logger(PublicationFaqService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(@Optional() private readonly costOptCounter?: CostOptCounterService) {}
+  constructor(
+    @Optional() private readonly costOptCounter?: CostOptCounterService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async list(opts?: { itemId?: string; activeOnly?: boolean }): Promise<PublicationFaq[]> {
     const where: any = {};

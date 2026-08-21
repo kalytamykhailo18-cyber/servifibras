@@ -27,7 +27,7 @@
  *   CARRIER_DEFAULTS_CACHE_TTL_MS  cache TTL (default 300_000 ms)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 const CACHE_TTL_MS_DEFAULT = 5 * 60 * 1000;
@@ -39,7 +39,13 @@ interface StoredCarrierDefaults {
 @Injectable()
 export class CarrierDefaultsService {
   private readonly logger = new Logger(CarrierDefaultsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   private cache: { map: Map<string, string>; loadedAt: number } | null = null;
 

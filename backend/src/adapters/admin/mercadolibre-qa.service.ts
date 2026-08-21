@@ -67,7 +67,7 @@ export interface MlQaRow {
 @Injectable()
 export class MercadolibreQaService {
   private readonly logger = new Logger(MercadolibreQaService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     // Optional — only the runtime where MercadolibreModule is loaded
@@ -82,7 +82,10 @@ export class MercadolibreQaService {
     // con el prompt actual.
     @Optional()
     private readonly claude?: ClaudeService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Marcos 2026-06-24 (MLA1713128062 — draft generado antes del fix

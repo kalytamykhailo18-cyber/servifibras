@@ -24,7 +24,7 @@
  * `tn:<orderId>` / etc.) so state stays stable across day boundaries.
  */
 
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, LogisticaArmado, LogisticaArmadoState } from '@prisma/client';
 
 export type RowLifecycleState = 'PENDIENTE' | 'ARMADO' | 'LISTO';
@@ -75,7 +75,13 @@ export interface RowLifecycleLookup {
 @Injectable()
 export class LogisticaArmadoService {
   private readonly logger = new Logger(LogisticaArmadoService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Mark a row ARMADO. Idempotent — re-calling on an already-armado

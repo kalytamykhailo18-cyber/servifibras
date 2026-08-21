@@ -15,7 +15,7 @@
  * code change.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 // Marcos 2026-07-14 (Baires GBA1/GBA 1): la clave (carrier, zone) que
@@ -44,7 +44,13 @@ export interface DispatchTariffInput {
 @Injectable()
 export class DispatchTariffService {
   private readonly logger = new Logger(DispatchTariffService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /** All rows (active and archived) — admin grid reads both so the
    *  archived rows can be reactivated without re-typing. */
