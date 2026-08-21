@@ -183,7 +183,10 @@ function trimmedOrNull(v: any): string | null {
 function priceOrNull(v: any): number | null {
   if (v == null || v === '') return null;
   const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  // Marcos 2026-08-19 (Ustym report Frente B2): rechazamos precios <= 0
+  // — un producto vale más que $0 y aceptar 0 nos exponía a que una
+  // ingesta con promotional_price="0.00" cotizara el producto gratis.
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function normalizeSku(s: string): string {

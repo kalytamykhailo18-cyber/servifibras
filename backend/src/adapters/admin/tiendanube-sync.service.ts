@@ -149,7 +149,13 @@ function pickCategory(p: TiendaNubeRawProduct): string {
 function priceOrNull(v: any): number | null {
   if (v == null || v === '') return null;
   const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  // Marcos 2026-08-19 (Ustym report Frente B2): antes aceptaba n >= 0,
+  // así que si TiendaNube devolvía "0.00" como promotional_price el
+  // producto quedaba cotizado en $0. Ahora sólo aceptamos precios > 0
+  // — un cero se trata como "sin precio" y cae al fallback del caller
+  // (que en el sync es `promotional_price ?? price` → si promo es 0
+  // ahora entra null y cae al precio de lista real).
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 @Injectable()
@@ -419,7 +425,12 @@ export class TiendaNubeSyncService {
       const inStock = v.stock_management === false
         ? true
         : (v.stock == null || (typeof v.stock === 'number' && v.stock > 0));
-      const price = priceOrNull(v.promotional_price ?? v.price);
+      // Marcos 2026-08-19 (Frente B2): usar priceOrNull sobre el
+      // promocional PRIMERO para que un "0.00" se colapse a null y
+      // caiga al price de lista real vía `??`. Un `??` directo sobre
+      // el string "0.00" no cae porque no es nullish.
+      const promo = priceOrNull(v.promotional_price);
+      const price = promo ?? priceOrNull(v.price);
       const name = presentation ? `${baseName} - ${presentation}` : baseName;
       const baseUnit = presentation ?? 'unidad';
       rows.push({
