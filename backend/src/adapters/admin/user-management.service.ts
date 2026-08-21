@@ -12,7 +12,7 @@
  * (no historical references yet).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, PrismaClient, UserRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 
@@ -44,9 +44,14 @@ export class UserConflictError extends Error {
 @Injectable()
 export class UserManagementService {
   private readonly logger = new Logger(UserManagementService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   async list(opts?: { activeOnly?: boolean }) {
     return this.prisma.user.findMany({

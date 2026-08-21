@@ -25,7 +25,7 @@
  *                                  accidental "send to everyone" mistakes).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   Channel,
   CampaignDeliveryStatus,
@@ -111,13 +111,16 @@ async function resolveChannel(
 @Injectable()
 export class CampaignService {
   private readonly logger = new Logger(CampaignService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly whatsapp: WhatsAppService,
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Returns the segment count + a sample of contact names without

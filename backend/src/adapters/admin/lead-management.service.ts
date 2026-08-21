@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaClient, LeadStatus } from '@prisma/client';
 import {
   ILeadManagementService,
@@ -15,8 +15,11 @@ import { ContactDimensionsService } from '../lead-detection/contact-dimensions.s
 export class LeadManagementService implements ILeadManagementService {
   private prisma: PrismaClient;
 
-  constructor(private readonly contactDimensions: ContactDimensionsService) {
-    this.prisma = new PrismaClient();
+  constructor(
+    private readonly contactDimensions: ContactDimensionsService,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
   }
 
   async listLeads(filter: LeadListFilter): Promise<{

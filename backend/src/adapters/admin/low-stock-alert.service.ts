@@ -23,7 +23,7 @@
  *   transition is the trigger.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -40,12 +40,15 @@ function envNumber(key: string, fallback: number, min = 0): number {
 @Injectable()
 export class LowStockAlertService {
   private readonly logger = new Logger(LowStockAlertService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly audit: AuditLogService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Run the alert check for a single product. Safe to call after any

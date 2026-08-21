@@ -2,7 +2,7 @@
  * ADAPTERS LAYER - Contact Management Service
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, UserRole } from '@prisma/client';
 import {
   IContactManagementService,
@@ -49,8 +49,10 @@ export class ContactManagementService implements IContactManagementService {
   private readonly logger = new Logger(ContactManagementService.name);
   private readonly prisma: PrismaClient;
 
-  constructor() {
-    this.prisma = new PrismaClient();
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Contact Management service initialized');
   }
 

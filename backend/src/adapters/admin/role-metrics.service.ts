@@ -20,7 +20,7 @@
  *   QUOTE_FOLLOWUP_HOURS       — legacy hour-based equivalent (still works).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, LeadStatus, MessageSender, OrderStatus, UserRole } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
 import { businessHoursMsBetween, businessHoursMinutesBetween } from './business-hours.util';
@@ -153,7 +153,13 @@ export interface AdminMetrics {
 @Injectable()
 export class RoleMetricsService {
   private readonly logger = new Logger(RoleMetricsService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   // ATENCION ----------------------------------------------------------------
   // Marcos 2026-06-29: `userId` opcional para narrowear la card al

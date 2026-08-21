@@ -21,7 +21,7 @@
  *     widen or narrow the rule without a code change.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, UserRole, CustomerType } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 
@@ -37,9 +37,14 @@ function alertableTypes(): Set<string> {
 @Injectable()
 export class OrderNotificationService {
   private readonly logger = new Logger(OrderNotificationService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
-  constructor(private readonly notifications: NotificationsGateway) {}
+  constructor(
+    private readonly notifications: NotificationsGateway,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Called from `OrderManagementService.createOrder` after the order row

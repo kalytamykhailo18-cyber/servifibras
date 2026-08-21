@@ -27,7 +27,7 @@
  *   TIENDANUBE_ORDERS_TIMEOUT_MS        default 15000
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, OrderSource, OrderStatus } from '@prisma/client';
 import { TiendaNubeAuthResolver } from '../oauth/tiendanube-auth.resolver';
 
@@ -163,10 +163,15 @@ function mapStatus(
 @Injectable()
 export class TiendaNubeOrdersSyncService {
   private readonly logger = new Logger(TiendaNubeOrdersSyncService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
   private fetcher: TiendaNubeFetcher = (url, init) => fetch(url, init);
 
-  constructor(private readonly auth: TiendaNubeAuthResolver) {}
+  constructor(
+    private readonly auth: TiendaNubeAuthResolver,
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /** Test-only override hook so e2e/integration probes can inject a
    *  stub fetcher without going through Nest DI. */

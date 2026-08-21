@@ -15,7 +15,7 @@
  * inconsistent figures.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   PrismaClient, Prisma, QuoteStatus,
 } from '@prisma/client';
@@ -80,7 +80,13 @@ function computeTotals(
 @Injectable()
 export class QuoteService {
   private readonly logger = new Logger(QuoteService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
+
+  constructor(
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Issue a new quote number in `PREFIX-NNNNNNNN` form. We base the

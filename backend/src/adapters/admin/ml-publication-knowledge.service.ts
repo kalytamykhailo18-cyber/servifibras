@@ -40,7 +40,7 @@ export interface IngestResult {
 @Injectable()
 export class MlPublicationKnowledgeService {
   private readonly logger = new Logger(MlPublicationKnowledgeService.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma: PrismaClient;
 
   constructor(
     @Optional()
@@ -63,7 +63,10 @@ export class MlPublicationKnowledgeService {
     // applyReplyPostProcessing antes del self-eval + del return.
     @Optional()
     private readonly claude?: ClaudeService,
-  ) {}
+    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+  ) {
+    this.prisma = prismaShared ?? new PrismaClient();
+  }
 
   /**
    * Ingiere el histórico de Q&A de una publicación. Idempotente — el
