@@ -471,6 +471,7 @@ import { BudgetExceededError, ClaudeBudgetService } from './claude-budget.servic
 import { ConversationStyleService } from './conversation-style.service';
 import { CustomerContextService } from './customer-context.service';
 import { QuickReplyService } from '../admin/quick-reply.service';
+import { ShippingMethodsService } from '../tiendanube/shipping-methods.service';
 
 @Injectable()
 export class ClaudeService implements IAIService {
@@ -546,6 +547,10 @@ export class ClaudeService implements IAIService {
     // reusables que el operador curó. @Optional para que tests viejos
     // que arman el ClaudeService sin contenedor sigan funcionando.
     @Optional() private readonly quickReplies?: QuickReplyService,
+    // Marcos 2026-08-19 (Ustym report Frente C): herramienta
+    // consultar_envio para romper el loop de "pasame el CP". @Optional
+    // para no romper los scripts que construyen ClaudeService a mano.
+    @Optional() private readonly shippingMethods?: ShippingMethodsService,
   ) {
     // ✅ RULE 1: All config from .env, never hardcoded
     const apiKey = process.env.CLAUDE_API_KEY;
@@ -2307,7 +2312,11 @@ IMPORTANTE sobre precios:
         this.logger.warn(`quick-replies AI block load failed (non-fatal): ${err.message}`);
       }
     }
-    const tools = [this.getCatalogSearchTool(), this.getLaminadosCotizadorTool()];
+    const tools = [
+      this.getCatalogSearchTool(),
+      this.getLaminadosCotizadorTool(),
+      this.getShippingConsultTool(),
+    ];
     const modelForTurn = (turn?.modelOverride && turn.modelOverride.trim().length > 0)
       ? turn.modelOverride
       : this.model;
@@ -2944,6 +2953,29 @@ IMPORTANTE sobre precios:
               resultText = JSON.stringify({ ok: false, reason: 'cotizador_error', message: err?.message ?? 'desconocido' });
               this.logger.error(`Laminados cotizador tool failed: ${err?.message ?? err}`);
             }
+          } else if (tu.name === 'consultar_envio') {
+            try {
+              const input = String(tu.input?.localidad_o_cp ?? tu.input?.localidad ?? tu.input?.cp ?? '').trim();
+              if (!this.shippingMethods) {
+                resultText = JSON.stringify({ ok: false, reason: 'shipping_methods_service_unavailable' });
+              } else if (!input) {
+                resultText = JSON.stringify({ ok: false, reason: 'missing_input', hint: 'pedile al comprador una localidad o código postal antes de llamar la herramienta' });
+              } else {
+                const r = await this.shippingMethods.consultForInput(input);
+                resultText = JSON.stringify({
+                  ok: true,
+                  input,
+                  zone: r.zone,
+                  methods: r.methods,
+                });
+                this.logger.debug(
+                  `Shipping consult tool: input="${input}" → zone=${r.zone} methods=${r.methods.length}`,
+                );
+              }
+            } catch (err: any) {
+              resultText = JSON.stringify({ ok: false, reason: 'shipping_lookup_error', message: err?.message ?? 'desconocido' });
+              this.logger.error(`Shipping consult tool failed: ${err?.message ?? err}`);
+            }
           } else {
             resultText = `Herramienta desconocida: ${tu.name}`;
           }
@@ -3066,6 +3098,34 @@ IMPORTANTE sobre precios:
           },
         },
         required: ['ancho', 'espesor', 'metros_lineales'],
+      },
+    };
+  }
+
+  /**
+   * Consulta de envío. Marcos 2026-08-19 (Ustym report Frente C): la
+   * agente entraba en loop pidiendo el CP porque el prompt le prohibía
+   * cotizar envíos pero al mismo tiempo la mandaba a pedirlo para
+   * "confirmar". Esta herramienta rompe el loop: devuelve los métodos
+   * de envío que aplican para la localidad/CP del comprador, con su
+   * plazo y cómo se cobran. El agente arma la respuesta a partir de
+   * eso — sin pedir el CP tres veces y sin inventar montos.
+   */
+  private getShippingConsultTool(): any {
+    return {
+      name: 'consultar_envio',
+      description:
+        'Consulta los métodos de envío disponibles para una localidad, dirección o código postal. Llamala cuando el comprador pregunta cómo/cuánto/cuándo llega su envío, o si mandan a una ciudad/provincia específica. Devuelve un JSON con la zona resuelta (CABA/GBA1/GBA2/GBA3/INTERIOR) y los métodos que aplican, cada uno con nombre, plazo y modo de cobro (free = gratis, pay_on_arrival = paga al retirar en terminal, pay_online = paga en la web al finalizar, pickup = retiro en local). Copiá los datos literales al armar la respuesta; NO inventes montos ni plazos.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          localidad_o_cp: {
+            type: 'string',
+            description:
+              'Localidad, ciudad, provincia o código postal que dio el comprador. Ej: "Córdoba Capital", "5000", "Palermo, CABA", "La Plata", "Salta". Si el comprador sólo dijo "provincia de Buenos Aires" sin más detalle, pasá eso mismo.',
+          },
+        },
+        required: ['localidad_o_cp'],
       },
     };
   }

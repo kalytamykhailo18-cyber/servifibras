@@ -17,6 +17,7 @@ import { MlBatchQueueService } from '../../../adapters/ai/ml-batch-queue.service
 import { HistoryCompressionService } from '../../../adapters/ai/history-compression.service';
 import { CostOptCounterService } from '../../../adapters/ai/cost-opt-counter.service';
 import { MlPublicationKnowledgeService } from '../../../adapters/admin/ml-publication-knowledge.service';
+import { ShippingMethodsService } from '../../../adapters/tiendanube/shipping-methods.service';
 import { AIController } from './ai.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
@@ -67,6 +68,10 @@ import { NotificationsModule } from '../../notifications/notifications.module';
     // entre AdminModule (importa AIModule) y los channel modules que
     // hostean ConversationHandlerService.
     MlPublicationKnowledgeService,
+    // Marcos 2026-08-19 (Ustym report Frente C): consultar_envio tool
+    // dependency. Injected into ClaudeService (Optional) — reads a
+    // configurations row seeded from TN's shipping_carriers.
+    ShippingMethodsService,
   ],
   exports: [
     ClaudeService,
