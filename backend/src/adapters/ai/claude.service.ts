@@ -1939,10 +1939,40 @@ export class ClaudeService implements IAIService {
       return out;
     };
 
-    const blocks = text
+    const rawBlocks = text
       .split(/\n{2,}/)
       .map((b) => b.trim())
       .filter((b) => b.length > 0);
+    // Marcos 2026-08-19 (Ustym report Frente C.4.1): la agente repetía
+    // la misma frase al FINAL del primer bubble y al INICIO del segundo
+    // ("El costo del envío depende del CP..." en el caso Córdoba). Es
+    // un patrón de armado de bloques: el modelo cierra un párrafo con
+    // una línea y arranca el siguiente con la misma. Antes de aplicar
+    // el length budget, deduplicamos oraciones VERBATIM cross-bubble
+    // (case-insensitive, whitespace-normalizado) preservando la primera
+    // aparición. Oraciones cortas (<15 chars) se preservan tal cual —
+    // son cortesías tipo "Sí." / "Perfecto." que sí pueden repetirse.
+    const seenSentences = new Set<string>();
+    const dedupedBlocks: string[] = [];
+    for (const block of rawBlocks) {
+      const sentences = block.split(/(?<=[.!?])\s+/);
+      const kept: string[] = [];
+      for (const s of sentences) {
+        const trimmed = s.trim();
+        if (trimmed.length === 0) continue;
+        if (trimmed.length < 15) { kept.push(trimmed); continue; }
+        const key = trimmed.toLowerCase().replace(/\s+/g, ' ');
+        if (seenSentences.has(key)) {
+          this.logger.debug(`enforceLengthBudget: dropped duplicate sentence: "${trimmed.slice(0, 60)}"`);
+          continue;
+        }
+        seenSentences.add(key);
+        kept.push(trimmed);
+      }
+      const joined = kept.join(' ').trim();
+      if (joined.length > 0) dedupedBlocks.push(joined);
+    }
+    const blocks = dedupedBlocks.length > 0 ? dedupedBlocks : rawBlocks;
     const expanded: string[] = [];
     for (const b of blocks) expanded.push(...splitLongChunk(b));
     const capped = expanded.slice(0, maxBubbles);
