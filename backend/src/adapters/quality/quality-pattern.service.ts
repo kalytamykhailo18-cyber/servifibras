@@ -17,6 +17,7 @@ import { PrismaClient } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { AuditLogService } from '../audit/audit-log.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class QualityPatternService {
   private readonly logger = new Logger(QualityPatternService.name);
@@ -25,7 +26,7 @@ export class QualityPatternService {
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly audit: AuditLogService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

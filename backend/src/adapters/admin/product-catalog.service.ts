@@ -22,6 +22,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, PrismaClient, ProductSource } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface ProductInput {
   sku: string;
   name: string;
@@ -223,7 +224,7 @@ export class ProductCatalogService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

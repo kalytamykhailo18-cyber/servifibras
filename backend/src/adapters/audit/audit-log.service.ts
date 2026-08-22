@@ -15,6 +15,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface AuditEvent {
   /** ID of the authenticated user when known. */
   userId?: string | null;
@@ -36,7 +37,7 @@ export class AuditLogService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

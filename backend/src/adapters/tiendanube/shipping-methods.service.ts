@@ -25,6 +25,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type ShippingZone =
   | 'CABA'
   | 'GBA1'
@@ -65,7 +66,7 @@ export class ShippingMethodsService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

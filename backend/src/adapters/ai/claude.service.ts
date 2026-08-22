@@ -473,6 +473,7 @@ import { CustomerContextService } from './customer-context.service';
 import { QuickReplyService } from '../admin/quick-reply.service';
 import { ShippingMethodsService } from '../tiendanube/shipping-methods.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class ClaudeService implements IAIService {
   private readonly logger = new Logger(ClaudeService.name);
@@ -555,7 +556,7 @@ export class ClaudeService implements IAIService {
     // los scripts que construyen ClaudeService a mano — cuando falta,
     // caemos a un `new PrismaClient()` local (misma semántica que antes,
     // pero solo en el path standalone; en Nest siempre se resuelve).
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     // ✅ RULE 1: All config from .env, never hardcoded

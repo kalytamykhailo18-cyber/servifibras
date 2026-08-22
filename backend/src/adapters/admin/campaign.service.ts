@@ -38,6 +38,7 @@ import {
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WebchatService } from '../webchat/webchat.service';
 import { SocialMediaService } from '../social/social-media.service';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   WhatsAppOutgoingMessage,
 } from '../../domain/entities/whatsapp-message.entity';
@@ -117,7 +118,7 @@ export class CampaignService {
     private readonly whatsapp: WhatsAppService,
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

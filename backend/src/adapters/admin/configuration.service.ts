@@ -4,6 +4,7 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   IConfigurationService,
   ConfigurationItem,
@@ -24,7 +25,7 @@ export class ConfigurationService implements IConfigurationService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Configuration service initialized');

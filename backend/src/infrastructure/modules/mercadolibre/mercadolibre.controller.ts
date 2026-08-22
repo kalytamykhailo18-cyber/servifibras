@@ -16,6 +16,7 @@ import { Optional } from '@nestjs/common';
 import { MlPublicationKnowledgeService } from '../../../adapters/admin/ml-publication-knowledge.service';
 import { MercadoLibreMessageType } from '../../../domain/entities/mercadolibre-message.entity';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 @Controller('mercadolibre')
 export class MercadoLibreController {
   private readonly logger = new Logger(MercadoLibreController.name);
@@ -172,7 +173,7 @@ export class MercadoLibreController {
     private readonly channelGate: ChannelGateService,
     @Optional()
     private readonly mlKnowledge?: MlPublicationKnowledgeService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

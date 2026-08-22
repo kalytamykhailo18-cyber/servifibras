@@ -12,6 +12,7 @@ import {
 import { ContactDimensionsService } from '../lead-detection/contact-dimensions.service';
 import { OrderNotificationService } from './order-notification.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class OrderManagementService implements IOrderManagementService {
   private prisma: PrismaClient;
@@ -20,7 +21,7 @@ export class OrderManagementService implements IOrderManagementService {
     private readonly contactDimensions: ContactDimensionsService,
     private readonly orderNotifications: OrderNotificationService,
     // Marcos 2026-08-21: shared Prisma pool.
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

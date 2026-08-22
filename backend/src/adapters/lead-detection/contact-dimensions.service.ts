@@ -19,6 +19,7 @@
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, CustomerType, FunnelStage } from '@prisma/client';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   CUSTOMER_TYPE_DETECTOR,
   ICustomerTypeDetector,
@@ -57,7 +58,7 @@ export class ContactDimensionsService {
   constructor(
     @Inject(CUSTOMER_TYPE_DETECTOR)
     private readonly typeDetector: ICustomerTypeDetector,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

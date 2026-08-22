@@ -27,6 +27,7 @@ import { getMessageCipher } from '../security/message-cipher';
 import { isAcknowledgment, looksLikeUnresolvedFromStaff, claudeConfirmAckCloses } from '../conversations/acknowledgment-detector';
 import { ClaudeService } from '../ai/claude.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class HumanHandoffService implements IHumanHandoffService {
   private readonly logger = new Logger(HumanHandoffService.name);
@@ -36,7 +37,7 @@ export class HumanHandoffService implements IHumanHandoffService {
     private readonly notifications: NotificationsGateway,
     private readonly metrics: MetricsBroadcaster,
     private readonly claudeService: ClaudeService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -29,6 +29,7 @@
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { OrderStatus, PrismaClient } from '@prisma/client';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   IOrderStatusIntent,
   ORDER_STATUS_INTENT,
@@ -62,7 +63,7 @@ export class OrderStatusReplyService {
 
   constructor(
     @Inject(ORDER_STATUS_INTENT) private readonly intent: IOrderStatusIntent,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

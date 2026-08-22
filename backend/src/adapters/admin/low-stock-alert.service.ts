@@ -28,6 +28,7 @@ import { PrismaClient } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { AuditLogService } from '../audit/audit-log.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 const FALLBACK_THRESHOLD = 5;
 const FALLBACK_COOLDOWN_HOURS = 24;
 
@@ -45,7 +46,7 @@ export class LowStockAlertService {
   constructor(
     private readonly notifications: NotificationsGateway,
     private readonly audit: AuditLogService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

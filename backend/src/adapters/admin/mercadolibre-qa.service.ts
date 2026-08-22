@@ -34,6 +34,7 @@ import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.
 // import regular es seguro.
 import { ClaudeService } from '../ai/claude.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface MlQaRow {
   conversationId: string;
   // Marcos 2026-07-24: contactId surfaced so the UI can call
@@ -82,7 +83,7 @@ export class MercadolibreQaService {
     // con el prompt actual.
     @Optional()
     private readonly claude?: ClaudeService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

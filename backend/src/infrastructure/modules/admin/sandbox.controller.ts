@@ -55,6 +55,7 @@ import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { randomUUID } from 'crypto';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 type SandboxChannel = 'WEBCHAT' | 'MERCADOLIBRE' | 'INSTAGRAM';
 
 const SANDBOX_ROLES = [
@@ -72,7 +73,7 @@ export class SandboxController {
 
   constructor(
     private readonly conversationHandler: ConversationHandlerService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -28,6 +28,7 @@ import { looksLikeTestContactName } from '../conversations/test-contact-patterns
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 // Internal-marker messages that the E2E suite + sandbox channel-gate
 // fire as plain-text messages (the channel-toggle probe uses
 // "MARKER-ON-..." / "MARKER-BACK-..." strings; the prompt-editor probe
@@ -86,7 +87,7 @@ export class ConversationScorerService {
   constructor(
     private readonly claude: ClaudeService,
     private readonly notifications: NotificationsGateway,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -43,6 +43,7 @@ import { isAcknowledgment, looksLikeUnresolvedFromStaff, claudeConfirmAckCloses 
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class ConversationHandlerService implements IConversationHandler {
   private readonly logger = new Logger(ConversationHandlerService.name);
@@ -100,7 +101,7 @@ export class ConversationHandlerService implements IConversationHandler {
     // Marcos 2026-08-21: shared Prisma pool. Cae a un local
     // PrismaClient si el módulo global no está resuelto (paths
     // standalone / tests / scripts).
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

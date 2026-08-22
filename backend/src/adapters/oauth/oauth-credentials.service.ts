@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface OAuthCredentialsSnapshot {
   accessToken: string;
   externalId: string | null;
@@ -27,7 +28,7 @@ export class OAuthCredentialsService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

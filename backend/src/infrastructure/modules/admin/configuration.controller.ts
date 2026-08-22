@@ -27,6 +27,7 @@ import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { ConfigurationType } from '../../../use-cases/admin/configuration.interface';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 @Controller('admin/configuration')
 @UseGuards(AuthGuard, RolesGuard)
 export class ConfigurationController {
@@ -36,7 +37,7 @@ export class ConfigurationController {
     private readonly configurationService: ConfigurationService,
     private readonly audit: AuditLogService,
     private readonly claude: ClaudeService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.correctionsPrisma = prismaShared ?? new PrismaClient();
   }

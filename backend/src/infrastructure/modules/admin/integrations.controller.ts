@@ -28,6 +28,7 @@ import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { OAuthCredentialsService } from '../../../adapters/oauth/oauth-credentials.service';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 interface TestResult {
   success: boolean;
   latencyMs: number;
@@ -60,7 +61,7 @@ export class IntegrationsController {
 
   constructor(
     private readonly credentials: OAuthCredentialsService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

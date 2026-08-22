@@ -29,6 +29,7 @@ import {
 } from '../../../domain/entities/mercadolibre-message.entity';
 import { Channel, PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 @Controller('admin/mercadolibre')
 @UseGuards(AuthGuard, RolesGuard)
 // Marcos 2026-06-23 originalmente sumó ENCARGADO al sub-tab ML del
@@ -52,7 +53,7 @@ export class MercadolibreQaController {
     // fila kept en MlPublicationKnowledge para que el historial
     // del panel /ml-conocimiento siga vivo.
     private readonly mlKnowledge: MlPublicationKnowledgeService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -34,6 +34,7 @@ import {
 } from '@prisma/client';
 import { CampaignService } from './campaign.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 const DEFAULT_TEMPLATE =
   '¡Hola{{nombre}}! Hace tiempo que no nos vemos por Servifibras. ¿Estás necesitando algo? Tenemos novedades de stock y precios actualizados que te pueden interesar.';
 
@@ -70,7 +71,7 @@ export class ContactReactivationService {
 
   constructor(
     private readonly campaigns: CampaignService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

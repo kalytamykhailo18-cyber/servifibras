@@ -14,6 +14,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { CarrierAliasMap } from './carrier-normalize.util';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface CarrierAliasInput {
   rawPattern: string;
   mappedName: string;
@@ -27,7 +28,7 @@ export class CarrierAliasService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

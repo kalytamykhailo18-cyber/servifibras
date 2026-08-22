@@ -17,6 +17,7 @@ import {
 } from '../../domain/entities/whatsapp-message.entity';
 import { WhatsappQrService } from '../whatsapp-qr/whatsapp-qr.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 /** Meta Cloud API media-message types we emit. */
 type MetaMediaType = 'audio' | 'image' | 'video' | 'document';
 
@@ -57,7 +58,7 @@ export class WhatsAppService implements IWhatsAppService {
     @Optional()
     @Inject(forwardRef(() => WhatsappQrService))
     private readonly qr?: WhatsappQrService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     // ✅ RULE 1: All config from .env, never hardcoded

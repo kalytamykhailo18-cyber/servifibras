@@ -24,6 +24,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, ConversationStatus, LeadStatus, MessageSender, OrderStatus, UserRole } from '@prisma/client';
 import { getMessageCipher } from '../security/message-cipher';
 import { businessHoursMsBetween, businessHoursMinutesBetween } from './business-hours.util';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   quoteFollowupMinutes,
   quoteFollowupMs,
@@ -156,7 +157,7 @@ export class RoleMetricsService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

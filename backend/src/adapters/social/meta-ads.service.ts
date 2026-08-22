@@ -22,6 +22,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel, LeadStatus } from '@prisma/client';
 import { MetaAuthResolver } from '../oauth/meta-auth.resolver';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface MetaLeadgenEvent {
   leadgenId: string;
   formId: string | null;
@@ -49,7 +50,7 @@ export class MetaAdsService {
 
   constructor(
     private readonly auth: MetaAuthResolver,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     this.apiUrl = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v18.0';

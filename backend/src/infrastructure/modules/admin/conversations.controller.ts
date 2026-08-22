@@ -39,6 +39,7 @@ import { Channel, ConversationStatus } from '@prisma/client';
 import { NotificationsGateway } from '../../notifications/notifications.gateway';
 import { MetricsBroadcaster } from '../../notifications/metrics-broadcaster.service';
 import { AuditLogService } from '../../../adapters/audit/audit-log.service';
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 import {
   UploadStorageService,
   FileTooLargeError,
@@ -61,7 +62,7 @@ export class ConversationsController {
     private readonly orderManagement: OrderManagementService,
     private readonly summary: ConversationSummaryService,
     private readonly scorer: ConversationScorerService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.scorePrisma = prismaShared ?? new PrismaClient();
   }

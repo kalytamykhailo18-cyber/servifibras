@@ -34,6 +34,7 @@ import { WhatsappQrService } from '../whatsapp-qr/whatsapp-qr.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type HealthStatus = 'ok' | 'degraded' | 'down' | 'unconfigured';
 
 export interface ComponentReport {
@@ -62,7 +63,7 @@ export class HealthService {
   constructor(
     private readonly exchangeRate: ExchangeRateService,
     @Optional() private readonly whatsappQr?: WhatsappQrService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -14,13 +14,14 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, Channel } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class ChannelGateService {
   private readonly logger = new Logger(ChannelGateService.name);
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

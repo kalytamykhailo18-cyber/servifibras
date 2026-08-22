@@ -24,6 +24,7 @@ import { PrismaClient, Channel, LeadStatus } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { WhatsAppOutgoingMessage } from '../../domain/entities/whatsapp-message.entity';
 
+import { PrismaService } from '../repositories/prisma.service';
 function envStr(key: string, fallback: string): string {
   const v = process.env[key];
   return v != null && v.length > 0 ? v : fallback;
@@ -95,7 +96,7 @@ export class WeeklyLeadsReportService {
 
   constructor(
     private readonly whatsapp: WhatsAppService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

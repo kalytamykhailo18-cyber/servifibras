@@ -30,6 +30,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 const CACHE_TTL_MS_DEFAULT = 5 * 60 * 1000;
 
 interface StoredCarrierDefaults {
@@ -42,7 +43,7 @@ export class CarrierDefaultsService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

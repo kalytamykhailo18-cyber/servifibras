@@ -29,6 +29,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 const CUSTOMER_TYPE_LABEL_ES: Record<string, string> = {
   ARTESANO: 'artesano / hobbysta',
   EMPRENDEDOR: 'emprendedor (pequeño comercio)',
@@ -73,7 +74,7 @@ export class CustomerContextService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

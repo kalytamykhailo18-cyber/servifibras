@@ -32,6 +32,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Channel, PrismaClient } from '@prisma/client';
 import { CostOptCounterService } from '../ai/cost-opt-counter.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 type IntentKey =
   | 'horarios'
   | 'direccion'
@@ -184,7 +185,7 @@ export class FaqPreAiService {
 
   constructor(
     @Optional() private readonly costOptCounter?: CostOptCounterService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

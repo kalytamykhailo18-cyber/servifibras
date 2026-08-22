@@ -29,6 +29,7 @@ import { PrismaClient, OrderSource, OrderStatus } from '@prisma/client';
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.token';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type VentasRange = 'today' | 'week' | 'month';
 
 export type VentasSource =
@@ -78,7 +79,7 @@ export class VentasUnificadasService {
     @Optional()
     @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

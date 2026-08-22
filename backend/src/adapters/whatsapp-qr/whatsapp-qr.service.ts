@@ -41,6 +41,7 @@ import { UploadStorageService } from '../uploads/upload-storage.service';
 import { WhatsAppIncomingMessage, WhatsAppMessageType } from '../../domain/entities/whatsapp-message.entity';
 import { ContentType, PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 type ConnectionStatus =
   | 'disabled'        // env flag off
   | 'starting'        // booting socket
@@ -82,7 +83,7 @@ export class WhatsappQrService implements OnModuleInit, OnModuleDestroy {
     // para que aparezcan en el hilo con miniatura y click-to-download.
     @Optional() private readonly uploads?: UploadStorageService,
     // Marcos 2026-08-21: shared Prisma pool.
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

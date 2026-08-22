@@ -26,6 +26,7 @@ import {
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { MetricsBroadcaster } from '../../infrastructure/notifications/metrics-broadcaster.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 function dedupHours(): number {
   const raw = process.env.MAYORISTA_DEDUP_HOURS;
   const n = raw != null ? Number(raw) : 24;
@@ -42,7 +43,7 @@ export class LeadAutoAssignmentService implements ILeadAutoAssignmentService {
     private readonly detector: IMayoristaDetector,
     private readonly notifications: NotificationsGateway,
     private readonly metrics: MetricsBroadcaster,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

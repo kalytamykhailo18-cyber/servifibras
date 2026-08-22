@@ -12,6 +12,7 @@ import { resolveCarrierAndZone } from './carrier-resolver.util';
 import { CarrierDefaultsService } from './carrier-defaults.service';
 import { CarrierAliasService } from './carrier-alias.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 /**
  * Compute the per-role `where` clause for conversation aggregates so a
  * non-admin's dashboard reflects their queue, not the global pool.
@@ -59,7 +60,7 @@ export class AnalyticsService implements IAnalyticsService {
     @Optional() private readonly carrierAliases?: CarrierAliasService,
     @Optional() private readonly carrierDefaults?: CarrierDefaultsService,
     // Marcos 2026-08-21: shared Prisma pool.
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Analytics service initialized');

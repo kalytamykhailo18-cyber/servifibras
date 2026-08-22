@@ -18,6 +18,7 @@ import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.
 import { ClaudeBudgetService } from '../ai/claude-budget.service';
 import { ClaudeService } from '../ai/claude.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 // Marcos 2026-06-24 (Phase C): kill switch para el modo cerrado.
 // Default OFF mientras Marcos cura las publicaciones; flipea a true
 // para activar en una cuenta de prueba o por env.
@@ -63,7 +64,7 @@ export class MlPublicationKnowledgeService {
     // applyReplyPostProcessing antes del self-eval + del return.
     @Optional()
     private readonly claude?: ClaudeService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

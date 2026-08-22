@@ -31,6 +31,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, OrderSource, OrderStatus } from '@prisma/client';
 import { TiendaNubeAuthResolver } from '../oauth/tiendanube-auth.resolver';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type TiendaNubeFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface TnOrderProduct {
@@ -168,7 +169,7 @@ export class TiendaNubeOrdersSyncService {
 
   constructor(
     private readonly auth: TiendaNubeAuthResolver,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -18,6 +18,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 // Marcos 2026-07-14 (Baires GBA1/GBA 1): la clave (carrier, zone) que
 // usa el estimator debe ignorar mayúsculas y espacios internos. TN
 // exporta "GBA 1" en la etiqueta ("GBA 1 GRATIS"), el tariff se cargó
@@ -47,7 +48,7 @@ export class DispatchTariffService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

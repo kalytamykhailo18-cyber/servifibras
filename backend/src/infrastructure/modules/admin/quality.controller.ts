@@ -35,6 +35,7 @@ import { UserRole } from '../../../domain/entities/auth.entity';
 import { ConversationScorerService } from '../../../adapters/quality/conversation-scorer.service';
 import { QualityPatternService } from '../../../adapters/quality/quality-pattern.service';
 
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 interface DailyPoint {
   date: string;
   avgScore: number | null;
@@ -50,7 +51,7 @@ export class QualityController {
   constructor(
     private readonly scorer: ConversationScorerService,
     private readonly pattern: QualityPatternService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

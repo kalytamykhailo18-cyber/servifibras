@@ -45,6 +45,7 @@ import { CarrierDefaultsService } from './carrier-defaults.service';
 import { resolveCarrierAndZone } from './carrier-resolver.util';
 import { DispatchTariffService } from './dispatch-tariff.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type DailySection =
   | 'COLECTA_1'
   | 'COLECTA_2'
@@ -512,7 +513,7 @@ export class DailyLogisticaAggregatorService {
     @Optional()
     private readonly carrierDefaults?: CarrierDefaultsService,
     // Marcos 2026-08-21: shared Prisma pool.
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

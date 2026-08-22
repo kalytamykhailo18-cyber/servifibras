@@ -28,6 +28,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { looksLikeTestContactName } from '../conversations/test-contact-patterns';
 import { CostOptCounterService } from './cost-opt-counter.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 function num(envKey: string, fallback: number): number {
   const v = process.env[envKey];
   const n = v != null ? Number(v) : fallback;
@@ -163,7 +164,7 @@ export class ClaudeBudgetService {
   // instancian ClaudeBudgetService sin el contador de Bloque E.
   constructor(
     @Optional() private readonly costOptCounter?: CostOptCounterService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

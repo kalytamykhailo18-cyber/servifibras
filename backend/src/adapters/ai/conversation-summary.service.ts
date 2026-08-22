@@ -23,6 +23,7 @@ import { PrismaClient, MessageSender } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface ConversationSummary {
   summary: string;          // 1–3 sentences, plain Spanish
   products: string[];       // product names / SKUs mentioned by the customer
@@ -46,7 +47,7 @@ export class ConversationSummaryService {
 
   constructor(
     private readonly gateway: NotificationsGateway,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     const apiKey = process.env.CLAUDE_API_KEY;

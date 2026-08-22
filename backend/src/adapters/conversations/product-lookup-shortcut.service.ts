@@ -33,6 +33,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { CostOptCounterService } from '../ai/cost-opt-counter.service';
 import { Channel, PrismaClient, Product } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 function isEnabled(): boolean {
   const raw = process.env.PRODUCT_LOOKUP_SHORTCUT_ENABLED;
   if (raw == null || raw.trim().length === 0) return true;
@@ -115,7 +116,7 @@ export class ProductLookupShortcutService {
 
   constructor(
     @Optional() private readonly costOptCounter?: CostOptCounterService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -21,6 +21,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigurationType, PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface LaminadoProduct {
   key: string;
   ancho: number;
@@ -116,7 +117,7 @@ export class LaminadosPriceConfigService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

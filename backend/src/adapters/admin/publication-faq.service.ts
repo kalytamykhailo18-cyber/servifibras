@@ -18,6 +18,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PublicationFaq, PrismaClient } from '@prisma/client';
 import { CostOptCounterService } from '../ai/cost-opt-counter.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 function stripAccents(s: string): string {
   return s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
@@ -63,7 +64,7 @@ export class PublicationFaqService {
 
   constructor(
     @Optional() private readonly costOptCounter?: CostOptCounterService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

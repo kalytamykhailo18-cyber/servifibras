@@ -15,6 +15,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigurationType, PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export const DEFAULT_MAYORISTA_KEYWORDS = [
   'mayorista',
   'mayoreo',
@@ -47,7 +48,7 @@ export class LeadDetectionConfigService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -16,6 +16,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, PrismaClient, UserRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface UserCreateInput {
   email: string;
   username: string;
@@ -48,7 +49,7 @@ export class UserManagementService {
 
   constructor(
     private readonly auth: AuthService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

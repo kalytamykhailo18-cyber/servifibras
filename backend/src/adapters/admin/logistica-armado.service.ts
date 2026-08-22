@@ -27,6 +27,7 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, LogisticaArmado, LogisticaArmadoState } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export type RowLifecycleState = 'PENDIENTE' | 'ARMADO' | 'LISTO';
 
 export interface RowLifecycleLookup {
@@ -78,7 +79,7 @@ export class LogisticaArmadoService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

@@ -24,6 +24,7 @@ import {
 } from '../../domain/entities/social-message.entity';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 /**
  * Marcos 2026-08-03 (WhatsApp 8:16 AR): "yanina ve todas las
  * conversaciones de whatsapp, brenda y franco no". Yanina es ADMIN;
@@ -57,7 +58,7 @@ export class ConversationManagementService implements IConversationManagementSer
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
     // Marcos 2026-08-21: shared Prisma pool.
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Conversation Management service initialized');

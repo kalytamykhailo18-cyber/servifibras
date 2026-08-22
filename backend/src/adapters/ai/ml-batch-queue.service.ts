@@ -44,6 +44,7 @@ import { MERCADOLIBRE_SERVICE } from '../../use-cases/mercadolibre/mercadolibre.
 import type { MercadoLibreService } from '../mercadolibre/mercadolibre.service';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface EnqueueInput {
   conversationId: string;
   contactId: string;
@@ -64,7 +65,7 @@ export class MlBatchQueueService {
     private readonly claude: ClaudeService,
     @Optional() @Inject(MERCADOLIBRE_SERVICE)
     private readonly mercadolibre?: MercadoLibreService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

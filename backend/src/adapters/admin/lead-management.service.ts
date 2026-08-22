@@ -11,13 +11,14 @@ import {
 import { UserRole } from '../../domain/entities/auth.entity';
 import { ContactDimensionsService } from '../lead-detection/contact-dimensions.service';
 
+import { PrismaService } from '../repositories/prisma.service';
 @Injectable()
 export class LeadManagementService implements ILeadManagementService {
   private prisma: PrismaClient;
 
   constructor(
     private readonly contactDimensions: ContactDimensionsService,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

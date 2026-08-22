@@ -25,6 +25,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, UserRole, CustomerType } from '@prisma/client';
 import { NotificationsGateway } from '../../infrastructure/notifications/notifications.gateway';
 
+import { PrismaService } from '../repositories/prisma.service';
 function alertableTypes(): Set<string> {
   const raw = process.env.ORDER_ALERT_CUSTOMER_TYPES;
   if (raw && raw.trim().length > 0) {
@@ -41,7 +42,7 @@ export class OrderNotificationService {
 
   constructor(
     private readonly notifications: NotificationsGateway,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

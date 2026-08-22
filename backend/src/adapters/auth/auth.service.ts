@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
 import * as jwt from 'jsonwebtoken';
 import { IAuthService } from '../../use-cases/auth/auth.interface';
+import { PrismaService } from '../repositories/prisma.service';
 import {
   AuthUser,
   LoginCredentials,
@@ -45,7 +46,7 @@ export class AuthService implements IAuthService {
   private readonly saltRounds = 10;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     // Marcos 2026-07-13 (C4 del documento, "el sistema NO arranca sin

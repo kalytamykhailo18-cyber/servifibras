@@ -29,6 +29,7 @@ import { AuthGuard } from '../../guards/auth.guard';
 import { RolesGuard, Roles } from '../../guards/roles.guard';
 import { UserRole } from '../../../domain/entities/auth.entity';
 import { ConversationHandlerService } from '../../../adapters/conversations/conversation-handler.service';
+import { PrismaService } from '../../../adapters/repositories/prisma.service';
 import {
   WhatsAppIncomingMessage,
   WhatsAppMessageType,
@@ -67,7 +68,7 @@ export class ReplayController {
 
   constructor(
     private readonly handler: ConversationHandlerService,
-    @Optional() prismaShared?: import('../../../adapters/repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

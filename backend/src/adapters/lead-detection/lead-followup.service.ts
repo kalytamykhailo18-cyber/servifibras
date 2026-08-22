@@ -56,6 +56,7 @@ import { MetricsBroadcaster } from '../../infrastructure/notifications/metrics-b
 import { quoteFollowupMs } from './quote-followup-window.util';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 const DEFAULT_TEMPLATE =
   'Hola{{name}}, ¿pudiste revisar la cotización? Quedo atenta a cualquier consulta o ajuste.';
 
@@ -102,7 +103,7 @@ export class LeadFollowupService {
     private readonly webchat: WebchatService,
     private readonly social: SocialMediaService,
     private readonly metrics: MetricsBroadcaster,
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

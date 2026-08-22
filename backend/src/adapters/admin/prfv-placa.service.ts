@@ -22,6 +22,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrfvPlaca, PrfvPlacaState, PrismaClient } from '@prisma/client';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface PrfvPlacaInput {
   cliente: string;
   producto: string;
@@ -56,7 +57,7 @@ export class PrfvPlacaService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

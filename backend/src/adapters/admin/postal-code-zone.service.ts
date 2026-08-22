@@ -29,6 +29,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaClient, PostalCodeZone } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
+import { PrismaService } from '../repositories/prisma.service';
 export interface PostalCodeZoneUploadResult {
   parsedRows: number;
   expandedRows: number;
@@ -118,7 +119,7 @@ export class PostalCodeZoneService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
   }

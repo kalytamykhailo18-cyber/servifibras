@@ -15,6 +15,7 @@ import {
 import { RequestScope } from '../../use-cases/admin/conversation-management.interface';
 import { getMessageCipher } from '../security/message-cipher';
 
+import { PrismaService } from '../repositories/prisma.service';
 // Build the Prisma `where` clause for embedded conversations under a contact,
 // using the same scoping as the conversations list endpoint:
 //   ADMIN — no filter
@@ -50,7 +51,7 @@ export class ContactManagementService implements IContactManagementService {
   private readonly prisma: PrismaClient;
 
   constructor(
-    @Optional() prismaShared?: import('../repositories/prisma.service').PrismaService,
+    @Optional() prismaShared?: PrismaService,
   ) {
     this.prisma = prismaShared ?? new PrismaClient();
     this.logger.log('✅ Contact Management service initialized');
