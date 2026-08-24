@@ -76,6 +76,14 @@ export function RegisterOrderDialog({
   contactName,
   onRegistered,
 }: Props) {
+  // Marcos 2026-08-24 (WhatsApp 12:43 AR): "cargando un pedido con
+  // muchos items, hizo un micro ajuste y se cerró todo el pedido
+  // perdiendo todos los datos". Persistimos el borrador en
+  // sessionStorage por-conversación así si algo cierra la pestaña
+  // (reload, bounce-to-login por 401, cierre accidental), al reabrir
+  // el pedido volvés a donde estabas. Se limpia después de crear el
+  // pedido con éxito o al cancelar explícito.
+  const draftKey = `register-order-draft:${conversationId}`;
   const [orderNumber, setOrderNumber] = useState("");
   const [currency, setCurrency] = useState<"ARS" | "USD">("ARS");
   const [rows, setRows] = useState<ProductRow[]>([{ ...EMPTY_ROW }]);
@@ -85,12 +93,45 @@ export function RegisterOrderDialog({
 
   useEffect(() => {
     if (!open) return;
+    // Restore from sessionStorage if a draft exists.
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.sessionStorage.getItem(draftKey);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved && typeof saved === "object") {
+            setOrderNumber(saved.orderNumber ?? "");
+            setCurrency(saved.currency === "USD" ? "USD" : "ARS");
+            setRows(Array.isArray(saved.rows) && saved.rows.length > 0 ? saved.rows : [{ ...EMPTY_ROW }]);
+            setNotes(saved.notes ?? "");
+            setAmountOverride(saved.amountOverride ?? "");
+            return;
+          }
+        }
+      } catch {
+        // fall through to fresh start
+      }
+    }
     setOrderNumber("");
     setCurrency("ARS");
     setRows([{ ...EMPTY_ROW }]);
     setNotes("");
     setAmountOverride("");
-  }, [open]);
+  }, [open, draftKey]);
+
+  // Autosave to sessionStorage on every change while the dialog is
+  // open — de-bounced would be nicer but at typical form sizes plain
+  // per-render sync is fine (writes are cheap synchronous ops).
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === "undefined") return;
+    try {
+      const payload = { orderNumber, currency, rows, notes, amountOverride };
+      window.sessionStorage.setItem(draftKey, JSON.stringify(payload));
+    } catch {
+      /* storage full / disabled — silently skip */
+    }
+  }, [open, draftKey, orderNumber, currency, rows, notes, amountOverride]);
 
   const computedTotal = rows.reduce((s, r) => s + lineTotal(r), 0);
   const finalTotal = amountOverride !== "" ? Number(amountOverride) || 0 : computedTotal;
@@ -138,6 +179,12 @@ export function RegisterOrderDialog({
         notes: notes.trim() || undefined,
       });
       toast.success(`Pedido ${created.orderNumber ?? ""} registrado`);
+      // Draft persistió mientras se cargaba; ya lo grabamos como pedido
+      // real, limpiamos así no reaparece la próxima vez que abras el
+      // modal en esta conversación.
+      if (typeof window !== "undefined") {
+        try { window.sessionStorage.removeItem(draftKey); } catch {}
+      }
       onOpenChange(false);
       onRegistered();
     } catch (err: any) {
