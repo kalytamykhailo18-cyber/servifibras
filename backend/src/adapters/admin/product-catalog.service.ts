@@ -435,6 +435,35 @@ export class ProductCatalogService {
     return set;
   }
 
+  /**
+   * Marcos 2026-08-24 (WhatsApp 12:42 AR): el agente cross-atribuyó
+   * precios entre productos (MAT 300 quedó con $95.000 que es el
+   * precio de Resina 1:1 UV 2000ml). El price-guard existente valida
+   * "monto está en el catálogo" pero no valida "monto matchea al
+   * producto mencionado". Este map devuelve, por cada precio en el
+   * catálogo, la lista de nombres de producto que tienen ese precio.
+   * El guard nuevo lo usa para verificar que si el reply dice
+   * "NOMBRE_X: $Y", exista al menos un producto con nombre ≈ NOMBRE_X
+   * cuyo precio real sea Y.
+   */
+  async getPriceToProductNames(): Promise<Map<number, string[]>> {
+    const rows = await this.prisma.product.findMany({
+      where: { active: true, basePriceArs: { not: null } },
+      select: { basePriceArs: true, name: true },
+    });
+    const out = new Map<number, string[]>();
+    for (const r of rows) {
+      const raw = r.basePriceArs as any;
+      const num = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(num) || num <= 0 || !r.name) continue;
+      const key = Math.round(num);
+      const arr = out.get(key) ?? [];
+      arr.push(r.name);
+      out.set(key, arr);
+    }
+    return out;
+  }
+
   async getActiveCatalogUrls(): Promise<Set<string>> {
     const rows = await this.prisma.product.findMany({
       where: { active: true, url: { not: null } },

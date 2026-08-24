@@ -519,6 +519,12 @@ export class ClaudeService implements IAIService {
   // con el resto del catálogo. Guard puede desactivarse con
   // AGENT_PRICE_GUARD_ENABLED=false.
   private validCatalogPrices: Set<number> = new Set();
+  // Marcos 2026-08-24: price → array of product names that legitimately
+  // have that price. El guard nuevo verifica que si el reply escribe
+  // "PROD_X: $Y", exista un product con name ≈ PROD_X cuyo precio real
+  // sea Y (dentro de 1% tolerancia). Sin esto, el agente puede
+  // cross-atribuir precios (MAT 300 con precio de otra resina).
+  private priceToProductNames: Map<number, string[]> = new Map();
   private static readonly ML_STORE_PROFILE_URL =
     'https://www.mercadolibre.com.ar/tienda/servifibras';
   // Source-of-truth flag for the currently-loaded Lucas prompt:
@@ -739,7 +745,7 @@ export class ClaudeService implements IAIService {
       // URL whitelist still loads so the post-response filter can
       // strip fabricated links. The free-form KB block stays in the
       // prompt because it's small, mostly static, and worth caching.
-      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds, skuMap, prices] = await Promise.all([
+      const [kb, urls, mlMap, allMlPermalinks, allMlItemIds, skuMap, prices, priceNames] = await Promise.all([
         this.knowledgeRepo.getFormattedForAI(),
         this.productCatalog.getActiveCatalogUrls().catch(() => new Set<string>()),
         this.productCatalog.getCatalogUrlToMlPermalinkMap().catch(() => new Map<string, string>()),
@@ -747,6 +753,7 @@ export class ClaudeService implements IAIService {
         this.productCatalog.getAllMlItemIds().catch(() => new Set<string>()),
         this.productCatalog.getSkuToUrlMap().catch(() => new Map()),
         this.productCatalog.getActiveCatalogPrices().catch(() => new Set<number>()),
+        this.productCatalog.getPriceToProductNames().catch(() => new Map<number, string[]>()),
       ]);
       this.knowledgeBaseContext = kb && kb.length > 0 ? kb : null;
       this.validCatalogUrls = urls;
@@ -755,8 +762,9 @@ export class ClaudeService implements IAIService {
       this.validMlItemIds = allMlItemIds;
       this.skuToUrl = skuMap;
       this.validCatalogPrices = prices;
+      this.priceToProductNames = priceNames;
       this.logger.log(
-        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist, ${skuMap.size} SKUs in C2 link-marker resolver, ${prices.size} unique ARS prices in price guard whitelist`,
+        `✅ KB loaded; ${urls.size} valid product URLs whitelisted, ${mlMap.size} TN→ML mapping entries, ${allMlPermalinks.size / 2} unique ML permalinks + ${allMlItemIds.size} known ML itemIds in A2 allowlist, ${skuMap.size} SKUs in C2 link-marker resolver, ${prices.size} unique ARS prices in price guard whitelist, ${priceNames.size} price→names entries for attribution guard`,
       );
     } catch (error) {
       this.logger.error('Failed to load knowledge base', error);
@@ -1151,6 +1159,115 @@ export class ClaudeService implements IAIService {
       if (strippedAny) {
         cleaned =
           'Un segundo, te confirmo el precio exacto y te lo paso.';
+      }
+    }
+
+    // Marcos 2026-08-24 (WhatsApp 12:42 AR — MAT 300 con $95.000 y
+    // Resina Artesanos con $95.409, ambos precios de OTROS productos):
+    // el price guard de arriba deja pasar montos que EXISTEN en el
+    // catálogo aunque estén atribuidos al producto equivocado. Este
+    // guard es específico para el patrón "NOMBRE: $MONTO" (una línea
+    // por producto en un resumen tipo cotización) y verifica que el
+    // nombre matchee un producto real cuyo precio sea ese monto.
+    // Match fuzzy: al menos 2 tokens del nombre del reply tienen que
+    // aparecer en algún nombre de catálogo asociado al precio.
+    // Off-switch: AGENT_NAME_PRICE_GUARD_ENABLED=false.
+    const namePriceGuardEnabled =
+      (process.env.AGENT_NAME_PRICE_GUARD_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (namePriceGuardEnabled && this.priceToProductNames.size > 0) {
+      // Pattern: line starting with product name (letters/numbers/parens/
+      // spaces), then ": $PRICE" or " $PRICE" at end of segment.
+      const LINE_RE =
+        /^[·•\-*\s]*([A-ZÁÉÍÓÚÑa-záéíóúñ0-9][^\n:]{2,80}?)\s*[:\-–]?\s*\$\s*([\d.,]+)/gm;
+      let attributionBroken = false;
+      const misAttributions: string[] = [];
+      const normalize = (s: string) =>
+        s.toLowerCase()
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .replace(/[()°º]/g, ' ')
+          .split(/[\s/.,\-]+/)
+          .filter((w) => w.length >= 2);
+      for (const m of cleaned.matchAll(LINE_RE)) {
+        const nameText = m[1].trim();
+        const digitStr = String(m[2]).replace(/[.,]/g, '');
+        const price = Math.round(Number(digitStr));
+        if (!Number.isFinite(price) || price < 500) continue;
+        const namesAtPrice = this.priceToProductNames.get(price) ?? [];
+        const withinTolerance: string[] = [...namesAtPrice];
+        for (const [pKey, pNames] of this.priceToProductNames) {
+          if (pKey === price) continue;
+          if (Math.abs(pKey - price) / pKey <= 0.01) withinTolerance.push(...pNames);
+        }
+        if (withinTolerance.length === 0) continue;
+        const replyTokens = new Set(normalize(nameText));
+        if (replyTokens.size === 0) continue;
+        let matched = false;
+        for (const catName of withinTolerance) {
+          const catTokens = new Set(normalize(catName));
+          let overlap = 0;
+          for (const t of replyTokens) if (catTokens.has(t)) overlap++;
+          if (overlap >= 2) { matched = true; break; }
+        }
+        if (!matched) {
+          attributionBroken = true;
+          misAttributions.push(`"${nameText}: $${m[2]}"`);
+        }
+      }
+      if (attributionBroken) {
+        this.logger.warn(
+          `${gTag}Name-price attribution mismatch — reply blocked: ${misAttributions.slice(0, 3).join(', ')}`,
+        );
+        dropped++;
+        cleaned = 'Un segundo, te confirmo el precio exacto y te lo paso.';
+      }
+    }
+
+    // Marcos 2026-08-24: strip bullet-list format — Marcos flageó que
+    // el agente mandó "· MAT 300 · Resina ..." con viñetas, lo cual
+    // en WhatsApp lee como "listado de máquina". La regla del prompt
+    // lo prohíbe pero el modelo cae en el patrón cuando enumera. Este
+    // guard convierte líneas que arrancan con "-"/"·"/"•"/"*" en
+    // prosa: si son 2 o más viñetas consecutivas, las une con coma.
+    // Off-switch: AGENT_BULLET_STRIP_ENABLED=false.
+    const bulletStripEnabled =
+      (process.env.AGENT_BULLET_STRIP_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (bulletStripEnabled) {
+      const lines = cleaned.split('\n');
+      const BULLET_RE = /^\s*[-·•*]\s+/;
+      const out: string[] = [];
+      let buffer: string[] = [];
+      const flushBuffer = () => {
+        if (buffer.length === 0) return;
+        if (buffer.length === 1) {
+          out.push(buffer[0]);
+        } else {
+          // Join with comma; keep last item preceded by "y" if there's
+          // no already-punctuated end. Read as natural prose.
+          const parts = buffer.map((s) => s.trim()).filter((s) => s.length > 0);
+          if (parts.length >= 2) {
+            const last = parts.pop()!;
+            out.push(`${parts.join(', ')} y ${last}.`);
+          } else if (parts.length === 1) {
+            out.push(parts[0]);
+          }
+        }
+        buffer = [];
+      };
+      for (const line of lines) {
+        const m = line.match(BULLET_RE);
+        if (m) {
+          buffer.push(line.replace(BULLET_RE, ''));
+        } else {
+          flushBuffer();
+          out.push(line);
+        }
+      }
+      flushBuffer();
+      const rebuilt = out.join('\n');
+      if (rebuilt !== cleaned) {
+        this.logger.log(`${gTag}Bullet-list stripped and merged to prose`);
+        cleaned = rebuilt;
       }
     }
 
