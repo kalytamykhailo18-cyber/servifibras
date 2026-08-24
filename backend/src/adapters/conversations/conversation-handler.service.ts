@@ -1771,20 +1771,42 @@ export class ConversationHandlerService implements IConversationHandler {
     if (!contact) {
       this.logger.log(`Creating new contact: ${phoneNumber} (waJid=${waJid ?? 'n/a'})`);
       const initialName = pushName && pushName.trim().length > 0 ? pushName.trim() : phoneNumber;
-      contact = await this.prisma.contact.create({
-        data: {
-          phone: phoneNumber,
-          name: initialName,
-          type: ContactType.MINORISTA, // Default, can be updated based on conversation
-          channel: Channel.WHATSAPP,
-          avatarUrl: avatarUrl ?? null,
-          // Marcos 2026-07-03: stash el JID completo (`<num>@<scheme>`) para
-          // que WhatsAppService.sendMessage rutee de vuelta con el mismo
-          // esquema. Los contactos LID no tienen phone real y sólo se
-          // pueden alcanzar por su `<lid>@lid`.
-          metadata: waJid ? { waJid } : undefined,
-        },
-      });
+      // Marcos 2026-08-24 (Quique "Necesito consultar" perdido el
+      // sábado): dos mensajes que arriban en el mismo milisegundo
+      // desde el mismo contacto nuevo hacían dos `findUnique` que
+      // ambos veían "no existe" y ambos entraban al create. Uno
+      // insertaba, el otro colisionaba con la unique constraint del
+      // phone y tiraba P2002. El catch de arriba tragaba el error y
+      // el mensaje se perdía en silencio. Ahora si la create colisiona
+      // por race, re-leemos el contacto (que la otra llamada ya
+      // insertó) y seguimos con él.
+      try {
+        contact = await this.prisma.contact.create({
+          data: {
+            phone: phoneNumber,
+            name: initialName,
+            type: ContactType.MINORISTA, // Default, can be updated based on conversation
+            channel: Channel.WHATSAPP,
+            avatarUrl: avatarUrl ?? null,
+            // Marcos 2026-07-03: stash el JID completo (`<num>@<scheme>`) para
+            // que WhatsAppService.sendMessage rutee de vuelta con el mismo
+            // esquema. Los contactos LID no tienen phone real y sólo se
+            // pueden alcanzar por su `<lid>@lid`.
+            metadata: waJid ? { waJid } : undefined,
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002') {
+          const raced = await this.prisma.contact.findUnique({ where: { phone: phoneNumber } });
+          if (!raced) throw err;
+          this.logger.log(
+            `Race on contact create for ${phoneNumber} — reusing sibling insert (${raced.id.slice(0, 8)})`,
+          );
+          contact = raced;
+        } else {
+          throw err;
+        }
+      }
     } else {
       // Marcos 2026-07-31: refrescamos name / avatarUrl / waJid en un
       // solo update para evitar N round-trips. Sólo pisamos name cuando
