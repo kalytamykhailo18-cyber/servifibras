@@ -40,35 +40,44 @@ import { Channel } from '@prisma/client';
 import { ConversationSummaryService } from './conversation-summary.service';
 
 /**
- * Detecta si un keyFact del summary parece un dato de ubicación de
- * envío (dirección, ciudad, CP, provincia). El summary los guarda para
- * el dashboard del operador, pero NO deben entrar al system block que
- * ve el modelo porque cuando la próxima consulta del cliente es sobre
- * envío, el modelo agarra ese token como referencia de distancia y
- * arma frases del tipo "sale más que a Zárate" — el pueblo que estaba
- * en el keyFact de un turno viejo, no en la consulta actual.
+ * Detecta si un keyFact del summary es texto de dirección/localidad que
+ * puede convertirse en referencia de distancia alucinada por el modelo
+ * ("sale más que a Zárate" — Zárate era el keyFact de un turno viejo).
+ * Marcos 2026-08-24: PRESERVAMOS los keyFacts CP-only ("CP 1832",
+ * "Código Postal 5000") porque son datos de envío inequívocos que el
+ * agente necesita recordar entre turnos para no volver a preguntarlo.
+ * Sólo strippeamos las direcciones/ciudades en prosa.
  *
- * Ejemplos que se filtran:
- *   "Dirección: Ameghino, Buenos Aires"
- *   "Envío a Córdoba Capital"
- *   "Ciudad: Zárate"
- *   "CP 6064"
- *   "Localidad: Palermo"
- *   "Provincia: Chubut"
+ * Se strippa:
+ *   "Dirección: Ameghino, Buenos Aires"    ← nombre de ciudad
+ *   "Envío a Córdoba Capital"              ← nombre de ciudad
+ *   "Ciudad: Zárate"                       ← nombre de ciudad
+ *   "Localidad: Palermo"                   ← nombre de barrio/ciudad
+ *   "Provincia: Chubut"                    ← nombre de provincia
+ *
+ * Se PRESERVA:
+ *   "CP 6064"                              ← código postal puro
+ *   "Código Postal 1832"                   ← código postal puro
+ *   "CP: 1425"                             ← código postal puro
+ *   "Cantidad: 5 litros"                   ← ni ubicación
  */
 export function isLocationLikeKeyFact(fact: string): boolean {
   if (!fact) return false;
-  const lc = fact.toLowerCase().trim();
-  // Prefix con palabra clave de ubicación seguida de : - = o espacio.
+  const trimmed = fact.trim();
+  const lc = trimmed.toLowerCase();
+  // Preservamos: CP-only keyFacts (puro código postal + dígitos).
+  if (/^(?:cp|c[oó]digo\s+postal)\s*[:\-]?\s*\d{3,5}\s*\.?$/i.test(trimmed)) {
+    return false;
+  }
+  // Strip: prefix con palabra clave de ubicación en prosa (ciudad/
+  // dirección/provincia con nombre alfabético).
   if (
-    /^(direcci[oó]n|env[ií]o(?:\s+a)?|env[ií]a\s+a|entrega(?:r|\s+a)?|domicilio|ciudad|localidad|provincia|zona(?:\s+de\s+env[ií]o)?|destino|ubicaci[oó]n|c[oó]digo\s+postal|cp)\b[\s\-:=]/.test(
+    /^(direcci[oó]n|env[ií]o(?:\s+a)?|env[ií]a\s+a|entrega(?:r|\s+a)?|domicilio|ciudad|localidad|provincia|zona(?:\s+de\s+env[ií]o)?|destino|ubicaci[oó]n)\b[\s\-:=]/.test(
       lc,
     )
   ) {
     return true;
   }
-  // CP standalone: "CP 6064", "cp: 1425", "Código postal 5000".
-  if (/^cp\s*\d{3,5}\b/.test(lc)) return true;
   return false;
 }
 import { CostOptCounterService } from './cost-opt-counter.service';
