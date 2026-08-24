@@ -150,7 +150,7 @@ export function RegisterOrderDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-2xl rounded-2xl border border-slate-200/70 bg-white/95 p-0 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150"
+        className="max-w-4xl rounded-2xl border border-slate-200/70 bg-white/95 p-0 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150"
         data-testid="register-order-dialog"
       >
         <div className="flex items-start gap-3 border-b border-slate-200/60 p-5">
@@ -221,7 +221,7 @@ export function RegisterOrderDialog({
               {rows.map((row, idx) => (
                 <li
                   key={idx}
-                  className="grid grid-cols-[1fr_88px_1fr_110px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
+                  className="grid grid-cols-[minmax(260px,2.5fr)_80px_minmax(140px,1fr)_110px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
                 >
                   <div className="min-w-0">
                     <ProductPicker

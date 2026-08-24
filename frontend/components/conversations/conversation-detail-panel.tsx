@@ -8,6 +8,7 @@ import { MessageBubble } from "@/components/conversations/message-bubble";
 import { SendMessageForm } from "@/components/conversations/send-message-form";
 import { TransferDialog } from "@/components/conversations/transfer-dialog";
 import { InternalNoteBubble } from "@/components/conversations/internal-note-bubble";
+import { safeFormatDayHeader, localDayKey } from "@/lib/date";
 import { ConversationOrdersPanel } from "@/components/conversations/conversation-orders-panel";
 import { ConversationSummaryPanel } from "@/components/conversations/conversation-summary-panel";
 import { ConversationScorePanel } from "@/components/conversations/conversation-score-panel";
@@ -652,28 +653,52 @@ export function ConversationDetailPanel({ conversationId, onBack, embedded }: Co
             <div ref={messagesScrollRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white p-4 sm:p-6">
               {(conversation.messages && conversation.messages.length > 0) || internalNotes.length > 0 ? (
                 <>
-                  {[
-                    ...(conversation.messages ?? []).map((m) => ({
-                      kind: "msg" as const,
-                      id: m.id,
-                      ts: new Date(m.timestamp).getTime(),
-                      data: m,
-                    })),
-                    ...internalNotes.map((n) => ({
-                      kind: "note" as const,
-                      id: n.id,
-                      ts: new Date(n.createdAt).getTime(),
-                      data: n,
-                    })),
-                  ]
-                    .sort((a, b) => a.ts - b.ts)
-                    .map((item) =>
-                      item.kind === "msg" ? (
-                        <MessageBubble key={`msg-${item.id}`} message={item.data} />
-                      ) : (
-                        <InternalNoteBubble key={`note-${item.id}`} note={item.data} />
-                      ),
-                    )}
+                  {(() => {
+                    // Marcos 2026-08-24: separador de día tipo WhatsApp
+                    // ("Hoy" / "Ayer" / "Lunes" / "22/08/2026") entre
+                    // grupos de mensajes. Antes cada bubble mostraba
+                    // sólo HH:mm y el operador no podía ubicar en qué
+                    // día se envió cada mensaje del hilo.
+                    const items = [
+                      ...(conversation.messages ?? []).map((m) => ({
+                        kind: "msg" as const,
+                        id: m.id,
+                        ts: new Date(m.timestamp).getTime(),
+                        tsSource: m.timestamp,
+                        data: m,
+                      })),
+                      ...internalNotes.map((n) => ({
+                        kind: "note" as const,
+                        id: n.id,
+                        ts: new Date(n.createdAt).getTime(),
+                        tsSource: n.createdAt,
+                        data: n,
+                      })),
+                    ].sort((a, b) => a.ts - b.ts);
+                    let lastDayKey: string | null = null;
+                    const out: React.ReactNode[] = [];
+                    for (const item of items) {
+                      const dayKey = localDayKey(item.tsSource);
+                      if (dayKey && dayKey !== lastDayKey) {
+                        lastDayKey = dayKey;
+                        out.push(
+                          <div key={`day-${dayKey}`} className="my-3 flex items-center justify-center">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                              {safeFormatDayHeader(item.tsSource)}
+                            </span>
+                          </div>
+                        );
+                      }
+                      out.push(
+                        item.kind === "msg" ? (
+                          <MessageBubble key={`msg-${item.id}`} message={item.data} />
+                        ) : (
+                          <InternalNoteBubble key={`note-${item.id}`} note={item.data} />
+                        ),
+                      );
+                    }
+                    return out;
+                  })()}
                   <div ref={messagesEndRef} />
                 </>
               ) : (

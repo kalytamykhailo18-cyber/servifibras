@@ -586,7 +586,7 @@ export function OrderFormDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150 sm:max-w-[640px] sm:p-6"
+        className="max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-[0_24px_60px_-12px_rgb(15_23_42/0.25)] backdrop-blur-xl backdrop-saturate-150 sm:max-w-[960px] sm:p-6"
         data-testid="order-form-dialog"
       >
         <DialogHeader className="flex flex-row items-center gap-3 space-y-0">
@@ -1162,7 +1162,7 @@ export function OrderFormDialog({
                 <li
                   key={idx}
                   data-testid={`order-form-row-${idx}`}
-                  className="grid grid-cols-[1fr_70px_1fr_100px_70px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
+                  className="grid grid-cols-[minmax(260px,2.5fr)_70px_minmax(140px,1fr)_100px_70px_36px] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2"
                 >
                   <div className="min-w-0">
                     <ProductPicker
