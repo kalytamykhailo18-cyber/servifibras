@@ -209,9 +209,58 @@ export function OrderFormDialog({
   // Reset state every time the dialog re-opens. Without this, closing
   // mid-edit and re-opening for a fresh "Nuevo" would leak the
   // previous state into the form.
+  // Marcos 2026-08-24 (mismo síntoma que reportó en la conversación,
+  // ahora aplicado al /orders standalone): persistir el borrador del
+  // "Nuevo Pedido" en sessionStorage mientras se carga. Sólo aplica
+  // a nuevos pedidos (no cuando estás editando uno existente ni
+  // seedeando desde otro). Se restaura al abrir y se limpia al crear.
+  const isNewOrderDraft = !order && !seedFromOrder;
+  const draftKey = 'order-form-draft:new';
   useEffect(() => {
     if (!open) return;
     const src = order ?? seedFromOrder;
+    // Try restoring from sessionStorage before applying defaults, but
+    // only for the "nuevo pedido desde cero" path.
+    if (isNewOrderDraft && typeof window !== "undefined") {
+      try {
+        const raw = window.sessionStorage.getItem(draftKey);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved && typeof saved === 'object') {
+            setContactId(saved.contactId ?? "");
+            setCurrency(saved.currency === 'USD' ? 'USD' : 'ARS');
+            setRows(Array.isArray(saved.rows) && saved.rows.length > 0 ? saved.rows : rowsFromOrder(src));
+            setNotes(saved.notes ?? "");
+            setAmountOverride(saved.amountOverride ?? "");
+            setDiscountPercent(saved.discountPercent ?? "");
+            setSectionOverride(saved.sectionOverride ?? 'MOTOS');
+            setOrderMode(saved.orderMode ?? 'PEDIDO');
+            setNewContactOpen(false);
+            setNewName("");
+            setNewPhone("");
+            setNewEmail("");
+            setNewMoreOpen(false);
+            setNewFiscalId("");
+            setNewAddress("");
+            setNewStreetNumber("");
+            setNewLocality("");
+            setNewPostalCode("");
+            setRepCarrier((src as any)?.carrier ?? '');
+            setRepZone((src as any)?.shippingZone ?? '');
+            setResponsibleId((src as any)?.responsibleId ?? '');
+            setErrorReason((src as any)?.errorReason ?? '');
+            setErrorReasonNote((src as any)?.errorReasonNote ?? '');
+            setWithReturn(false);
+            setProductLabel('');
+            setProductValue('');
+            setReturnCarrier('');
+            setReturnShippingCost('');
+            setRepCost('');
+            return;
+          }
+        }
+      } catch { /* fall through */ }
+    }
     setContactId(src?.contactId ?? "");
     setCurrency((src?.currency as "ARS" | "USD") ?? "ARS");
     setRows(rowsFromOrder(src));
@@ -247,6 +296,16 @@ export function OrderFormDialog({
     setReturnShippingCost((src as any)?.returnShippingCost != null ? String((src as any).returnShippingCost) : '');
     setRepCost((src as any)?.shippingCost != null ? String((src as any).shippingCost) : '');
   }, [open, order, seedFromOrder, initialModeOverride]);
+
+  // Autosave the draft while the dialog is open (nuevo pedido only).
+  useEffect(() => {
+    if (!open || !isNewOrderDraft) return;
+    if (typeof window === "undefined") return;
+    try {
+      const payload = { contactId, currency, rows, notes, amountOverride, discountPercent, sectionOverride, orderMode };
+      window.sessionStorage.setItem(draftKey, JSON.stringify(payload));
+    } catch { /* storage disabled — skip */ }
+  }, [open, isNewOrderDraft, contactId, currency, rows, notes, amountOverride, discountPercent, sectionOverride, orderMode]);
 
   // Marcos 2026-06-12: quick-add a contact without leaving the order
   // dialog. POSTs through the standard contacts endpoint so the new
@@ -506,6 +565,9 @@ export function OrderFormDialog({
           returnShippingCost: orderMode === 'REPOSICION' && withReturn ? rsc : null,
         } as any);
         toast.success(orderMode === 'DEVOLUCION' ? 'Devolución registrada' : 'Reposición registrada');
+        if (isNewOrderDraft && typeof window !== "undefined") {
+          try { window.sessionStorage.removeItem(draftKey); } catch {}
+        }
         onOpenChange(false);
         onSuccess?.();
       } catch (err: any) {
@@ -573,6 +635,9 @@ export function OrderFormDialog({
           discountPercent: orderDiscount > 0 ? orderDiscount : null,
         } as any);
         toast.success("Pedido creado");
+      }
+      if (isNewOrderDraft && typeof window !== "undefined") {
+        try { window.sessionStorage.removeItem(draftKey); } catch {}
       }
       onOpenChange(false);
       onSuccess?.();
